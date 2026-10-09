@@ -5,7 +5,7 @@
 # Saat start: menerapkan migrasi database lalu menjalankan API.
 # ============================================================================
 
-FROM node:24-bookworm-slim AS deps
+FROM node:25-bookworm-slim AS deps
 WORKDIR /app
 # Skema & config dibutuhkan postinstall @prisma/client (prisma generate)
 COPY package.json package-lock.json prisma.config.ts ./
@@ -18,7 +18,7 @@ RUN npx prisma generate \
   && npm run build \
   && npm prune --omit=dev
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:25-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
