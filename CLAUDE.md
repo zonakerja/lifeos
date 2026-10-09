@@ -249,6 +249,10 @@ Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `
   tanpa port infra terbuka, Redis berpassword, image di-pin, backup harian), unit test + CI.
 - 2026-10-09 — Aplikasi dijadikan mandiri: endpoint impor bulk dihapus, migrasi diringkas menjadi satu baseline,
   rujukan ke aplikasi lama dihapus dari kode & dokumen, riwayat git dimulai ulang.
+- 2026-10-09 — Kebijakan dependensi: Dependabot hanya membuat PR minor/patch (dikelompokkan); update **major**
+  (NestJS 12, TypeScript 7, Prisma 7, ESLint 10, dst.) diabaikan dan dikerjakan terencana di thread khusus
+  (baca changelog/migration guide, upgrade satu keluarga paket sekaligus, jalankan semua test). CI dipin ke
+  `ubuntu-24.04` dan action berbasis Node 24 (`checkout@v5`, `setup-node@v5`).
 
 ## 13. Konvensi Kode
 
@@ -310,6 +314,8 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Object storage kadang belum siap saat backend baru start ("socket hang up" di log) — normal; bucket dibuat
   otomatis saat health check atau upload berikutnya (`/health`).
 - Respons `401` dari `POST /auth/refresh` saat membuka aplikasi tanpa sesi adalah normal (muncul di console).
+- PR Dependabot untuk major bump satu paket (mis. hanya `@nestjs/core` 12 tanpa `@nestjs/common`) pasti merah di CI
+  → tutup PR-nya; major upgrade dilakukan manual untuk seluruh keluarga paket (lihat §12).
 
 ## 16. Memori & Kesinambungan Antar-Chat
 

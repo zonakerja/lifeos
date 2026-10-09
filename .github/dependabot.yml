@@ -1,20 +1,34 @@
+# Dependabot hanya mengusulkan update minor & patch (dikelompokkan jadi satu PR per folder).
+# Update MAJOR (mis. NestJS 12, TypeScript 7, Prisma 7) sengaja diabaikan: butuh migrasi kode & diuji bersama,
+# jadi dikerjakan terencana di thread khusus (lihat CLAUDE.md §12 & §15).
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /backend
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
     groups:
       minor-and-patch: { update-types: [minor, patch] }
   - package-ecosystem: npm
     directory: /frontend
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
     groups:
       minor-and-patch: { update-types: [minor, patch] }
   - package-ecosystem: docker
     directories: [/backend, /frontend]
     schedule: { interval: weekly }
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    groups:
+      github-actions: { patterns: ["*"] }
