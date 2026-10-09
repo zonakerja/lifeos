@@ -4,3 +4,6 @@ dist
 /uploads
 .env
 *.log
+
+# Prisma Client hasil generate (npx prisma generate)
+/src/generated

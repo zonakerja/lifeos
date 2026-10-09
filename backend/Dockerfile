@@ -7,15 +7,14 @@
 
 FROM node:24-bookworm-slim AS deps
 WORKDIR /app
-# Skema & config dibutuhkan postinstall @prisma/client (prisma generate)
+# Skema & config dibutuhkan postinstall (prisma generate → src/generated/prisma)
 COPY package.json package-lock.json prisma.config.ts ./
 COPY prisma ./prisma
 RUN npm ci
 
 FROM deps AS build
 COPY . .
-RUN npx prisma generate \
-  && npm run build \
+RUN npm run build \
   && npm prune --omit=dev
 
 FROM node:24-bookworm-slim AS runtime

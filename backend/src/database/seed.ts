@@ -11,7 +11,7 @@
  */
 import "dotenv/config";
 import { hash } from "@node-rs/argon2";
-import { PrismaClient, UserRole } from "@prisma/client";
+import { PrismaClient, UserRole } from "../generated/prisma/client";
 import { createPrismaAdapter } from "../prisma/prisma-adapter";
 
 const prisma = new PrismaClient({ adapter: createPrismaAdapter(process.env.DATABASE_URL ?? "") });

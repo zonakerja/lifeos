@@ -5,6 +5,7 @@ import tseslint from "typescript-eslint";
 import prettier from "eslint-config-prettier";
 
 export default defineConfig(
+  { ignores: ["src/generated/**"] },
   js.configs.recommended,
   tseslint.configs.recommended,
   prettier,

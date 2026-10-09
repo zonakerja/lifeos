@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { AssetExtractionStatus, AssetStatus } from "@prisma/client";
+import { AssetExtractionStatus, AssetStatus } from "../generated/prisma/client";
 import { Job, Worker } from "bullmq";
 import { redisConnectionOptions } from "../redis/redis.module";
 import { ASSET_EXTRACTION_QUEUE } from "./extraction-queue.service";

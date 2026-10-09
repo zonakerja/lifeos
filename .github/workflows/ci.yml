@@ -58,8 +58,7 @@ jobs:
       - name: Check schema drift
         run: |
           docker compose -f ../docker-compose.yml exec -T postgres psql -U postgres -c "CREATE DATABASE lifeos_shadow"
-          npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma \
-            --shadow-database-url postgresql://postgres:postgres@localhost:55432/lifeos_shadow --exit-code
+          npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --exit-code
       - name: Smoke test
         run: |
           node dist/main.js > api.log 2>&1 &

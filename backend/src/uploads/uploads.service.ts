@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
-import { AssetStatus, UserRole } from "@prisma/client";
+import { AssetStatus, UserRole } from "../generated/prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { unlink } from "node:fs/promises";

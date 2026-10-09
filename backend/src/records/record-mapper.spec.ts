@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "../generated/prisma/client";
 import { describe, expect, it } from "vitest";
 import { type DomainRow, payloadToRow, rowToPayload, toApiRecord } from "./record-mapper";
 import { RECORD_TABLES, type TableSpec } from "./record-schema";

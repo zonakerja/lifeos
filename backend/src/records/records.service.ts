@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { AuditAction, Prisma, UserRole } from "@prisma/client";
+import { AuditAction, Prisma, UserRole } from "../generated/prisma/client";
 import { AuthUser } from "../common/types/auth-user";
 import { PrismaService } from "../prisma/prisma.service";
 import { ListRecordsQueryDto } from "./dto/list-records-query.dto";

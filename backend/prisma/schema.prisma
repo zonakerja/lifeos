@@ -6,15 +6,18 @@
 // src/records/record-schema.ts — jangan diedit manual (npm run db:generate-models).
 // ============================================================================
 
+// Client hasil generate (src/generated/prisma, tidak di-commit). Prisma 7 selalu tanpa
+// engine Rust (driver adapter pg), cocok untuk Windows ARM64. Proyek CommonJS → moduleFormat cjs.
 generator client {
-  provider   = "prisma-client-js"
-  // Rust-free engine: query engine Rust tidak tersedia untuk Windows ARM64
-  engineType = "client"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = ""
 }
 
+// URL koneksi diatur di prisma.config.ts (Prisma 7)
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum UserRole {

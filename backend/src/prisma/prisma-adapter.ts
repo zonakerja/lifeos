@@ -1,7 +1,7 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 
 /**
- * Driver adapter node-postgres untuk Prisma engine "client" (tanpa Rust).
+ * Driver adapter node-postgres untuk Prisma Client (Prisma 7 tanpa engine Rust).
  * Parameter `schema` pada DATABASE_URL dipisahkan karena bukan opsi koneksi pg.
  */
 export function createPrismaAdapter(databaseUrl: string) {

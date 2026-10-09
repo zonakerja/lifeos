@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException, UnauthorizedExcepti
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { hash, verify } from "@node-rs/argon2";
-import { User } from "@prisma/client";
+import { User } from "../generated/prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { AuthUser } from "../common/types/auth-user";
 import { durationToSeconds } from "../config/duration";

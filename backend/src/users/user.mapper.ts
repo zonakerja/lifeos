@@ -1,4 +1,4 @@
-import { User } from "@prisma/client";
+import { User } from "../generated/prisma/client";
 
 type PublicUser = Omit<User, "passwordHash" | "apiKey"> & {
   apiKey?: string | null;

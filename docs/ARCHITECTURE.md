@@ -27,7 +27,7 @@ NestJS 11 (CommonJS), prefix `api/v1`, port 4000.
 | Modul | Tanggung jawab |
 |---|---|
 | `config` | validasi env saat boot (`env.validation.ts`), parsing durasi |
-| `prisma` | `PrismaService` + driver adapter `pg` (engine "client", tanpa Rust) |
+| `prisma` | `PrismaService` + driver adapter `pg` (Prisma 7, tanpa engine Rust; client di `src/generated/prisma`) |
 | `redis` | koneksi ioredis & opsi BullMQ |
 | `storage` | klien S3 + pembuatan bucket |
 | `auth` | login, refresh token berotasi via cookie httpOnly, profil `/auth/me`, ganti password |

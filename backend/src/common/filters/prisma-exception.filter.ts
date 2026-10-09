@@ -1,6 +1,6 @@
 import { ArgumentsHost, Catch, HttpStatus } from "@nestjs/common";
 import { BaseExceptionFilter } from "@nestjs/core";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "../../generated/prisma/client";
 import { Response } from "express";
 
 const STATUS_BY_CODE: Record<string, { status: number; message: string }> = {
