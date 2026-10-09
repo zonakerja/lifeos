@@ -1,0 +1,6 @@
+node_modules
+dist
+# Folder upload lokal (legacy). Pakai path root-relative agar tidak ikut mengabaikan src/uploads.
+/uploads
+.env
+*.log

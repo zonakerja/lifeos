@@ -1,0 +1,11 @@
+{
+  "identities": [
+    {
+      "name": "lifeos",
+      "credentials": [
+        { "accessKey": "lifeos", "secretKey": "lifeos-secret" }
+      ],
+      "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+    }
+  ]
+}
