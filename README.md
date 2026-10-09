@@ -10,8 +10,8 @@ Personal operating system berbasis web untuk produktivitas pribadi dan pekerjaan
 
 | Bagian | Teknologi |
 |---|---|
-| Frontend | React 19 · TypeScript · Vite · Tailwind v4 · shadcn/ui · TanStack Query · React Router |
-| Backend | NestJS 11 · Prisma 6 · PostgreSQL 16 (pgvector) · Redis 7 (BullMQ) · S3-compatible storage |
+| Frontend | React 19 · TypeScript 6 · Vite 8 · Tailwind v4 · shadcn/ui · TanStack Query · React Router |
+| Backend | NestJS 12 · Prisma 7 · PostgreSQL 16 (pgvector) · Redis 8 (BullMQ) · S3-compatible storage |
 | Deployment | Docker Compose · Caddy (HTTPS otomatis) · nginx · backup harian |
 
 ## Mulai cepat (development)

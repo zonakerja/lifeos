@@ -7,7 +7,7 @@ Browser (React SPA)
    │  /api/v1 (JWT Bearer + cookie refresh httpOnly)   dev: Vite proxy · prod: Caddy (HTTPS)
    ▼
 NestJS API ──── PostgreSQL 16 (+pgvector)   data domain, user, aset, audit
-   │      ├──── Redis 7 (BullMQ)            antrian ekstraksi dokumen (+ AI di masa depan)
+   │      ├──── Redis 8 (BullMQ)            antrian ekstraksi dokumen (+ AI di masa depan)
    │      └──── S3-compatible storage       berkas upload (SeaweedFS dev / S3, R2, B2 prod)
    └── Worker ekstraksi (BullMQ, in-process)
 ```
@@ -22,7 +22,7 @@ Prinsip:
 
 ## 2. Backend (`backend/`)
 
-NestJS 11 (CommonJS), prefix `api/v1`, port 4000.
+NestJS 12 (proyek CommonJS; paket Nest berformat ESM dimuat via `require(esm)`), prefix `api/v1`, port 4000.
 
 | Modul | Tanggung jawab |
 |---|---|

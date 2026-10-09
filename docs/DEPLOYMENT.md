@@ -14,11 +14,11 @@ Internet ──► Caddy :80/:443 (HTTPS otomatis Let's Encrypt, HSTS, kompresi)
 
 | Service | Image | Data |
 |---|---|---|
-| caddy | `caddy:2.10-alpine` | volume `caddy-data` (sertifikat) |
+| caddy | `caddy:2.11-alpine` | volume `caddy-data` (sertifikat) |
 | frontend | dibangun dari `frontend/Dockerfile` | — |
 | backend | dibangun dari `backend/Dockerfile` (user non-root) | — |
 | postgres | `pgvector/pgvector:0.8.7-pg16` | volume `postgres-data` |
-| redis | `redis:7.4-alpine` (AOF, password) | volume `redis-data` |
+| redis | `redis:8.10-alpine` (AOF, password) | volume `redis-data` |
 | storage | `chrislusf/seaweedfs:4.48` | volume `storage-data` |
 | backup | `pgvector/pgvector:0.8.7-pg16` + `infra/backup/backup.sh` | folder `./backups` |
 

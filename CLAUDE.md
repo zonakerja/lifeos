@@ -3,7 +3,7 @@
 Knowledge base utama untuk Claude Code di proyek LifeOS. **Baca seluruh file ini di awal setiap chat/thread.**
 Dokumen ini menggantikan memori percakapan: keputusan, konteks user, status, dan pola wajib tercatat di sini.
 Perbarui **§11 Status** dan **§12 Log Keputusan** setiap selesai satu langkah berarti.
-Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE, FILE-CONTROL).
+Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE, FILE-CONTROL, TECH-STACK).
 
 ## 0. Memulai Thread Baru (checklist wajib)
 
@@ -35,7 +35,7 @@ Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE, FILE-
 
 - **Windows 11 ARM64**. Node `24` arm64 via **nvm-windows** (`.nvmrc`), npm 11.
   - Paket native tanpa prebuilt win32-arm64 gagal dipasang (tidak ada Python/Build Tools) → pilih paket dengan
-    prebuilt arm64 / pure JS / WASM (contoh: `@node-rs/argon2`, Prisma engine `client` + adapter `pg`).
+    prebuilt arm64 / pure JS / WASM (contoh: `@node-rs/argon2`, Prisma 7 tanpa engine Rust + adapter `pg`).
   - npm 11 memblokir install script yang belum disetujui: daftar di field `allowScripts` (`backend/package.json`).
     Paket baru yang butuh postinstall → `npm approve-scripts <pkg>` lalu `npm rebuild <pkg>`.
 - **Docker Engine di WSL Ubuntu** (tanpa Docker Desktop); CLI `docker` tidak ada di PATH Windows:
@@ -65,9 +65,9 @@ Ke depan: **chatbot AI untuk bertanya tentang arsip & hasil pekerjaan** (RAG).
 
 | Area | Keputusan |
 |---|---|
-| Frontend | TypeScript strict, React 19, Vite, React Router, TanStack Query, Zustand, react-hook-form + zod |
+| Frontend | TypeScript 6 strict, React 19, Vite 8, React Router 8, TanStack Query 5, Zustand 5, react-hook-form + zod 4 |
 | UI | shadcn/ui + Tailwind v4, tampilan colorful per modul lewat design token; dark mode via token |
-| Backend | NestJS 11 + Prisma 6 + PostgreSQL 16 |
+| Backend | NestJS 12 (CommonJS) + TypeScript 6 + Prisma 7 + PostgreSQL 16; Node 24 LTS (versi: `docs/TECH-STACK.md`) |
 | Database | 20 tabel domain terstruktur dari satu spesifikasi + kolom `extra` jsonb (lossless), snake_case, timestamptz |
 | Auth | access JWT 15 menit di memori + refresh token di cookie httpOnly berotasi |
 | AI provider | Multi-provider dipilih user: Gemini, Claude, OpenAI (thread fitur AI) |
@@ -89,7 +89,7 @@ LifeOS/
 ├── infra/                    caddy/Caddyfile · backup/backup.sh · seaweedfs/s3.json (kredensial S3 dev)
 ├── backend/                  NestJS (Dockerfile, prisma/, src/, test/smoke.mjs)
 ├── frontend/                 React SPA (Dockerfile, nginx.conf, src/)
-└── docs/                     SETUP.md · DEPLOYMENT.md · ARCHITECTURE.md · FILE-CONTROL.md
+└── docs/                     SETUP.md · DEPLOYMENT.md · ARCHITECTURE.md · FILE-CONTROL.md · TECH-STACK.md
 ```
 
 ## 7. Infrastruktur
@@ -99,7 +99,7 @@ LifeOS/
 | Service | Container | Host port | Kredensial |
 |---|---|---|---|
 | PostgreSQL 16 + pgvector 0.8.7 | lifeos-postgres | 55432 | db `lifeos`, `postgres/postgres`; DB tambahan `lifeos_shadow` (cek drift) |
-| Redis 7.4 | lifeos-redis | 6380 | tanpa password |
+| Redis 8.10 | lifeos-redis | 6380 | tanpa password |
 | SeaweedFS 4.48 (S3) | lifeos-storage | 9002 (S3), 9003 (filer UI) | `lifeos` / `lifeos-secret`, bucket `lifeos-assets` (dibuat otomatis) |
 
 Seed development: `admin@lifeos.com` / `123` (super_admin), `viewer@lifeos.com` / `123` (viewer).
@@ -113,8 +113,13 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 
 ## 8. Backend (`backend/`)
 
-- NestJS 11 (CJS) + Prisma 6 **engine "client"** + adapter `@prisma/adapter-pg` (`src/prisma/prisma-adapter.ts`).
-  Query engine Rust tidak tersedia untuk Windows ARM64 — jangan kembalikan ke engine default.
+- NestJS 12 (proyek **CommonJS**; paket Nest berformat ESM dimuat via `require(esm)` Node 24) + TypeScript 6
+  (`module/moduleResolution: nodenext`) + Prisma 7 + adapter `@prisma/adapter-pg` (`src/prisma/prisma-adapter.ts`).
+  Versi lengkap & paket yang ditunda: `docs/TECH-STACK.md`.
+- **Prisma 7**: generator `prisma-client` (`moduleFormat = "cjs"`, `importFileExtension = ""`) → `src/generated/prisma`
+  (dibuat `postinstall`, **tidak di-commit**, di-ignore ESLint & Docker). Import `PrismaClient`, `Prisma`, enum, dan tipe
+  model dari path relatif `../generated/prisma/client` — **bukan** `@prisma/client`. URL datasource & shadow DB ada di
+  `prisma.config.ts` (`DATABASE_URL`, `SHADOW_DATABASE_URL`), bukan di `schema.prisma`. Tanpa engine Rust (cocok ARM64).
 - Prefix `api/v1`, port 4000. Swagger `/api/docs` & `/api/docs-json` (non-production).
 - Env divalidasi saat boot (`src/config/env.validation.ts`). Env baru → daftarkan di sana + `backend/.env.example`
   (+ `docker-compose.prod.yml` & root `.env.example` bila perlu di produksi). Tanpa fallback secret.
@@ -142,8 +147,9 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   - Tanpa FK antar entitas (ID buatan client, tulis per item asinkron, relasi polimorfik) — cukup diindeks.
   - **Audit kearsipan** `archive_audit_logs` (created/updated/deleted, diff `{field:{from,to}}`, actor) untuk tipe
     `audit: true` (resource hanya bila punya `archivalStatus`; snapshot PARA hanya berisi file). `GET /archive-audit`.
-  - Migrasi: satu baseline `20261009120000_init`. Migrasi baru → lihat docs/SETUP.md §5 (diff dengan shadow DB,
-    lalu cek drift `--exit-code`).
+  - Migrasi: satu baseline `20261009120000_init`. Migrasi baru → lihat docs/SETUP.md §5
+    (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
+    drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?userId&from&to`, `PUT /records/:type/:clientId` `{ payload, userId? }` (upsert,
   juga undelete), `DELETE /records/:type/:clientId?userId=` (soft delete). Admin tanpa `userId` melihat semua user.
 - **Uploads**: multer diskStorage (tmp) → SHA-256 streaming → S3 `<userId>/<yyyy>/<mm>/<ts>-<uuid><ext>` → `assets` +
@@ -216,8 +222,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 
 Thread arsitektur & tampilan **selesai** (fondasi backend, frontend baru, data layer, semua modul, database terstruktur,
 keamanan, deployment VPS, CI, dokumentasi). Thread berikutnya:
-0. **Upgrade major dependensi** (thread khusus, sebelum fitur): NestJS 12, TypeScript 7, Prisma 7, ESLint 10, dll. —
-   hanya versi stabil yang ekosistemnya sudah siap; satu keluarga paket per commit; semua test + smoke + CI hijau.
+0. ~~Upgrade major dependensi~~ — **selesai 2026-10-09** (NestJS 12, Prisma 7, TS 6, ESLint 10, BullMQ 6, Redis 8, …).
+   Sisa yang ditunda + bahan kajian tech stack: `docs/TECH-STACK.md` §3–§5 (dikaji bersama user).
 1. AI multi-provider di backend (Gemini/Claude/OpenAI, key terenkripsi; hapus API key dari browser & kolom plaintext).
 2. Ekstraksi PDF/DOCX/XLSX/OCR, embedding pgvector + chatbot RAG atas arsip & resource.
 3. (Opsional) tampilan riwayat audit arsip di UI (`GET /archive-audit` sudah tersedia).
@@ -232,7 +238,8 @@ keamanan, deployment VPS, CI, dokumentasi). Thread berikutnya:
 | Keamanan (cookie httpOnly, CSP, sandbox berkas, upload streaming, rate limit) | ✅ |
 | Deployment VPS (compose prod, Caddy HTTPS, backup) — diuji end-to-end lokal | ✅ |
 | Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot) | ✅ CI `main` hijau 2026-10-09 (Node 24 actions, `ubuntu-24.04`) |
-| Upgrade major dependensi (NestJS 12, TypeScript 7, Prisma 7, ESLint 10, …) | ⏳ thread berikutnya (§10 butir 0) |
+| Upgrade major dependensi (NestJS 12, Prisma 7, TS 6, ESLint 10, BullMQ 6, dotenv 18, Redis 8, image trixie/nginx 1.30/Caddy 2.11, Actions) | ✅ 2026-10-09 lokal (semua test, smoke, drift, image, stack prod lokal, UI) — **belum di-push**, CI belum dicek |
+| Kajian lanjutan tech stack (TS 7, ioredis 6, KaTeX/advisory, Node 26, PostgreSQL 18) | ⏳ `docs/TECH-STACK.md` §3–§5 |
 | Push ke GitHub (`origin/main`) | ✅ 2026-10-09 (push berikutnya tetap atas permintaan user) |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -256,6 +263,12 @@ Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `
   (NestJS 12, TypeScript 7, Prisma 7, ESLint 10, dst.) diabaikan dan dikerjakan terencana di thread khusus
   (baca changelog/migration guide, upgrade satu keluarga paket sekaligus, jalankan semua test). CI dipin ke
   `ubuntu-24.04` dan action berbasis Node 24 (`checkout@v5`, `setup-node@v5`).
+- 2026-10-09 — Thread upgrade major (disetujui user): NestJS 12 (tetap CommonJS), Prisma 7 (generator
+  `prisma-client` → `src/generated/prisma`), ESLint 10, BullMQ 6, class-validator 0.15, dotenv 18; image
+  `node:24-trixie-slim` (+openssl), nginx 1.30, Caddy 2.11, **Redis 8.10** (atas permintaan user); Actions
+  checkout/setup-node v7, buildx v4, build-push v7. **TypeScript disamakan di 6.0 untuk backend & frontend**
+  (keputusan user; TS 7 juga belum didukung typescript-eslint & @nestjs/swagger). Ditunda: ioredis 6, Prisma 8 (rc),
+  KaTeX 0.19, Node 26, PostgreSQL 17/18 — rincian & alasan di `docs/TECH-STACK.md`.
 
 ## 13. Konvensi Kode
 
@@ -303,11 +316,18 @@ DTO class-validator), daftarkan di `app.module.ts`, guard `JwtAuthGuard` + `Role
 1. Inventaris: `npm outdated` di `backend/` & `frontend/`, cek image di Dockerfile & compose. Pilih versi **stabil
    terbaru yang ekosistemnya sudah siap** (cek peerDependencies plugin: `@nestjs/*`, `nestjs-pino`, `typescript-eslint`,
    `@vitejs/plugin-react`, dll.). Hindari rilis < 2–4 minggu, `-rc`/`-beta`, dan Node non-LTS di produksi.
+   Tanggal rilis & peer deps: `npm view <pkg> time dist-tags peerDependencies`. Pasang dengan
+   `npm install --before=<tanggal hari ini>` agar rilis yang baru keluar hari itu tidak ikut.
 2. Satu keluarga paket per commit (mis. semua `@nestjs/*` sekaligus), baca migration guide/changelog resminya.
-3. Prisma: jaga engine "client" + adapter pg (Windows ARM64); setelah upgrade `prisma generate`, cek drift.
+3. Prisma: jaga adapter pg (Windows ARM64) dan generator `prisma-client` CJS; setelah upgrade `prisma generate`,
+   cek drift. Jangan `npm i prisma@latest` (tag `latest` CLI bisa menunjuk rc) — tulis versi eksplisit.
 4. PostgreSQL major (16 → 17/18) **bukan** sekadar ganti tag image — butuh dump/restore; data volume lama tidak
    kompatibel. Lakukan terpisah, dengan prosedur di docs/DEPLOYMENT.md.
 5. Setiap langkah: lint, typecheck, `npm test`, build, `npm run test:smoke`, build image Docker; terakhir CI hijau.
+   Perubahan image/infra: jalankan juga stack produksi lokal di project compose terpisah
+   (`docker compose -p lifeos-upgradetest --env-file <tmp> -f docker-compose.prod.yml up -d --build --wait`,
+   `APP_DOMAIN=http://localhost`), smoke test lewat `API_URL=http://localhost/api/v1`, lalu `down -v`.
+6. Catat hasil di `docs/TECH-STACK.md` (versi, yang di-upgrade, yang ditunda + alasan, audit).
 
 **Menambah dependensi npm**: pilih paket dengan prebuilt arm64/pure JS; paket berat → import dinamis agar chunk
 utama tetap < 500 kB (cek output `npm run build`).
@@ -327,6 +347,19 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Object storage kadang belum siap saat backend baru start ("socket hang up" di log) — normal; bucket dibuat
   otomatis saat health check atau upload berikutnya (`/health`).
 - Respons `401` dari `POST /auth/refresh` saat membuka aplikasi tanpa sesi adalah normal (muncul di console).
+- TypeScript 6: `tsbuildinfo` ditulis di samping tsconfig (bukan di `dist`) → setelah `nest build` menghapus `dist`,
+  build incremental bisa **tidak meng-emit apa pun**. Karena itu `tsconfig.build.json` menaruh `tsBuildInfoFile` di
+  `dist/` dan `.dockerignore` mengecualikan `*.tsbuildinfo`. Default TS 6 lain: `types: []` (set `["node"]`).
+- Prisma 7: client harus di-generate (`postinstall`); setelah `git clone`/hapus `src/generated` jalankan
+  `npm install` atau `npx prisma generate`. `ts-node` tidak bisa memetakan import `.js` → generator memakai
+  `importFileExtension = ""`. `prisma migrate dev/db push` tidak lagi generate/seed otomatis.
+- `npm update/install` bisa gagal 404 untuk versi yang baru dirilis beberapa menit (tarball belum tersebar CDN) →
+  pakai `--before=<tanggal>`.
+- Uji image backend dengan `docker run --env-file backend/.env`: Docker **tidak** membuang tanda kutip nilai `.env`
+  (DATABASE_URL jadi tidak valid) dan `NODE_ENV=development` memakai `pino-pretty` (tidak ada di image) → buat env file
+  tanpa kutip dan set `NODE_ENV=production`.
+- Saat dev server frontend dibuka sebelum backend (watch) selesai kompilasi, console menampilkan `502` dari proxy Vite
+  untuk request pertama — normal.
 - PR Dependabot untuk major bump satu paket (mis. hanya `@nestjs/core` 12 tanpa `@nestjs/common`) pasti merah di CI
   → tutup PR-nya; major upgrade dilakukan manual untuk seluruh keluarga paket (lihat §12).
 

@@ -32,7 +32,7 @@ docker compose ps
 | Service | Host port | Kredensial dev |
 |---|---|---|
 | PostgreSQL 16 + pgvector | `55432` | db `lifeos`, `postgres` / `postgres` |
-| Redis 7 | `6380` | — |
+| Redis 8 | `6380` | — |
 | SeaweedFS S3 API | `9002` | `lifeos` / `lifeos-secret` (`infra/seaweedfs/s3.json`) |
 | SeaweedFS filer UI | `9003` | — |
 
