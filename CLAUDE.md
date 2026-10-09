@@ -215,7 +215,9 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 ## 10. Roadmap
 
 Thread arsitektur & tampilan **selesai** (fondasi backend, frontend baru, data layer, semua modul, database terstruktur,
-keamanan, deployment VPS, CI, dokumentasi). Thread berikutnya (fitur):
+keamanan, deployment VPS, CI, dokumentasi). Thread berikutnya:
+0. **Upgrade major dependensi** (thread khusus, sebelum fitur): NestJS 12, TypeScript 7, Prisma 7, ESLint 10, dll. —
+   hanya versi stabil yang ekosistemnya sudah siap; satu keluarga paket per commit; semua test + smoke + CI hijau.
 1. AI multi-provider di backend (Gemini/Claude/OpenAI, key terenkripsi; hapus API key dari browser & kolom plaintext).
 2. Ekstraksi PDF/DOCX/XLSX/OCR, embedding pgvector + chatbot RAG atas arsip & resource.
 3. (Opsional) tampilan riwayat audit arsip di UI (`GET /archive-audit` sudah tersedia).
@@ -229,7 +231,8 @@ keamanan, deployment VPS, CI, dokumentasi). Thread berikutnya (fitur):
 | Database terstruktur + audit kearsipan (baseline migrasi tunggal) | ✅ |
 | Keamanan (cookie httpOnly, CSP, sandbox berkas, upload streaming, rate limit) | ✅ |
 | Deployment VPS (compose prod, Caddy HTTPS, backup) — diuji end-to-end lokal | ✅ |
-| Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot) | ✅ |
+| Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot) | ✅ CI `main` hijau 2026-10-09 (Node 24 actions, `ubuntu-24.04`) |
+| Upgrade major dependensi (NestJS 12, TypeScript 7, Prisma 7, ESLint 10, …) | ⏳ thread berikutnya (§10 butir 0) |
 | Push ke GitHub (`origin/main`) | ✅ 2026-10-09 (push berikutnya tetap atas permintaan user) |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -295,6 +298,16 @@ DTO class-validator), daftarkan di `app.module.ts`, guard `JwtAuthGuard` + `Role
 `frontend/nginx.conf`, kalau tidak akan diblokir CSP di produksi (di dev tidak terlihat!). Lebih baik lewat backend.
 
 **Menambah komponen shadcn**: `cd frontend && npx shadcn@latest add <nama> --yes` (hasil di `components/ui/`).
+
+**Upgrade major dependensi** (Dependabot sengaja tidak membuat PR major):
+1. Inventaris: `npm outdated` di `backend/` & `frontend/`, cek image di Dockerfile & compose. Pilih versi **stabil
+   terbaru yang ekosistemnya sudah siap** (cek peerDependencies plugin: `@nestjs/*`, `nestjs-pino`, `typescript-eslint`,
+   `@vitejs/plugin-react`, dll.). Hindari rilis < 2–4 minggu, `-rc`/`-beta`, dan Node non-LTS di produksi.
+2. Satu keluarga paket per commit (mis. semua `@nestjs/*` sekaligus), baca migration guide/changelog resminya.
+3. Prisma: jaga engine "client" + adapter pg (Windows ARM64); setelah upgrade `prisma generate`, cek drift.
+4. PostgreSQL major (16 → 17/18) **bukan** sekadar ganti tag image — butuh dump/restore; data volume lama tidak
+   kompatibel. Lakukan terpisah, dengan prosedur di docs/DEPLOYMENT.md.
+5. Setiap langkah: lint, typecheck, `npm test`, build, `npm run test:smoke`, build image Docker; terakhir CI hijau.
 
 **Menambah dependensi npm**: pilih paket dengan prebuilt arm64/pure JS; paket berat → import dinamis agar chunk
 utama tetap < 500 kB (cek output `npm run build`).
