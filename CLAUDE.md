@@ -239,7 +239,8 @@ keamanan, deployment VPS, CI, dokumentasi). Thread berikutnya:
 | Deployment VPS (compose prod, Caddy HTTPS, backup) — diuji end-to-end lokal | ✅ |
 | Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot) | ✅ CI `main` hijau 2026-10-09 (Node 24 actions, `ubuntu-24.04`) |
 | Upgrade major dependensi (NestJS 12, Prisma 7, TS 6, ESLint 10, BullMQ 6, dotenv 18, Redis 8, image trixie/nginx 1.30/Caddy 2.11, Actions) | ✅ 2026-10-09 lokal (semua test, smoke, drift, image, stack prod lokal, UI) — **belum di-push**, CI belum dicek |
-| Kajian lanjutan tech stack (TS 7, ioredis 6, KaTeX/advisory, Node 26, PostgreSQL 18) | ⏳ `docs/TECH-STACK.md` §3–§5 |
+| Perbaikan `npm audit` (overrides `mysql2`, `katex` 0.18.9) | ✅ 2026-10-09 lokal; sisa `deepmerge-ts` (tunggu Prisma) |
+| Kajian lanjutan tech stack (TS 7, ioredis 6, Node 26, PostgreSQL 18, Valkey, …) | ⏳ `docs/TECH-STACK.md` §3, §5 |
 | Push ke GitHub (`origin/main`) | ✅ 2026-10-09 (push berikutnya tetap atas permintaan user) |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -269,6 +270,9 @@ Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `
   checkout/setup-node v7, buildx v4, build-push v7. **TypeScript disamakan di 6.0 untuk backend & frontend**
   (keputusan user; TS 7 juga belum didukung typescript-eslint & @nestjs/swagger). Ditunda: ioredis 6, Prisma 8 (rc),
   KaTeX 0.19, Node 26, PostgreSQL 17/18 — rincian & alasan di `docs/TECH-STACK.md`.
+- 2026-10-09 — Temuan `npm audit` ditindaklanjuti (disetujui user) lewat npm `overrides`: backend
+  `prisma > mysql2` 3.24.4; frontend `katex` ^0.18.9 + `katex: "$katex"` (rehype-katex masih ^0.16). `deepmerge-ts`
+  (via `@prisma/config`) dibiarkan menunggu patch Prisma. Daftar overrides aktif: `docs/TECH-STACK.md` §4.
 
 ## 13. Konvensi Kode
 
@@ -328,6 +332,8 @@ DTO class-validator), daftarkan di `app.module.ts`, guard `JwtAuthGuard` + `Role
    (`docker compose -p lifeos-upgradetest --env-file <tmp> -f docker-compose.prod.yml up -d --build --wait`,
    `APP_DOMAIN=http://localhost`), smoke test lewat `API_URL=http://localhost/api/v1`, lalu `down -v`.
 6. Catat hasil di `docs/TECH-STACK.md` (versi, yang di-upgrade, yang ditunda + alasan, audit).
+7. Jalankan `npm audit` di kedua paket. Celah di dependensi transitif → `overrides` npm (versi major sama), dicatat
+   di `docs/TECH-STACK.md` §4. Setiap upgrade paket induk: cek apakah override masih perlu, hapus bila tidak.
 
 **Menambah dependensi npm**: pilih paket dengan prebuilt arm64/pure JS; paket berat → import dinamis agar chunk
 utama tetap < 500 kB (cek output `npm run build`).
@@ -358,6 +364,9 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Uji image backend dengan `docker run --env-file backend/.env`: Docker **tidak** membuang tanda kutip nilai `.env`
   (DATABASE_URL jadi tidak valid) dan `NODE_ENV=development` memakai `pino-pretty` (tidak ada di image) → buat env file
   tanpa kutip dan set `NODE_ENV=production`.
+- KaTeX ≥ 0.18 memberi prefix pada class CSS **internal**; `.katex`, `.katex-display`, `.katex-html` tetap. Jangan
+  menarget class internal KaTeX di styling. `npm install <pkg>` mengubah `~` menjadi `^` di package.json (untuk 0.x
+  rentangnya sama).
 - Saat dev server frontend dibuka sebelum backend (watch) selesai kompilasi, console menampilkan `502` dari proxy Vite
   untuk request pertama — normal.
 - PR Dependabot untuk major bump satu paket (mis. hanya `@nestjs/core` 12 tanpa `@nestjs/common`) pasti merah di CI

@@ -28,6 +28,7 @@ hari itu tidak ikut terpasang.
 | | Vite / @vitejs/plugin-react | 8.3 / 6.1 |
 | | React Router / TanStack Query / Zustand / zod | 8.4 / 5.104 / 5.0 / 4.6 |
 | | Tailwind CSS / shadcn CLI | 4.3 / 4.21 |
+| | KaTeX (render matematika) | 0.18.9 (override, lihat §4) |
 | | oxlint / Vitest | 1.87 / 5.0 |
 | Infra | PostgreSQL + pgvector | 16 + 0.8.7 (`pgvector/pgvector:0.8.7-pg16`) |
 | | Redis | 8.10 (`redis:8.10-alpine`) |
@@ -60,29 +61,36 @@ Redis berpassword) + smoke test lewat Caddy + cek UI (login, Planner, Notes, Pro
 | TypeScript 7 (native/Go) | 6.0 | 7.0.2 | Keputusan user: backend & frontend disamakan di 6. Backend juga terblokir: `typescript-eslint` hanya `<6.1`, plugin `@nestjs/swagger` hanya `^5.5 \|\| ^6`, Nest CLI memakai compiler API TS | `typescript-eslint` & `@nestjs/swagger` mendukung TS 7 → upgrade keduanya bersamaan |
 | ioredis 6 | 5.11 | 6.0.0 | Default protokol RESP3; BullMQ 6 masih diuji dengan ioredis 5.11 | BullMQ memakai ioredis 6 di devDependencies/CI-nya |
 | Prisma 8 | 7.10 | 8.0.0-rc | Masih release candidate (tag `latest` CLI menunjuk rc — jangan `npm i prisma@latest`) | 8.0.0 stabil ≥ 2–4 minggu |
-| KaTeX 0.19 | 0.16.47 | 0.19.0 | Rilis 2026-10-01 (terlalu baru); `rehype-katex` & `micromark-extension-math` masih mengunci `^0.16` | Lihat §4 (ada advisory keamanan) |
+| KaTeX 0.19 | 0.18.9 | 0.19.0 | Rilis 2026-10-01 (terlalu baru, ada breaking change); 0.18.9 sudah memuat perbaikan keamanan (§4) | 0.19 stabil ≥ 2–4 minggu dan `rehype-katex` mendukungnya |
 | @types/node 26 | 24 | 26 | Mengikuti runtime Node 24 | Saat pindah ke Node 26 |
 | Node 26 | 24 | 26.11 | Node 26 baru menjadi Active LTS akhir Oktober 2026; Node 24 masuk Maintenance LTS (didukung sampai April 2028) | Node 26 Active LTS + image `node:26-trixie-slim` stabil ± 1 bulan |
 | PostgreSQL 17/18 | 16 | — | Butuh dump/restore (format data tidak kompatibel); dikerjakan terpisah | Thread khusus dengan prosedur docs/DEPLOYMENT.md |
 | ESM untuk backend | CommonJS | — | Opsional di NestJS 12; perubahan luas (ekstensi `.js` di semua import), tanpa manfaat fungsional saat ini | Bila library penting menjadi ESM-only yang tidak bisa di-`require` |
 | Patch rilis hari ini (bullmq 6.3.12, lucide-react 1.54) | — | — | Dirilis pada hari upgrade | Otomatis lewat PR Dependabot (minor/patch) |
 
-## 4. Temuan audit keamanan (`npm audit`, 2026-10-09)
+## 4. Keamanan dependensi (`npm audit`) & overrides aktif
 
-| Lokasi | Paket | Severity | Masuk produksi? | Catatan & rekomendasi |
+Ditindaklanjuti 2026-10-09 (disetujui user):
+
+| Lokasi | Paket | Severity | Tindakan | Status |
 |---|---|---|---|---|
-| Backend | `mysql2` 3.15.3 (dipin oleh CLI `prisma` 7) | high | Ya (CLI `prisma` dipakai untuk `migrate deploy` di image), tapi kode MySQL **tidak pernah dipanggil** (kita PostgreSQL) | Opsi: `overrides` `mysql2@^3.24` (major sama). Atau tunggu patch Prisma |
-| Backend | `deepmerge-ts` 7.x (via `@prisma/config`) | high (stack exhaustion objek rekursif) | Ya, hanya untuk membaca `prisma.config.ts` (input kita sendiri) | Risiko praktis rendah; fix hanya di major 8 → tunggu patch Prisma |
-| Frontend | `katex` < 0.18.2 | low (prototype pollution memintas `trust`) | Ya (render Markdown/Math) | Opsi: `overrides` `katex@^0.18.11` (masih minor seri lama + diuji render matematika) sambil menunggu `rehype-katex` mendukung versi baru |
-| Frontend | `braces`/`micromatch`/`fast-glob` (via CLI `shadcn`) | high | **Tidak** (dev tool, tidak masuk bundle) | Abaikan; ikut update `shadcn` berikutnya |
+| Backend | `mysql2` 3.15.3 (dipin CLI `prisma` 7.10; hanya dipakai Prisma Studio untuk MySQL) | high | `overrides: { prisma: { mysql2: "3.24.4" } }` | ✅ teratasi |
+| Frontend | `katex` < 0.18.2 (prototype pollution memintas `trust`) | low | `katex` langsung `^0.18.9` + `overrides: { katex: "$katex" }` agar `rehype-katex` & `micromark-extension-math` (masih `^0.16`) memakai versi yang sama. Render matematika diuji di Notes AI (blok & inline, gaya `.katex-display`, font) | ✅ teratasi |
+| Backend | `deepmerge-ts` 7.x (via `@prisma/config`) | high (stack exhaustion objek rekursif) | Tidak di-override: fix hanya di major 8 (API berbeda); hanya membaca `prisma.config.ts` milik kita sendiri → risiko praktis rendah | ⏳ tunggu patch Prisma |
+| Frontend | `braces`/`micromatch`/`fast-glob` (via CLI `shadcn`) | high | Tidak masuk bundle (dev tool) | ⏳ ikut update `shadcn` |
 
-Prisma 6 tidak membawa `mysql2`/`deepmerge-ts` rentan — temuan backend muncul karena Prisma 7.
+**Overrides aktif — tinjau setiap upgrade paket induknya, hapus bila sudah tidak perlu:**
+- `backend/package.json` → `prisma > mysql2` — hapus saat Prisma memakai `mysql2` ≥ 3.23.1 sendiri
+  (`npm view prisma@<versi> dependencies.mysql2`).
+- `frontend/package.json` → `katex: "$katex"` — hapus saat `rehype-katex` & `micromark-extension-math` mendukung
+  katex ≥ 0.18 (`npm view rehype-katex dependencies.katex`). KaTeX 0.19 (breaking) tetap ditunda (§3).
+
+Temuan backend muncul karena Prisma 7 (Prisma 6 tidak membawa paket tersebut).
 
 ## 5. Bahan kajian "tech stack terbaik"
 
-1. **Keamanan dependensi transitif** (§4): putuskan apakah memakai `overrides` npm untuk `mysql2` & `katex`
-   sekarang, atau menunggu upstream. Rekomendasi: `katex` override ke 0.18.x + uji render; `mysql2` override
-   (major sama, kode tidak dipakai).
+1. **Keamanan dependensi transitif**: overrides `mysql2` & `katex` sudah diterapkan (§4); pantau `deepmerge-ts` di
+   rilis Prisma berikutnya dan hapus overrides saat upstream sudah memperbaikinya.
 2. **TypeScript 7**: performa typecheck jauh lebih cepat; tunggu `typescript-eslint` & `@nestjs/swagger`. Alternatif
    jangka panjang: lint backend memakai `oxlint` (sudah dipakai frontend; type-aware via `oxlint-tsgolint`) sehingga
    tidak bergantung pada `typescript-eslint`.
