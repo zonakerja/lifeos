@@ -29,13 +29,24 @@ export class ObjectStorageService implements OnModuleInit {
     });
   }
 
+  /** Promise pembuatan bucket (sekali); di-reset bila gagal agar dicoba lagi pada pemakaian berikutnya. */
+  private bucketReady?: Promise<void>;
+
   async onModuleInit() {
     try {
-      await this.ensureBucket();
+      await this.ensureBucketReady();
     } catch (error) {
-      // Jangan gagalkan boot API bila storage belum siap; health check akan melaporkannya.
-      this.logger.error(`Object storage tidak dapat diakses: ${error instanceof Error ? error.message : error}`);
+      // Jangan gagalkan boot API bila storage belum siap; bucket dicoba lagi saat upload pertama.
+      this.logger.warn(`Object storage belum siap: ${error instanceof Error ? error.message : error}`);
     }
+  }
+
+  private ensureBucketReady() {
+    this.bucketReady ??= this.ensureBucket().catch((error: unknown) => {
+      this.bucketReady = undefined;
+      throw error;
+    });
+    return this.bucketReady;
   }
 
   async putObject(params: {
@@ -45,6 +56,7 @@ export class ObjectStorageService implements OnModuleInit {
     contentType: string;
     checksum: string;
   }) {
+    await this.ensureBucketReady();
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
@@ -75,13 +87,15 @@ export class ObjectStorageService implements OnModuleInit {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
 
+  /** Dipakai health check: pastikan bucket ada (dibuat bila storage baru siap), lalu cek aksesnya. */
   async ping() {
+    await this.ensureBucketReady();
     await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
   }
 
   private async ensureBucket() {
     try {
-      await this.ping();
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
     } catch {
       await this.client.send(new CreateBucketCommand({ Bucket: this.bucket }));
       this.logger.log(`Bucket '${this.bucket}' dibuat.`);

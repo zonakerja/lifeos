@@ -22,13 +22,79 @@ Internet ──► Caddy :80/:443 (HTTPS otomatis Let's Encrypt, HSTS, kompresi)
 | storage | `chrislusf/seaweedfs:4.48` | volume `storage-data` |
 | backup | `pgvector/pgvector:0.8.7-pg16` + `infra/backup/backup.sh` | folder `./backups` |
 
+## 0. Sebelum membeli VPS & domain
+
+> **Status per 2026-10-09:** VPS dan domain **belum dibeli**. Aplikasi sudah siap deploy dan sudah diuji lengkap
+> secara lokal (stack produksi + HTTPS dengan `APP_DOMAIN=localhost`). Ikuti bagian ini saat siap membeli.
+
+### 0.1 Memilih VPS
+
+| Kebutuhan | Rekomendasi |
+|---|---|
+| CPU / RAM | **2 vCPU / 4 GB RAM** (nyaman). Minimal 2 vCPU / 2 GB **+ swap 2 GB** (proses build image butuh memori). |
+| Disk | ≥ 40 GB SSD/NVMe (OS + Docker ±10 GB, sisanya database, berkas upload, dan backup). Tambah sesuai volume arsip. |
+| OS | **Ubuntu 24.04 LTS** (atau 22.04). |
+| Arsitektur | x86_64 (umum) atau ARM64 — keduanya didukung (image dibangun dari source, base image multi-arsitektur). |
+| Lokasi | Data center terdekat dengan pengguna (mis. Jakarta / Singapura) untuk latensi rendah. |
+| Akses | Akses **root/SSH** penuh (bukan shared hosting / cPanel). Docker harus bisa dipasang. |
+| IP | IPv4 publik statis (wajib); IPv6 opsional. |
+| Port | Penyedia tidak memblokir port **80 dan 443** (dibutuhkan untuk HTTPS otomatis). |
+
+Fitur tambahan yang berguna: snapshot/backup VPS dari penyedia, dan firewall di panel penyedia.
+
+### 0.2 Domain & DNS
+
+1. Beli domain (mis. `namakamu.id`/`.com`) di registrar mana pun, atau pakai subdomain dari domain yang sudah ada
+   (mis. `lifeos.namakamu.id`).
+2. Setelah VPS aktif dan IP-nya diketahui, buat record DNS di panel registrar/DNS:
+
+   | Tipe | Nama | Nilai | Keterangan |
+   |---|---|---|---|
+   | A | `lifeos` (atau `@` untuk domain utama) | IP publik VPS | wajib |
+   | AAAA | sama | IPv6 VPS | hanya bila VPS punya IPv6 |
+
+   Bila memakai Cloudflare, set proxy **"DNS only" (awan abu-abu)** saat pertama kali agar Caddy bisa menerbitkan
+   sertifikat Let's Encrypt.
+3. Tunggu propagasi (beberapa menit – beberapa jam), lalu cek dari laptop: `nslookup lifeos.namakamu.id` harus
+   menampilkan IP VPS.
+4. Domain inilah yang diisi ke `APP_DOMAIN` di `.env` (tanpa `https://`).
+
+### 0.3 Yang perlu disiapkan untuk `.env`
+
+| Variabel | Isi |
+|---|---|
+| `APP_DOMAIN` | domain/subdomain dari langkah 0.2, mis. `lifeos.namakamu.id` |
+| `ACME_EMAIL` | email aktif (notifikasi sertifikat Let's Encrypt) |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `S3_SECRET_ACCESS_KEY` | string acak masing-masing berbeda: jalankan `openssl rand -hex 32` di VPS untuk tiap variabel |
+| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | akun super admin pertama (password ≥ 8 karakter, ganti setelah login pertama) |
+
+Simpan salinan `.env` di password manager — tanpa `POSTGRES_PASSWORD` & secret yang sama, backup database tetap bisa
+dipulihkan tetapi sesi login lama tidak berlaku.
+
+### 0.4 Checklist hari-H
+
+- [ ] VPS aktif, bisa SSH (`ssh root@<IP>`), buat user non-root bila perlu.
+- [ ] DNS `APP_DOMAIN` sudah mengarah ke IP VPS (cek `nslookup`).
+- [ ] Ikuti §1 (Docker + firewall) → §2 (instalasi) di bawah.
+- [ ] Login di `https://<APP_DOMAIN>`, ganti password admin, hapus `SEED_ADMIN_PASSWORD` dari `.env`.
+- [ ] Jalankan smoke test dari laptop (§5) untuk memastikan semuanya berfungsi.
+- [ ] Atur penyalinan folder `backups/` ke luar server (§4).
+
+**Belum punya domain?** Untuk uji coba sementara, aplikasi bisa dijalankan tanpa HTTPS dengan
+`APP_DOMAIN=http://<IP-VPS>` dan `COOKIE_SECURE=false` di `.env`. **Jangan dipakai untuk data sungguhan**: password dan
+sesi dikirim tanpa enkripsi. Setelah domain siap, ubah `APP_DOMAIN` ke domain, hapus `COOKIE_SECURE`, lalu
+`docker compose -f docker-compose.prod.yml up -d`.
+
 ## 1. Persiapan VPS
 
-- Spesifikasi minimal: 2 vCPU, 2 GB RAM (disarankan 4 GB), 20 GB disk + ruang untuk berkas & backup.
+- Spesifikasi & domain: lihat §0.
 - OS: Ubuntu 22.04/24.04 LTS (atau distro lain yang didukung Docker).
-- Domain/subdomain dengan record DNS **A** (dan **AAAA** bila ada IPv6) ke IP VPS.
 
 ```bash
+# (VPS RAM 2 GB) tambahkan swap 2 GB agar build image tidak kehabisan memori
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
 # Docker Engine + Compose plugin
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER        # login ulang setelah ini

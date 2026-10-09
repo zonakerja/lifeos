@@ -5,6 +5,19 @@ Dokumen ini menggantikan memori percakapan: keputusan, konteks user, status, dan
 Perbarui **§11 Status** dan **§12 Log Keputusan** setiap selesai satu langkah berarti.
 Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE, FILE-CONTROL).
 
+## 0. Memulai Thread Baru (checklist wajib)
+
+1. Baca file ini sampai habis (terutama §11 Status, §14 Resep, §15 Jebakan). Untuk modul File Control baca juga
+   `docs/FILE-CONTROL.md`; untuk deploy `docs/DEPLOYMENT.md`.
+2. Cek kondisi repo: `git status`, `git log --oneline -10` (commit terakhir = pekerjaan terakhir).
+3. Nyalakan lingkungan (lihat §2): `wsl -e sh -c "sleep infinity"` (background) →
+   `wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose up -d"` → preview `backend` & `frontend`
+   (`.claude/launch.json`). Login `admin@lifeos.com` / `123`.
+4. Pastikan baseline sehat sebelum mengubah apa pun: `npm test` (backend & frontend), `npm run test:smoke` (backend).
+5. Tanyakan/konfirmasi ruang lingkup thread ke user bila belum jelas; catat keputusan di §12.
+6. **Sebelum thread berakhir**: perbarui §11 Status, §12 Log Keputusan, pola baru di §8/§8b/§14, jebakan baru di §15,
+   dan dokumen `docs/` yang terdampak — lalu commit. Knowledge yang hanya ada di percakapan akan hilang.
+
 ---
 
 ## 1. Tentang User & Cara Kerja
@@ -15,8 +28,8 @@ Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE, FILE-
 - User bukan programmer full-time: jelaskan langkah & perintah dengan jelas; beri rekomendasi tegas bila user ragu.
 - Pengembangan dibagi per thread: thread arsitektur/tampilan (selesai) dan thread-thread fitur berikutnya.
   Di thread arsitektur jangan mengubah perilaku fitur.
-- Commit di akhir tahap yang disepakati. **Push ke GitHub hanya bila user meminta** (ditunda sampai user menilai
-  desain & arsitektur sudah rapi).
+- Commit di akhir tahap yang disepakati. **Push ke GitHub hanya bila user meminta.**
+- Aplikasi ini berdiri sendiri: jangan menambahkan rujukan, kompatibilitas, atau impor dari aplikasi lain/versi lama.
 
 ## 2. Lingkungan Development (laptop user)
 
@@ -216,8 +229,9 @@ keamanan, deployment VPS, CI, dokumentasi). Thread berikutnya (fitur):
 | Database terstruktur + audit kearsipan (baseline migrasi tunggal) | ✅ |
 | Keamanan (cookie httpOnly, CSP, sandbox berkas, upload streaming, rate limit) | ✅ |
 | Deployment VPS (compose prod, Caddy HTTPS, backup) — diuji end-to-end lokal | ✅ |
-| Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot) | ✅ (CI belum pernah jalan karena belum di-push) |
-| Push ke GitHub | ⏳ menunggu persetujuan user |
+| Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot) | ✅ |
+| Push ke GitHub (`origin/main`) | ✅ 2026-10-09 (push berikutnya tetap atas permintaan user) |
+| VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
 Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `users.api_key` (thread AI).
 
@@ -242,3 +256,64 @@ Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `
 - Sebelum menyatakan selesai: `lint` + `typecheck`/`build` + `npm test` pada bagian yang diubah; backend juga
   `npm run test:smoke`; perubahan tampilan dicek di browser.
 - Jangan commit `.env`/kredensial. Kredensial di dokumen ini hanya untuk development lokal.
+- Komentar kode menjelaskan *apa/mengapa* untuk aplikasi ini (jangan merujuk "versi lama" / aplikasi lain).
+
+## 14. Resep Pengembangan Fitur
+
+**Menambah field pada entitas yang sudah ada** (mis. `priority` di `schedule`):
+1. Frontend: tambah field di `src/types/entities.ts`, pakai di UI. Tanpa perubahan backend pun data tetap tersimpan
+   (masuk kolom `extra`).
+2. Bila field perlu kolom bertipe (difilter/diindeks/dihitung di DB): tambah di `backend/src/records/record-schema.ts`
+   → `npm run db:generate-models` → buat migrasi (docs/SETUP.md §5) → `npx prisma migrate deploy` →
+   `npx prisma generate` → restart backend. Data lama di `extra` untuk key itu tidak otomatis pindah ke kolom; bila
+   perlu, tulis `UPDATE ... SET kolom = (extra->>'key')::tipe, extra = extra - 'key'` di migrasi yang sama.
+3. Tambah kasus di `record-mapper.spec.ts` bila ada jenis/aturan baru.
+
+**Menambah entitas (record type) baru**:
+1. Backend: entri baru di `RECORD_TABLES` (`record-schema.ts`: model, tabel snake_case jamak, field, indeks, `audit`)
+   → generate + migrasi seperti di atas. `RecordType` & validasi `/records/:type` otomatis mengikuti.
+2. Frontend: tambah nama type di array `RECORD_TYPES` (`src/types/api.ts`), tipe di `entities.ts`, hook di
+   `src/data/collections.ts` (`useCollection<T>("nama_type")`).
+3. Smoke test: tambah skenario bila ada aturan khusus.
+
+**Menambah modul/halaman**: entri di `src/config/navigation.ts` (key, path, ikon, tab, role) → rute `lazy` di
+`src/app/router.tsx` → `features/<modul>/<modul>-page.tsx` mengekspor `Component` dengan `<ModulePage module="...">`
+→ (opsional) warna modul baru di `src/index.css` (`--mod-<key>`, `[data-module=...]`).
+
+**Menambah endpoint/modul backend non-records** (mis. AI): modul Nest baru di `src/<nama>/` (controller + service +
+DTO class-validator), daftarkan di `app.module.ts`, guard `JwtAuthGuard` + `RolesGuard` bila perlu, endpoint frontend di
+`src/lib/api/endpoints.ts`, hook TanStack Query di `src/data/`. Tambah skenario smoke test.
+
+**Menambah env**: `src/config/env.validation.ts` + `backend/.env.example` + (produksi) `docker-compose.prod.yml`
+`environment:` + root `.env.example` + dokumentasi `docs/DEPLOYMENT.md` bila wajib diisi di VPS.
+
+**Memanggil domain eksternal dari browser**: tambahkan ke `connect-src` (atau direktif terkait) di
+`frontend/nginx.conf`, kalau tidak akan diblokir CSP di produksi (di dev tidak terlihat!). Lebih baik lewat backend.
+
+**Menambah komponen shadcn**: `cd frontend && npx shadcn@latest add <nama> --yes` (hasil di `components/ui/`).
+
+**Menambah dependensi npm**: pilih paket dengan prebuilt arm64/pure JS; paket berat → import dinamis agar chunk
+utama tetap < 500 kB (cek output `npm run build`).
+
+## 15. Jebakan yang Sudah Diketahui
+
+- Bash tool memakan backslash di heredoc/`node -e` → pakai skrip file (Write) untuk regex/teks dengan `\`.
+- Variabel `${X:?}` di compose dievaluasi meski service tidak dipakai → compose dev tidak boleh punya variabel wajib.
+- `prisma migrate dev` tidak bisa interaktif di sini → buat migrasi dengan `prisma migrate diff ... --script`.
+- Prisma tidak mendukung list nullable → array disimpan sebagai `json`.
+- Login dibatasi 10/menit: menjalankan smoke test berulang dalam satu menit bisa kena 429 — tunggu sebentar.
+- Uji UI lewat `javascript_tool`: Radix `Select` & `DropdownMenu` butuh event `pointerdown`, Radix `Tabs` butuh
+  `mousedown`, `ContextMenu` butuh event `contextmenu`; input React diisi via setter `HTMLInputElement.prototype.value`
+  + event `input`. Klik koordinat gagal saat panel browser tersembunyi.
+- Browser panel menolak sertifikat internal Caddy (`https://localhost`) → uji UI produksi dengan
+  `APP_DOMAIN=http://localhost` (cookie `Secure` tetap diterima di localhost).
+- Object storage kadang belum siap saat backend baru start ("socket hang up" di log) — normal; bucket dibuat
+  otomatis saat health check atau upload berikutnya (`/health`).
+- Respons `401` dari `POST /auth/refresh` saat membuka aplikasi tanpa sesi adalah normal (muncul di console).
+
+## 16. Memori & Kesinambungan Antar-Chat
+
+- **Sumber kebenaran knowledge = file ini + `docs/`** (ikut di repo, otomatis dibaca Claude Code di setiap chat proyek
+  ini, dan tetap ada walau berganti perangkat). Memori Claude lokal (`~/.claude/projects/.../memory/`) hanya ringkasan
+  pendukung — jangan menaruh knowledge penting **hanya** di sana atau hanya di percakapan.
+- Setiap keputusan teknis baru → §12; status → §11; pola/aturan baru → §8/§8b/§14; masalah lingkungan → §2/§15.
