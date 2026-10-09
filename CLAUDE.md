@@ -225,6 +225,9 @@ Thread arsitektur & tampilan **selesai** (fondasi backend, frontend baru, data l
 keamanan, deployment VPS, CI, dokumentasi). Thread berikutnya:
 0. ~~Upgrade major dependensi~~ — **selesai 2026-10-09** (NestJS 12, Prisma 7, TS 6, ESLint 10, BullMQ 6, Redis 8, …).
    Yang ditunda + kajian & urutan rekomendasi: `docs/UPGRADE-PLAN.md` (prioritas: PostgreSQL 18, Dependabot compose).
+0b. **Thread infrastruktur (berikutnya, disetujui user 2026-10-10)**: PostgreSQL 16 → 18 (pgvector 0.8.7-pg18,
+   dump/restore, path volume baru), Dependabot ekosistem `docker-compose`, `ts-node` → `tsx` — kajian di
+   `docs/UPGRADE-PLAN.md` §2.1, §2.2, §2.4. Sesudahnya: KaTeX 0.19 (≥ 29 Okt), Node 26 (≥ ± 25 Nov).
 1. AI multi-provider di backend (Gemini/Claude/OpenAI, key terenkripsi; hapus API key dari browser & kolom plaintext).
 2. Ekstraksi PDF/DOCX/XLSX/OCR, embedding pgvector + chatbot RAG atas arsip & resource.
 3. (Opsional) tampilan riwayat audit arsip di UI (`GET /archive-audit` sudah tersedia).
@@ -241,7 +244,7 @@ keamanan, deployment VPS, CI, dokumentasi). Thread berikutnya:
 | Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot) | ✅ CI `main` hijau 2026-10-09 (Node 24 actions, `ubuntu-24.04`) |
 | Upgrade major dependensi (NestJS 12, Prisma 7, TS 6, ESLint 10, BullMQ 6, dotenv 18, Redis 8, image trixie/nginx 1.30/Caddy 2.11, Actions) | ✅ 2026-10-09 lokal (semua test, smoke, drift, image, stack prod lokal, UI) — **belum di-push**, CI belum dicek |
 | Perbaikan `npm audit` (overrides `mysql2`, `katex` 0.18.9) | ✅ 2026-10-09 lokal; sisa `deepmerge-ts` (tunggu Prisma) |
-| Kajian lanjutan tech stack (TS 7, ioredis 6, Node 26, PostgreSQL 18, Valkey, …) | ⏳ rekomendasi di `docs/UPGRADE-PLAN.md` §1, menunggu keputusan user |
+| Kajian lanjutan tech stack (TS 7, ioredis 6, Node 26, PostgreSQL 18, Valkey, …) | ⏳ disetujui user 2026-10-10: thread infrastruktur (PostgreSQL 18, Dependabot compose, tsx) berikutnya (§10 butir 0b) |
 | Push ke GitHub (`origin/main`) | ✅ 2026-10-09 (push berikutnya tetap atas permintaan user) |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
