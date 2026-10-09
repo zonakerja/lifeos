@@ -25,7 +25,7 @@
     "@aws-sdk/client-s3": "^3.1038.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
-    "@nestjs/core": "^11.0.0",
+    "@nestjs/core": "^12.1.2",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/mapped-types": "^2.1.0",
     "@nestjs/passport": "^11.0.0",
