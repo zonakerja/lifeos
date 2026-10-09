@@ -5,7 +5,13 @@
 # Saat start: menerapkan migrasi database lalu menjalankan API.
 # ============================================================================
 
-FROM node:24-bookworm-slim AS deps
+FROM node:24-trixie-slim AS base
+# OpenSSL dibutuhkan schema engine Prisma (migrate deploy); tanpa ini Prisma salah mendeteksi versi libssl
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/*
+
+FROM base AS deps
 WORKDIR /app
 # Skema & config dibutuhkan postinstall (prisma generate → src/generated/prisma)
 COPY package.json package-lock.json prisma.config.ts ./
@@ -17,8 +23,9 @@ COPY . .
 RUN npm run build \
   && npm prune --omit=dev
 
-FROM node:24-bookworm-slim AS runtime
-ENV NODE_ENV=production
+FROM base AS runtime
+ENV NODE_ENV=production \
+  NPM_CONFIG_UPDATE_NOTIFIER=false
 WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist

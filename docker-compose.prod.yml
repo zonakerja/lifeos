@@ -19,7 +19,7 @@ x-logging: &logging
 
 services:
   caddy:
-    image: caddy:2.10-alpine
+    image: caddy:2.11-alpine
     restart: unless-stopped
     depends_on:
       backend: { condition: service_healthy }
@@ -95,7 +95,7 @@ services:
     logging: *logging
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:8.10-alpine
     restart: unless-stopped
     command: ["sh", "-c", 'exec redis-server --appendonly yes --maxmemory-policy noeviction --requirepass "$$REDIS_PASSWORD"']
     environment:
