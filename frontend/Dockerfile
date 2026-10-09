@@ -4,7 +4,7 @@
 #   docker build -t lifeos-frontend ./frontend   (dipakai di docker-compose.prod.yml)
 # ============================================================================
 
-FROM node:24-bookworm-slim AS build
+FROM node:25-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
