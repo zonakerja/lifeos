@@ -4,7 +4,7 @@
 
 | Kebutuhan | Versi | Catatan |
 |---|---|---|
-| Node.js | 24 LTS (npm 11) | Disarankan via **nvm** (Windows: nvm-windows) |
+| Node.js | LTS sesuai `.nvmrc` (npm bawaan) | Disarankan via **nvm** (Windows: nvm-windows): `nvm install` / `nvm use` |
 | Docker Engine + Compose v2 | terbaru | Docker Desktop **tidak** wajib — Docker Engine di WSL/Linux cukup |
 | Git | terbaru | |
 
@@ -18,7 +18,7 @@
 - WSL bisa berhenti saat idle sehingga container ikut mati. Biarkan satu sesi WSL tetap hidup
   (mis. `wsl -e sh -c "sleep infinity"` di terminal terpisah) selama development.
 - Paket native tanpa prebuilt win32-arm64 akan gagal dipasang. Proyek ini sudah memakai alternatif yang aman
-  (`@node-rs/argon2`, Prisma 7 tanpa engine Rust + adapter `pg`).
+  (`@node-rs/argon2`, Prisma tanpa engine Rust + adapter `pg`; lihat ARCHITECTURE.md §2.2).
 - npm 11 memblokir install script yang belum disetujui; daftar yang diizinkan ada di field `allowScripts`
   pada `backend/package.json`. Paket baru yang butuh postinstall: `npm approve-scripts <pkg>` lalu `npm rebuild <pkg>`.
 
@@ -31,8 +31,8 @@ docker compose ps
 
 | Service | Host port | Kredensial dev |
 |---|---|---|
-| PostgreSQL 16 + pgvector | `55432` | db `lifeos`, `postgres` / `postgres` |
-| Redis 8 | `6380` | — |
+| PostgreSQL + pgvector | `55432` | db `lifeos`, `postgres` / `postgres` |
+| Redis | `6380` | — |
 | SeaweedFS S3 API | `9002` | `lifeos` / `lifeos-secret` (`infra/seaweedfs/s3.json`) |
 | SeaweedFS filer UI | `9003` | — |
 
@@ -102,7 +102,7 @@ Vite mem-proxy `/api` ke `http://localhost:4000`, sehingga frontend cukup memaka
      `CREATE DATABASE lifeos_shadow;`
   4. `npx prisma migrate deploy` lalu `npx prisma generate`.
   5. Cek tidak ada drift: perintah diff yang sama dengan `--exit-code` (tanpa `--script`) harus keluar 0.
-- Prisma 7: URL koneksi ada di `backend/prisma.config.ts` (bukan di `schema.prisma`). Prisma Client di-generate ke
+- Prisma: URL koneksi ada di `backend/prisma.config.ts` (bukan di `schema.prisma`). Prisma Client di-generate ke
   `backend/src/generated/prisma` (tidak di-commit) oleh `postinstall`/`npm run prisma:generate`; import dari path itu,
   bukan dari `@prisma/client`. `migrate dev`/`db push` tidak lagi menjalankan generate/seed otomatis.
 

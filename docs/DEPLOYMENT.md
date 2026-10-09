@@ -14,13 +14,15 @@ Internet ──► Caddy :80/:443 (HTTPS otomatis Let's Encrypt, HSTS, kompresi)
 
 | Service | Image | Data |
 |---|---|---|
-| caddy | `caddy:2.11-alpine` | volume `caddy-data` (sertifikat) |
+| caddy | `caddy` (alpine) | volume `caddy-data` (sertifikat) |
 | frontend | dibangun dari `frontend/Dockerfile` | — |
 | backend | dibangun dari `backend/Dockerfile` (user non-root) | — |
-| postgres | `pgvector/pgvector:0.8.7-pg16` | volume `postgres-data` |
-| redis | `redis:8.10-alpine` (AOF, password) | volume `redis-data` |
-| storage | `chrislusf/seaweedfs:4.48` | volume `storage-data` |
-| backup | `pgvector/pgvector:0.8.7-pg16` + `infra/backup/backup.sh` | folder `./backups` |
+| postgres | `pgvector/pgvector` (PostgreSQL + pgvector) | volume `postgres-data` |
+| redis | `redis` alpine (AOF, password) | volume `redis-data` |
+| storage | `chrislusf/seaweedfs` | volume `storage-data` |
+| backup | `pgvector/pgvector` + `infra/backup/backup.sh` | folder `./backups` |
+
+Tag image di-pin di `docker-compose.prod.yml`; daftar versinya ada di [ARCHITECTURE.md §2.1](ARCHITECTURE.md#21-komponen-dan-versi-per-2026-10-10).
 
 ## 0. Sebelum membeli VPS & domain
 

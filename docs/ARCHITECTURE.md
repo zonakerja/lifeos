@@ -1,13 +1,16 @@
 # Arsitektur LifeOS
 
+Dokumen fondasi: arsitektur, tech stack beserta versinya, dan aturan yang wajib diikuti. **Versi komponen hanya
+dicatat di §2** (dokumen lain merujuk ke sini). Rencana & kajian upgrade ada di [UPGRADE-PLAN.md](UPGRADE-PLAN.md).
+
 ## 1. Gambaran umum
 
 ```
 Browser (React SPA)
    │  /api/v1 (JWT Bearer + cookie refresh httpOnly)   dev: Vite proxy · prod: Caddy (HTTPS)
    ▼
-NestJS API ──── PostgreSQL 16 (+pgvector)   data domain, user, aset, audit
-   │      ├──── Redis 8 (BullMQ)            antrian ekstraksi dokumen (+ AI di masa depan)
+NestJS API ──── PostgreSQL (+pgvector)      data domain, user, aset, audit
+   │      ├──── Redis (BullMQ)              antrian ekstraksi dokumen (+ AI di masa depan)
    │      └──── S3-compatible storage       berkas upload (SeaweedFS dev / S3, R2, B2 prod)
    └── Worker ekstraksi (BullMQ, in-process)
 ```
@@ -18,16 +21,74 @@ Prinsip:
 - **Data milik user** — setiap baris domain punya `user_id`; role `super_admin`/`admin` dapat melihat data semua user,
   `viewer` read-only.
 - **Secret di server** — tidak ada token/kredensial di storage browser (kecuali API key AI milik user yang
-  sementara dipakai langsung dari browser, lihat §7).
+  sementara dipakai langsung dari browser, lihat §8).
 
-## 2. Backend (`backend/`)
+## 2. Tech stack & kebijakan dependensi
 
-NestJS 12 (proyek CommonJS; paket Nest berformat ESM dimuat via `require(esm)`), prefix `api/v1`, port 4000.
+### 2.1 Komponen dan versi (per 2026-10-10)
+
+Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `docker-compose*.yml`, `.nvmrc`,
+`.github/workflows/ci.yml`. Tabel ini diperbarui setiap upgrade major.
+
+| Lapisan | Komponen | Versi | Peran / alasan pemilihan |
+|---|---|---|---|
+| Runtime | Node.js | **24 LTS** (`.nvmrc`; image `node:24-trixie-slim`, Debian 13) | Hanya LTS di produksi; npm 11 bawaan Node |
+| Bahasa | TypeScript (backend & frontend) | **6.0** | Satu versi di kedua sisi (keputusan 2026-10-09) |
+| Backend | NestJS (`@nestjs/*`) + Express | **12.1** (config/jwt/passport/swagger/mapped-types 12.0, throttler 6.7) + Express 5.2 | Framework modular, DI, guard/pipe, Swagger |
+| | Prisma ORM + `@prisma/adapter-pg` (driver `pg`) | **7.10** | ORM bertipe; driver adapter tanpa engine Rust (wajib untuk Windows ARM64) |
+| | BullMQ / ioredis | **6.3** / **5.11** | Antrian job (ekstraksi, AI) di atas Redis |
+| | class-validator / class-transformer | 0.15 / 0.5 | Validasi DTO & env |
+| | nestjs-pino / pino | 5.3 / 10.4 | Log terstruktur JSON |
+| | `@node-rs/argon2` | 2.2 | Hash password Argon2id, prebuilt arm64 |
+| | `@aws-sdk/client-s3` | 3.x | Object storage S3-compatible |
+| | dotenv | 18.0 | Env untuk CLI Prisma & seed (aplikasi memakai `@nestjs/config`) |
+| | ESLint / typescript-eslint / Vitest | 10.12 / 8.71 / 5.0 | Lint & unit test |
+| Frontend | React / React DOM | **19.3** | UI |
+| | Vite / `@vitejs/plugin-react` | **8.3** / 6.1 | Dev server & bundler |
+| | React Router / TanStack Query / Zustand | 8.4 / 5.104 / 5.0 | Rute lazy, cache data server, state UI/sesi |
+| | react-hook-form / zod | 7.89 / 4.6 | Form & validasi skema |
+| | Tailwind CSS / shadcn CLI (Radix, lucide) | 4.3 / 4.21 | Design system berbasis token |
+| | react-markdown / KaTeX | 10.1 / **0.18.9** | Render Markdown & matematika (dimuat malas) |
+| | oxlint / Vitest | 1.87 / 5.0 | Lint (0 warning) & unit test |
+| Data | PostgreSQL + pgvector | **16** + 0.8.7 (`pgvector/pgvector:0.8.7-pg16`) | Data relasional + vector search (RAG) |
+| | Redis | **8.10** (`redis:8.10-alpine`) | Antrian BullMQ; cache/rate-limit/sesi chat (rencana) |
+| | SeaweedFS | 4.48 | S3-compatible self-host (dev & default produksi) |
+| Edge | Caddy / nginx | 2.11 / 1.30 (stable) | HTTPS otomatis + reverse proxy / sajian SPA + CSP |
+| CI | GitHub Actions | checkout v7, setup-node v7, setup-buildx v4, build-push v7; runner `ubuntu-24.04` | Lint, test, build, smoke, drift, image |
+
+### 2.2 Batasan platform (wajib dijaga)
+
+- **Windows 11 ARM64** untuk development: hanya paket dengan prebuilt win32-arm64, pure JS, atau WASM. Prisma memakai
+  driver adapter `pg` (Rust query engine tidak tersedia untuk ARM64).
+- **Backend CommonJS**: paket NestJS 12 berformat ESM dimuat via `require(esm)` (Node ≥ 22.12); tsconfig
+  `module/moduleResolution: nodenext`. Migrasi ke ESM tidak diperlukan.
+- **Prisma Client di-generate**, tidak di-commit: generator `prisma-client` (`moduleFormat = "cjs"`,
+  `importFileExtension = ""`) → `backend/src/generated/prisma`, dijalankan oleh `postinstall`. Kode mengimpor dari path
+  itu (bukan `@prisma/client`). URL datasource & shadow DB di `prisma.config.ts`.
+- Image produksi multi-arsitektur (x86_64/ARM64), dibangun dari source; image pihak ketiga di-pin per minor.
+
+### 2.3 Kebijakan dependensi
+
+- **Pemilihan versi**: hanya rilis stabil (tanpa `-rc/-beta/-next`), dirilis ≥ 2–4 minggu, ekosistem plugin sudah
+  mendukung (`peerDependencies`), Node hanya LTS. Instal dengan `npm install --before=<tanggal>`.
+- **Dependabot**: PR mingguan minor/patch (dikelompokkan); update **major** diabaikan dan dikerjakan terencana — satu
+  keluarga paket per commit, semua test + smoke + drift + image + CI hijau (resep di CLAUDE.md §14).
+- **PostgreSQL major** bukan sekadar ganti tag image (butuh dump/restore), dikerjakan terpisah.
+- **Overrides npm aktif** (menutup advisory di dependensi transitif; tinjau setiap upgrade paket induknya):
+
+  | Lokasi | Override | Alasan | Hapus bila |
+  |---|---|---|---|
+  | `backend/package.json` | `prisma > mysql2` → 3.24.4 | Prisma 7.10 mem-pin `mysql2` 3.15.3 (advisory high; hanya dipakai Prisma Studio untuk MySQL) | `npm view prisma@<versi> dependencies.mysql2` ≥ 3.23.1 |
+  | `frontend/package.json` | `katex: "$katex"` (langsung `^0.18.9`) | `rehype-katex`/`micromark-extension-math` masih `^0.16` (advisory prototype pollution < 0.18.2) | keduanya mendukung katex ≥ 0.18 |
+
+## 3. Backend (`backend/`)
+
+NestJS (CommonJS), prefix `api/v1`, port 4000.
 
 | Modul | Tanggung jawab |
 |---|---|
 | `config` | validasi env saat boot (`env.validation.ts`), parsing durasi |
-| `prisma` | `PrismaService` + driver adapter `pg` (Prisma 7, tanpa engine Rust; client di `src/generated/prisma`) |
+| `prisma` | `PrismaService` + driver adapter `pg`; client hasil generate di `src/generated/prisma` |
 | `redis` | koneksi ioredis & opsi BullMQ |
 | `storage` | klien S3 + pembuatan bucket |
 | `auth` | login, refresh token berotasi via cookie httpOnly, profil `/auth/me`, ganti password |
@@ -59,15 +120,15 @@ unduhan disensor; health check tidak dicatat.
   `Content-Security-Policy: sandbox`, konten aktif (HTML/SVG/JS) dipaksa diunduh. Link unduh memakai secret turunan
   (`JWT_ACCESS_SECRET:download`), berlaku 10 menit, tidak bisa dipakai login.
 
-## 3. Database
+## 4. Database
 
 Konvensi: model Prisma PascalCase, **tabel & kolom snake_case**, timestamp `timestamptz(3)` (UTC), FK ke `users`
 dengan `ON DELETE CASCADE`, soft delete `deleted_at` pada tabel domain.
 
-### 3.1 Tabel inti
+### 4.1 Tabel inti
 `users`, `refresh_tokens`, `app_settings`, `assets`, `asset_extractions`, `archive_audit_logs`.
 
-### 3.2 Tabel domain (20)
+### 4.2 Tabel domain (20)
 
 | Record type (API) | Tabel | Kolom utama |
 |---|---|---|
@@ -95,7 +156,7 @@ dengan `ON DELETE CASCADE`, soft delete `deleted_at` pada tabel domain.
 Setiap tabel domain juga punya `id` (cuid), `user_id`, `client_id`, `extra` (jsonb), `created_at`, `updated_at`,
 `deleted_at`, `UNIQUE(user_id, client_id)`, indeks `(user_id, deleted_at)` + indeks pola query.
 
-### 3.3 Spesifikasi sebagai sumber tunggal
+### 4.3 Spesifikasi sebagai sumber tunggal
 
 `backend/src/records/record-schema.ts` mendefinisikan untuk tiap record type: model/tabel, field & jenisnya
 (`string | int | float | bool | ymd | dateKey | timestamp | json`), indeks, `titleKey`/`dateKey`, dan apakah diaudit.
@@ -111,14 +172,14 @@ sebagai `date`/`timestamptz` sehingga bisa diindeks & difilter.
 **Relasi antar entitas** (mis. `tasks.project_id`) sengaja tidak memakai FK: ID dibuat client, ditulis per item secara
 asinkron (urutan tulis tidak dijamin) dan sebagian polimorfik (task → project atau activity). Kolomnya diindeks.
 
-### 3.4 Audit kearsipan
+### 4.4 Audit kearsipan
 
 `archive_audit_logs` mencatat `created | updated | deleted` untuk data kearsipan (tabel `archive_*` kecuali move log,
 resource yang memiliki `archivalStatus`, dan snapshot PARA berisi file): pemilik, pelaku (`actor_id`), dan
 `changes` (`{field: {from, to}}` untuk update, snapshot untuk create/delete). Dicatat dalam transaksi yang sama dengan
 perubahan data. API: `GET /api/v1/archive-audit?entityType=&entityId=&take=`.
 
-### 3.5 API records
+### 4.5 API records
 
 | Endpoint | Fungsi |
 |---|---|
@@ -128,9 +189,9 @@ perubahan data. API: `GET /api/v1/archive-audit?entityType=&entityId=&take=`.
 
 Respons: `{ id, clientId, type, userId, title, date, payload, createdAt, updatedAt }`.
 
-## 4. Frontend (`frontend/`)
+## 5. Frontend (`frontend/`)
 
-Vite + React 19 + TypeScript strict, Tailwind v4 + shadcn/ui (Radix, ikon lucide), React Router (rute lazy per modul),
+React SPA (komponen & versi di §2.1): Tailwind + shadcn/ui (Radix, ikon lucide), React Router (rute lazy per modul),
 TanStack Query, Zustand (sesi & UI), react-hook-form + zod, sonner.
 
 ```
@@ -162,9 +223,9 @@ rollback + toast bila gagal). Komponen memakai hook bertipe di `data/collections
 Token warna OKLCH di `src/index.css` (terang & gelap via class `.dark`). Warna modul lewat atribut
 `data-module` → utility `bg-module`, `text-module`, `bg-module-soft`, `bg-module-gradient`; status
 `success | warning | info | destructive`. Dilarang warna hardcoded atau ternary dark mode per elemen
-(pengecualian: lembar cetak hitam-putih).
+(pengecualian: lembar cetak hitam-putih). Styling KaTeX hanya menarget class publik (`.katex`, `.katex-display`).
 
-## 5. Deployment & kualitas
+## 6. Deployment & kualitas
 
 ```
 Internet ─► Caddy :443 (TLS otomatis, HSTS) ─┬─ /api/* ─► backend (non-root, migrasi saat start)
@@ -172,20 +233,22 @@ Internet ─► Caddy :443 (TLS otomatis, HSTS) ─┬─ /api/* ─► backend 
 jaringan internal: postgres · redis (password) · SeaweedFS S3 · backup harian (pg_dump + arsip berkas)
 ```
 
-- `docker-compose.yml` = infrastruktur development saja; `docker-compose.prod.yml` = stack produksi (lihat DEPLOYMENT.md).
-- Image di-pin versinya; rotasi log Docker; secret hanya dari `.env`.
+- `docker-compose.yml` = infrastruktur development saja; `docker-compose.prod.yml` = stack produksi (operasional di
+  DEPLOYMENT.md).
+- Image di-pin versinya (§2.1); rotasi log Docker; secret hanya dari `.env`.
 - Pengujian: unit test Vitest (logika murni: record mapper, aturan kearsipan), smoke test end-to-end (±50 skenario
   terhadap server nyata, membuat & menghapus user sementara). CI GitHub Actions menjalankan semuanya + cek drift skema
-  + build image; Dependabot untuk pembaruan dependensi.
+  + build image; Dependabot untuk pembaruan dependensi (§2.3).
 
-## 6. Konvensi kode
+## 7. Konvensi kode
 
 - Bahasa: identifier & commit Inggris; teks UI, pesan error, dan komentar Indonesia.
 - Prettier tunggal di root (`printWidth 120`), LF, UTF-8. Lint: oxlint (frontend, 0 warning), ESLint (backend).
 - Sebelum commit: `lint` + `typecheck`/`build` + `npm test` di bagian yang diubah; backend: `npm run test:smoke`.
 
-## 7. Rencana berikutnya
+## 8. Rencana berikutnya
 
 - AI multi-provider di backend (Gemini/Claude/OpenAI, key terenkripsi) — menggantikan pemanggilan Gemini dari browser.
 - Ekstraksi PDF/DOCX/XLSX/OCR, embedding **pgvector** + chatbot RAG atas arsip & resource (Redis untuk antrian, cache,
   memori sesi chat).
+- Upgrade tech stack yang masih tertunda: lihat [UPGRADE-PLAN.md](UPGRADE-PLAN.md).

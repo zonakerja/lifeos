@@ -10,8 +10,8 @@ Personal operating system berbasis web untuk produktivitas pribadi dan pekerjaan
 
 | Bagian | Teknologi |
 |---|---|
-| Frontend | React 19 · TypeScript 6 · Vite 8 · Tailwind v4 · shadcn/ui · TanStack Query · React Router |
-| Backend | NestJS 12 · Prisma 7 · PostgreSQL 16 (pgvector) · Redis 8 (BullMQ) · S3-compatible storage |
+| Frontend | React · TypeScript · Vite · Tailwind · shadcn/ui · TanStack Query · React Router |
+| Backend | NestJS · Prisma · PostgreSQL (pgvector) · Redis (BullMQ) · S3-compatible storage |
 | Deployment | Docker Compose · Caddy (HTTPS otomatis) · nginx · backup harian |
 
 ## Mulai cepat (development)
@@ -26,7 +26,8 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 — admin@li
 
 - [docs/SETUP.md](docs/SETUP.md) — lingkungan development, perintah, alur kerja database, pengujian.
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — deployment VPS, pembaruan, backup & restore, operasional.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — arsitektur backend, database, frontend, keamanan, konvensi.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — fondasi: arsitektur, tech stack & versi, kebijakan dependensi, database, frontend, keamanan, konvensi.
+- [docs/UPGRADE-PLAN.md](docs/UPGRADE-PLAN.md) — kajian & rencana upgrade yang belum dilakukan, riwayat upgrade.
 - [docs/FILE-CONTROL.md](docs/FILE-CONTROL.md) — spesifikasi & aturan bisnis modul kearsipan.
 - [CLAUDE.md](CLAUDE.md) — knowledge base pengembangan (keputusan, status, pola wajib).
 

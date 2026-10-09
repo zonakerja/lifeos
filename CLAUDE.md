@@ -3,12 +3,13 @@
 Knowledge base utama untuk Claude Code di proyek LifeOS. **Baca seluruh file ini di awal setiap chat/thread.**
 Dokumen ini menggantikan memori percakapan: keputusan, konteks user, status, dan pola wajib tercatat di sini.
 Perbarui **§11 Status** dan **§12 Log Keputusan** setiap selesai satu langkah berarti.
-Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE, FILE-CONTROL, TECH-STACK).
+Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE = fondasi + tech stack & versi, UPGRADE-PLAN, FILE-CONTROL).
 
 ## 0. Memulai Thread Baru (checklist wajib)
 
 1. Baca file ini sampai habis (terutama §11 Status, §14 Resep, §15 Jebakan). Untuk modul File Control baca juga
-   `docs/FILE-CONTROL.md`; untuk deploy `docs/DEPLOYMENT.md`.
+   `docs/FILE-CONTROL.md`; untuk deploy `docs/DEPLOYMENT.md`; untuk arsitektur & versi tech stack
+   `docs/ARCHITECTURE.md` (fondasi); untuk upgrade dependensi `docs/UPGRADE-PLAN.md`.
 2. Cek kondisi repo: `git status`, `git log --oneline -10` (commit terakhir = pekerjaan terakhir).
 3. Nyalakan lingkungan (lihat §2): `wsl -e sh -c "sleep infinity"` (background) →
    `wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose up -d"` → preview `backend` & `frontend`
@@ -67,7 +68,7 @@ Ke depan: **chatbot AI untuk bertanya tentang arsip & hasil pekerjaan** (RAG).
 |---|---|
 | Frontend | TypeScript 6 strict, React 19, Vite 8, React Router 8, TanStack Query 5, Zustand 5, react-hook-form + zod 4 |
 | UI | shadcn/ui + Tailwind v4, tampilan colorful per modul lewat design token; dark mode via token |
-| Backend | NestJS 12 (CommonJS) + TypeScript 6 + Prisma 7 + PostgreSQL 16; Node 24 LTS (versi: `docs/TECH-STACK.md`) |
+| Backend | NestJS 12 (CommonJS) + TypeScript 6 + Prisma 7 + PostgreSQL 16; Node 24 LTS (versi lengkap: `docs/ARCHITECTURE.md` §2) |
 | Database | 20 tabel domain terstruktur dari satu spesifikasi + kolom `extra` jsonb (lossless), snake_case, timestamptz |
 | Auth | access JWT 15 menit di memori + refresh token di cookie httpOnly berotasi |
 | AI provider | Multi-provider dipilih user: Gemini, Claude, OpenAI (thread fitur AI) |
@@ -89,7 +90,7 @@ LifeOS/
 ├── infra/                    caddy/Caddyfile · backup/backup.sh · seaweedfs/s3.json (kredensial S3 dev)
 ├── backend/                  NestJS (Dockerfile, prisma/, src/, test/smoke.mjs)
 ├── frontend/                 React SPA (Dockerfile, nginx.conf, src/)
-└── docs/                     SETUP.md · DEPLOYMENT.md · ARCHITECTURE.md · FILE-CONTROL.md · TECH-STACK.md
+└── docs/                     SETUP.md · DEPLOYMENT.md · ARCHITECTURE.md · UPGRADE-PLAN.md · FILE-CONTROL.md
 ```
 
 ## 7. Infrastruktur
@@ -115,7 +116,7 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 
 - NestJS 12 (proyek **CommonJS**; paket Nest berformat ESM dimuat via `require(esm)` Node 24) + TypeScript 6
   (`module/moduleResolution: nodenext`) + Prisma 7 + adapter `@prisma/adapter-pg` (`src/prisma/prisma-adapter.ts`).
-  Versi lengkap & paket yang ditunda: `docs/TECH-STACK.md`.
+  Versi lengkap, batasan platform & overrides: `docs/ARCHITECTURE.md` §2; yang ditunda: `docs/UPGRADE-PLAN.md`.
 - **Prisma 7**: generator `prisma-client` (`moduleFormat = "cjs"`, `importFileExtension = ""`) → `src/generated/prisma`
   (dibuat `postinstall`, **tidak di-commit**, di-ignore ESLint & Docker). Import `PrismaClient`, `Prisma`, enum, dan tipe
   model dari path relatif `../generated/prisma/client` — **bukan** `@prisma/client`. URL datasource & shadow DB ada di
@@ -223,7 +224,7 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 Thread arsitektur & tampilan **selesai** (fondasi backend, frontend baru, data layer, semua modul, database terstruktur,
 keamanan, deployment VPS, CI, dokumentasi). Thread berikutnya:
 0. ~~Upgrade major dependensi~~ — **selesai 2026-10-09** (NestJS 12, Prisma 7, TS 6, ESLint 10, BullMQ 6, Redis 8, …).
-   Sisa yang ditunda + bahan kajian tech stack: `docs/TECH-STACK.md` §3–§5 (dikaji bersama user).
+   Yang ditunda + kajian & urutan rekomendasi: `docs/UPGRADE-PLAN.md` (prioritas: PostgreSQL 18, Dependabot compose).
 1. AI multi-provider di backend (Gemini/Claude/OpenAI, key terenkripsi; hapus API key dari browser & kolom plaintext).
 2. Ekstraksi PDF/DOCX/XLSX/OCR, embedding pgvector + chatbot RAG atas arsip & resource.
 3. (Opsional) tampilan riwayat audit arsip di UI (`GET /archive-audit` sudah tersedia).
@@ -240,7 +241,7 @@ keamanan, deployment VPS, CI, dokumentasi). Thread berikutnya:
 | Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot) | ✅ CI `main` hijau 2026-10-09 (Node 24 actions, `ubuntu-24.04`) |
 | Upgrade major dependensi (NestJS 12, Prisma 7, TS 6, ESLint 10, BullMQ 6, dotenv 18, Redis 8, image trixie/nginx 1.30/Caddy 2.11, Actions) | ✅ 2026-10-09 lokal (semua test, smoke, drift, image, stack prod lokal, UI) — **belum di-push**, CI belum dicek |
 | Perbaikan `npm audit` (overrides `mysql2`, `katex` 0.18.9) | ✅ 2026-10-09 lokal; sisa `deepmerge-ts` (tunggu Prisma) |
-| Kajian lanjutan tech stack (TS 7, ioredis 6, Node 26, PostgreSQL 18, Valkey, …) | ⏳ `docs/TECH-STACK.md` §3, §5 |
+| Kajian lanjutan tech stack (TS 7, ioredis 6, Node 26, PostgreSQL 18, Valkey, …) | ⏳ rekomendasi di `docs/UPGRADE-PLAN.md` §1, menunggu keputusan user |
 | Push ke GitHub (`origin/main`) | ✅ 2026-10-09 (push berikutnya tetap atas permintaan user) |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -269,10 +270,14 @@ Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `
   `node:24-trixie-slim` (+openssl), nginx 1.30, Caddy 2.11, **Redis 8.10** (atas permintaan user); Actions
   checkout/setup-node v7, buildx v4, build-push v7. **TypeScript disamakan di 6.0 untuk backend & frontend**
   (keputusan user; TS 7 juga belum didukung typescript-eslint & @nestjs/swagger). Ditunda: ioredis 6, Prisma 8 (rc),
-  KaTeX 0.19, Node 26, PostgreSQL 17/18 — rincian & alasan di `docs/TECH-STACK.md`.
+  KaTeX 0.19, Node 26, PostgreSQL 17/18 — rincian & alasan di `docs/UPGRADE-PLAN.md`.
 - 2026-10-09 — Temuan `npm audit` ditindaklanjuti (disetujui user) lewat npm `overrides`: backend
   `prisma > mysql2` 3.24.4; frontend `katex` ^0.18.9 + `katex: "$katex"` (rehype-katex masih ^0.16). `deepmerge-ts`
-  (via `@prisma/config`) dibiarkan menunggu patch Prisma. Daftar overrides aktif: `docs/TECH-STACK.md` §4.
+  (via `@prisma/config`) dibiarkan menunggu patch Prisma. Daftar overrides aktif: `docs/ARCHITECTURE.md` §2.3.
+- 2026-10-10 — Dokumentasi ditata tanpa duplikasi (permintaan user): `docs/ARCHITECTURE.md` = fondasi utama dan
+  **satu-satunya tempat versi** tech stack (§2: versi, batasan platform, kebijakan dependensi, overrides);
+  `docs/UPGRADE-PLAN.md` (pengganti TECH-STACK.md) = kajian item yang belum di-upgrade, rekomendasi & urutan, riwayat,
+  audit yang dipantau. Dokumen lain (README, SETUP, DEPLOYMENT) tidak menulis nomor versi, cukup merujuk.
 
 ## 13. Konvensi Kode
 
@@ -331,9 +336,10 @@ DTO class-validator), daftarkan di `app.module.ts`, guard `JwtAuthGuard` + `Role
    Perubahan image/infra: jalankan juga stack produksi lokal di project compose terpisah
    (`docker compose -p lifeos-upgradetest --env-file <tmp> -f docker-compose.prod.yml up -d --build --wait`,
    `APP_DOMAIN=http://localhost`), smoke test lewat `API_URL=http://localhost/api/v1`, lalu `down -v`.
-6. Catat hasil di `docs/TECH-STACK.md` (versi, yang di-upgrade, yang ditunda + alasan, audit).
+6. Perbarui versi di `docs/ARCHITECTURE.md` §2.1 (satu-satunya tabel versi) dan catat riwayat, yang ditunda +
+   kajian, serta audit yang dipantau di `docs/UPGRADE-PLAN.md`.
 7. Jalankan `npm audit` di kedua paket. Celah di dependensi transitif → `overrides` npm (versi major sama), dicatat
-   di `docs/TECH-STACK.md` §4. Setiap upgrade paket induk: cek apakah override masih perlu, hapus bila tidak.
+   di `docs/ARCHITECTURE.md` §2.3. Setiap upgrade paket induk: cek apakah override masih perlu, hapus bila tidak.
 
 **Menambah dependensi npm**: pilih paket dengan prebuilt arm64/pure JS; paket berat → import dinamis agar chunk
 utama tetap < 500 kB (cek output `npm run build`).

@@ -17,7 +17,7 @@ Kode: `frontend/src/features/file-control/` (peta file di §9).
 | `archive_disposition` | `archive_dispositions` | berita acara penyusutan |
 | `archive_move_log` | `archive_move_logs` | riwayat pemindahan |
 
-Semua perubahan data kearsipan tercatat otomatis di `archive_audit_logs` (lihat ARCHITECTURE.md §3.4).
+Semua perubahan data kearsipan tercatat otomatis di `archive_audit_logs` (lihat ARCHITECTURE.md §4.4).
 
 **Sumber arsip**: resource bertipe file (`isArchived: false`) + isi snapshot PARA Archive bertipe file
 (`isArchived: true`, `archiveWrapperId`). Setiap perubahan dirutekan kembali ke asalnya; field sementara
