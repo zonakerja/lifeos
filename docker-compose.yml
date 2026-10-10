@@ -1,0 +1,69 @@
+name: lifeos
+
+# Infrastruktur DEVELOPMENT lokal (postgres, redis, object storage): docker compose up -d
+# Deployment produksi/VPS memakai docker-compose.prod.yml (lihat docs/DEPLOYMENT.md).
+# Port host sengaja non-default agar tidak bentrok dengan service lokal lain.
+
+services:
+  postgres:
+    # PostgreSQL 18 + ekstensi pgvector (untuk embedding/semantic search AI)
+    image: pgvector/pgvector:0.8.7-pg18
+    container_name: lifeos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lifeos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "55432:5432"
+    volumes:
+      # Image 18+: mount ke /var/lib/postgresql (PGDATA = /var/lib/postgresql/18/docker), bukan .../data.
+      # Volume baru per major; upgrade major = dump/restore (docs/SETUP.md §2.1).
+      - lifeos-postgres18-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lifeos"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8.10-alpine
+    container_name: lifeos-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - lifeos-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  storage:
+    # Object storage S3-compatible (SeaweedFS). Image MinIO tidak lagi tersedia di registry publik.
+    image: chrislusf/seaweedfs:4.48
+    container_name: lifeos-storage
+    restart: unless-stopped
+    command: >-
+      server -dir=/data -ip.bind=0.0.0.0 -master.volumeSizeLimitMB=1024
+      -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+    ports:
+      - "9002:8333"   # S3 API
+      - "9003:8888"   # Filer UI (browse file)
+    volumes:
+      - lifeos-storage-data:/data
+      - ./infra/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+
+volumes:
+  lifeos-postgres18-data:
+    name: lifeos-postgres18-data
+  lifeos-redis-data:
+    name: lifeos-redis-data
+  lifeos-storage-data:
+    name: lifeos-storage-data
+
+networks:
+  default:
+    name: lifeos-network

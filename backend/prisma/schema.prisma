@@ -1,0 +1,698 @@
+// ============================================================================
+// LifeOS — skema database
+// Konvensi: model PascalCase, tabel & kolom snake_case (@@map/@map), timestamp
+// timestamptz(3), soft delete via deleted_at pada tabel domain.
+// Model domain di antara marker <generated:domain-models> DIBUAT OTOMATIS dari
+// src/records/record-schema.ts — jangan diedit manual (npm run db:generate-models).
+// ============================================================================
+
+// Client hasil generate (src/generated/prisma, tidak di-commit). Prisma 7 selalu tanpa
+// engine Rust (driver adapter pg), cocok untuk Windows ARM64. Proyek CommonJS → moduleFormat cjs.
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = ""
+}
+
+// URL koneksi diatur di prisma.config.ts (Prisma 7)
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  super_admin
+  admin
+  member
+  viewer
+
+  @@map("user_role")
+}
+
+enum AssetStatus {
+  uploaded
+  queued
+  extracting
+  ready
+  failed
+
+  @@map("asset_status")
+}
+
+enum AssetExtractionStatus {
+  pending
+  extracting
+  completed
+  unsupported
+  failed
+
+  @@map("asset_extraction_status")
+}
+
+enum AuditAction {
+  created
+  updated
+  deleted
+
+  @@map("audit_action")
+}
+
+// ---------------------------------------------------------------- Identitas
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(member)
+  phone        String?
+  address      String?
+  // API key AI milik user (sementara plaintext; akan dipindah ke penyimpanan kredensial terenkripsi).
+  apiKey       String?  @map("api_key")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  refreshTokens             RefreshToken[]
+  assets                    Asset[]
+  // <generated:user-relations>
+  agendaTypes               AgendaType[]
+  schedules                 Schedule[]
+  routines                  Routine[]
+  todos                     Todo[]
+  routineCompletions        RoutineCompletion[]
+  freeNotes                 FreeNote[]
+  aiNotes                   AiNote[]
+  noteLists                 NoteList[]
+  areas                     Area[]
+  projects                  Project[]
+  activities                Activity[]
+  tasks                     Task[]
+  resources                 Resource[]
+  paraArchives              ParaArchive[]
+  archiveClassifications    ArchiveClassification[]
+  archiveRetentionSchedules ArchiveRetentionSchedule[]
+  archiveLocations          ArchiveLocation[]
+  archiveBorrowings         ArchiveBorrowing[]
+  archiveDispositions       ArchiveDisposition[]
+  archiveMoveLogs           ArchiveMoveLog[]
+
+  // </generated:user-relations>
+  archiveAuditLogs ArchiveAuditLog[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  // id dipakai sebagai claim `jti` pada refresh token JWT
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  // SHA-256 (hex) dari refresh token
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model AppSettings {
+  id           String   @id @default("global")
+  name         String   @default("LifeOS")
+  navSub       String   @default("Integrated Edition") @map("nav_sub")
+  loginSub     String   @default("Ultimate") @map("login_sub")
+  motto        String   @default("Design Your Life, Manage Your Resources")
+  welcomeTitle String   @default("Selamat Datang") @map("welcome_title")
+  welcomeSub   String   @default("Silakan masuk menggunakan User ID dan Password Anda.") @map("welcome_sub")
+  footerText   String   @default("© 2026 LifeOS System") @map("footer_text")
+  // Logo aplikasi sebagai data URL (maks ~1 MB)
+  appLogo      String?  @map("app_logo")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("app_settings")
+}
+
+// ---------------------------------------------------------------- Aset & berkas
+
+model Asset {
+  id           String           @id @default(cuid())
+  userId       String           @map("user_id")
+  bucket       String
+  objectKey    String           @unique @map("object_key")
+  originalName String           @map("original_name")
+  mimeType     String           @map("mime_type")
+  size         Int
+  checksum     String
+  status       AssetStatus      @default(uploaded)
+  source       String           @default("upload")
+  context      String?
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  extraction   AssetExtraction?
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@index([checksum])
+  @@map("assets")
+}
+
+model AssetExtraction {
+  id            String                @id @default(cuid())
+  assetId       String                @unique @map("asset_id")
+  status        AssetExtractionStatus @default(pending)
+  extractedText String?               @map("extracted_text")
+  summary       String?
+  metadata      Json?
+  error         String?
+  startedAt     DateTime?             @map("started_at") @db.Timestamptz(3)
+  completedAt   DateTime?             @map("completed_at") @db.Timestamptz(3)
+  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  asset         Asset                 @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("asset_extractions")
+}
+
+// ---------------------------------------------------------------- Audit kearsipan
+
+/// Jejak perubahan data kearsipan (File Control): siapa, kapan, field apa, sebelum → sesudah.
+model ArchiveAuditLog {
+  id         String      @id @default(cuid())
+  /// Pemilik data
+  userId     String      @map("user_id")
+  /// Pelaku perubahan (bisa admin yang mengubah data user lain)
+  actorId    String?     @map("actor_id")
+  /// Record type, mis. archive_borrowing / para_resource
+  entityType String      @map("entity_type")
+  /// ID entitas buatan client
+  entityId   String      @map("entity_id")
+  action     AuditAction
+  /// { field: { from, to } } untuk update; snapshot lengkap untuk created/deleted
+  changes    Json
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, entityType, entityId])
+  @@index([createdAt])
+  @@map("archive_audit_logs")
+}
+
+// ---------------------------------------------------------------- Domain (generated)
+
+// <generated:domain-models>
+/// Record type `agenda_type`
+model AgendaType {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  clientId  String    @map("client_id")
+  name      String?
+  order     Int?
+  extra     Json      @default("{}")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@map("agenda_types")
+}
+
+/// Record type `schedule`
+model Schedule {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  clientId  String    @map("client_id")
+  title     String?
+  startDate DateTime? @map("start_date") @db.Date
+  endDate   DateTime? @map("end_date") @db.Date
+  date      DateTime? @db.Date
+  startTime String?   @map("start_time")
+  endTime   String?   @map("end_time")
+  time      String?
+  isAllDay  Boolean?  @map("is_all_day")
+  type      String?
+  location  String?
+  media     String?
+  extra     Json      @default("{}")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, startDate])
+  @@map("schedules")
+}
+
+/// Record type `routine`
+model Routine {
+  id            String    @id @default(cuid())
+  userId        String    @map("user_id")
+  clientId      String    @map("client_id")
+  title         String?
+  frequency     String?
+  days          Json?
+  interval      Int?
+  intervalType  String?   @map("interval_type")
+  monthDates    Json?     @map("month_dates")
+  startDate     DateTime? @map("start_date") @db.Date
+  active        Boolean?
+  archived      Boolean?
+  freezePeriods Json?     @map("freeze_periods")
+  extra         Json      @default("{}")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@map("routines")
+}
+
+/// Record type `todo`
+model Todo {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  clientId  String    @map("client_id")
+  title     String?
+  completed Boolean?
+  date      DateTime? @db.Date
+  priority  String?
+  extra     Json      @default("{}")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, date])
+  @@map("todos")
+}
+
+/// Record type `completion`
+model RoutineCompletion {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  routineId   String?   @map("routine_id")
+  date        DateTime? @db.Date
+  actualDate  DateTime? @map("actual_date") @db.Date
+  note        String?
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  extra       Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, routineId, date])
+  @@map("routine_completions")
+}
+
+/// Record type `free_note`
+model FreeNote {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  clientId  String    @map("client_id")
+  title     String?
+  content   String?
+  color     String?
+  extra     Json      @default("{}")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@map("free_notes")
+}
+
+/// Record type `ai_note`
+model AiNote {
+  id               String    @id @default(cuid())
+  userId           String    @map("user_id")
+  clientId         String    @map("client_id")
+  title            String?
+  date             DateTime? @db.Date
+  linkedScheduleId String?   @map("linked_schedule_id")
+  content          String?
+  aiSummary        String?   @map("ai_summary")
+  audioTranscript  String?   @map("audio_transcript")
+  fileContext      String?   @map("file_context")
+  hasAudio         Boolean?  @map("has_audio")
+  audioUploadId    String?   @map("audio_upload_id")
+  fileAttachment   Json?     @map("file_attachment")
+  extra            Json      @default("{}")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, date])
+  @@map("ai_notes")
+}
+
+/// Record type `list`
+model NoteList {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  clientId  String    @map("client_id")
+  title     String?
+  archived  Boolean?
+  items     Json?
+  extra     Json      @default("{}")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@map("note_lists")
+}
+
+/// Record type `para_area`
+model Area {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  title       String?
+  description String?
+  color       String?
+  extra       Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@map("areas")
+}
+
+/// Record type `para_project`
+model Project {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  title       String?
+  description String?
+  areaId      String?   @map("area_id")
+  startDate   DateTime? @map("start_date") @db.Date
+  deadline    DateTime? @db.Date
+  status      String?
+  progress    Float?
+  linkedNotes Json?     @map("linked_notes")
+  resources   Json?
+  extra       Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, areaId])
+  @@index([userId, status])
+  @@map("projects")
+}
+
+/// Record type `para_activity`
+model Activity {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  title       String?
+  description String?
+  areaId      String?   @map("area_id")
+  deadline    DateTime? @db.Date
+  status      String?
+  resources   Json?
+  extra       Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, areaId])
+  @@map("activities")
+}
+
+/// Record type `para_task`
+model Task {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  projectId   String?   @map("project_id")
+  title       String?
+  description String?
+  dueDate     DateTime? @map("due_date") @db.Date
+  priority    String?
+  weight      Float?
+  completed   Boolean?
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  type        String?
+  resources   Json?
+  extra       Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, projectId])
+  @@index([userId, dueDate])
+  @@map("tasks")
+}
+
+/// Record type `para_resource`
+model Resource {
+  id                    String    @id @default(cuid())
+  userId                String    @map("user_id")
+  clientId              String    @map("client_id")
+  number                String?
+  title                 String?
+  description           String?
+  content               String?
+  type                  String?
+  url                   String?
+  uploadId              String?   @map("upload_id")
+  mimeType              String?   @map("mime_type")
+  noteId                String?   @map("note_id")
+  date                  DateTime? @db.Date
+  tags                  Json?
+  sourceTag             String?   @map("source_tag")
+  aiSummary             String?   @map("ai_summary")
+  archivalStatus        String?   @map("archival_status")
+  archiveRegId          String?   @map("archive_reg_id")
+  classificationId      String?   @map("classification_id")
+  jraId                 String?   @map("jra_id")
+  retentionActiveDate   DateTime? @map("retention_active_date") @db.Date
+  retentionInactiveDate DateTime? @map("retention_inactive_date") @db.Date
+  status                String?
+  isVital               Boolean?  @map("is_vital")
+  isAutoDispose         Boolean?  @map("is_auto_dispose")
+  physLocationId        String?   @map("phys_location_id")
+  physRackId            String?   @map("phys_rack_id")
+  physBoxId             String?   @map("phys_box_id")
+  physFolderId          String?   @map("phys_folder_id")
+  digitalApp            String?   @map("digital_app")
+  digitalLink           String?   @map("digital_link")
+  notes                 String?
+  dispositionData       Json?     @map("disposition_data")
+  extra                 Json      @default("{}")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, type])
+  @@index([userId, archivalStatus])
+  @@index([userId, archiveRegId])
+  @@map("resources")
+}
+
+/// Record type `para_archive`
+model ParaArchive {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  clientId     String    @map("client_id")
+  originalType String?   @map("original_type")
+  originalId   String?   @map("original_id")
+  data         Json?
+  archivedAt   DateTime? @map("archived_at") @db.Timestamptz(3)
+  extra        Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, originalType])
+  @@map("para_archives")
+}
+
+/// Record type `archive_classification`
+model ArchiveClassification {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  clientId  String    @map("client_id")
+  jenis     String?
+  kodePokok String?   @map("kode_pokok")
+  namaPokok String?   @map("nama_pokok")
+  kodeSub   String?   @map("kode_sub")
+  namaSub   String?   @map("nama_sub")
+  kodeItem  String?   @map("kode_item")
+  namaItem  String?   @map("nama_item")
+  extra     Json      @default("{}")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, kodePokok, kodeSub, kodeItem])
+  @@map("archive_classifications")
+}
+
+/// Record type `archive_jra`
+model ArchiveRetentionSchedule {
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  clientId       String    @map("client_id")
+  kategoriUtama  String?   @map("kategori_utama")
+  subKategori    String?   @map("sub_kategori")
+  jenisArsip     String?   @map("jenis_arsip")
+  retensiAktif   Int?      @map("retensi_aktif")
+  retensiInaktif Int?      @map("retensi_inaktif")
+  keterangan     String?
+  extra          Json      @default("{}")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@map("archive_retention_schedules")
+}
+
+/// Record type `archive_physical_reference`
+model ArchiveLocation {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  type        String?
+  parentId    String?   @map("parent_id")
+  code        String?
+  name        String?
+  description String?
+  extra       Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, parentId])
+  @@index([userId, type])
+  @@index([userId, code])
+  @@map("archive_locations")
+}
+
+/// Record type `archive_borrowing`
+model ArchiveBorrowing {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  clientId     String    @map("client_id")
+  date         DateTime? @db.Date
+  returnDate   DateTime? @map("return_date") @db.Date
+  borrowerName String?   @map("borrower_name")
+  unit         String?
+  purpose      String?
+  items        Json?
+  status       String?
+  pic          String?
+  returnedAt   DateTime? @map("returned_at") @db.Timestamptz(3)
+  cancelledAt  DateTime? @map("cancelled_at") @db.Timestamptz(3)
+  extra        Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, status])
+  @@map("archive_borrowings")
+}
+
+/// Record type `archive_disposition`
+model ArchiveDisposition {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  type        String?
+  statusLabel String?   @map("status_label")
+  executedAt  DateTime? @map("executed_at") @db.Timestamptz(3)
+  formData    Json?     @map("form_data")
+  items       Json?
+  executedBy  String?   @map("executed_by")
+  extra       Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, executedAt])
+  @@map("archive_dispositions")
+}
+
+/// Record type `archive_move_log`
+model ArchiveMoveLog {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  date        DateTime? @db.Timestamptz(3)
+  itemsCount  Int?      @map("items_count")
+  targetName  String?   @map("target_name")
+  performedBy String?   @map("performed_by")
+  description String?
+  movedItems  Json?     @map("moved_items")
+  extra       Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, date])
+  @@map("archive_move_logs")
+}
+
+// </generated:domain-models>

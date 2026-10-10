@@ -1,0 +1,32 @@
+# Reverse proxy produksi: HTTPS otomatis (Let's Encrypt) untuk APP_DOMAIN.
+#   /api/*  → backend (NestJS)
+#   lainnya → frontend (nginx, SPA statis)
+{
+	email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	handle /api/* {
+		# Batas body sedikit di atas UPLOAD_MAX_MB backend (default 100 MB)
+		request_body {
+			max_size 110MB
+		}
+		reverse_proxy backend:4000
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

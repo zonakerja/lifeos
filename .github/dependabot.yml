@@ -1,0 +1,42 @@
+# Dependabot hanya mengusulkan update minor & patch (dikelompokkan jadi satu PR per folder).
+# Update MAJOR sengaja diabaikan: butuh migrasi kode & diuji bersama, jadi dikerjakan terencana
+# (resep di CLAUDE.md §14, kebijakan di docs/ARCHITECTURE.md §2.3).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /backend
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
+    groups:
+      minor-and-patch: { update-types: [minor, patch] }
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
+    groups:
+      minor-and-patch: { update-types: [minor, patch] }
+  - package-ecosystem: docker
+    directories: [/backend, /frontend]
+    schedule: { interval: weekly }
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
+  # Image infra di docker-compose.yml & docker-compose.prod.yml (postgres/pgvector, redis, seaweedfs, caddy).
+  # PostgreSQL major ada di sufiks tag (-pg18) sehingga tidak pernah diubah otomatis (upgrade major: DEPLOYMENT.md §8).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: weekly }
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      github-actions: { patterns: ["*"] }
