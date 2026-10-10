@@ -84,3 +84,38 @@ export const formatNumericDate = fmt({});
 /** Selisih hari kalender (b - a). */
 export const diffInDays = (a: Date, b: Date) =>
   Math.ceil((startOfDay(b).getTime() - startOfDay(a).getTime()) / (1000 * 60 * 60 * 24));
+
+/** "8 Okt 2026, 14.05" */
+export const formatDateTime = (value: Date | string | number) => {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime())
+    ? "-"
+    : d.toLocaleString("id-ID", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+};
+
+const RELATIVE_UNITS: [limitSeconds: number, unit: Intl.RelativeTimeFormatUnit, seconds: number][] = [
+  [3600, "minute", 60],
+  [86400, "hour", 3600],
+  [604800, "day", 86400],
+  [2629800, "week", 604800],
+  [31557600, "month", 2629800],
+  [Infinity, "year", 31557600],
+];
+
+/** Waktu relatif terhadap `now`: "baru saja", "5 menit yang lalu", "kemarin", "3 minggu yang lalu". */
+export const formatRelative = (value: Date | string | number, now: Date) => {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "-";
+  const diff = (d.getTime() - now.getTime()) / 1000;
+  // `now` bisa sedikit tertinggal dari aksi terbaru (mis. useToday saat mount) → anggap baru saja
+  if (diff > -60) return "baru saja";
+  const rtf = new Intl.RelativeTimeFormat("id-ID", { numeric: "auto" });
+  const [, unit, seconds] = RELATIVE_UNITS.find(([limit]) => Math.abs(diff) < limit)!;
+  return rtf.format(Math.round(diff / seconds), unit);
+};

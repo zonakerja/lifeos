@@ -169,11 +169,18 @@ export interface Project extends Owned {
   createdAt?: string;
 }
 
-/** Aktivitas rutin dalam Area (punya tasks seperti project). */
+/**
+ * Item bertingkat di dalam Area (punya tasks seperti project). Hierarki:
+ * Area → **Sub Area** (tanpa `parentId`) → **Kegiatan** → **Sub Kegiatan** → Task; task boleh melekat di tingkat
+ * mana pun. Tingkat ditentukan rantai `parentId` (lihat `features/productivity/lib/para.ts`).
+ */
 export interface Activity extends Owned {
   id: string;
   title: string;
+  /** Selalu diisi di semua tingkat (memudahkan filter & arsip per area) */
   areaId?: string;
+  /** ID induk: kosong = Sub Area; induk Sub Area = Kegiatan; induk Kegiatan = Sub Kegiatan */
+  parentId?: string;
   deadline?: string;
   status?: ParaStatus;
   description?: string;
@@ -200,12 +207,38 @@ export interface ProjectTask extends Owned {
 
 export type ArchiveOriginalType = "project" | "area" | "resource" | "activity";
 
+/** Turunan yang ikut diarsipkan bersama item induk (dipulihkan bersamaan). */
+export interface ParaArchiveRelated {
+  projects?: Project[];
+  activities?: Activity[];
+  /** Action milik project & task milik kegiatan */
+  tasks?: ProjectTask[];
+}
+
 export interface ParaArchive extends Owned {
   id: string;
   originalType: ArchiveOriginalType;
   originalId?: string;
   data: Record<string, unknown>;
+  related?: ParaArchiveRelated;
   archivedAt: string;
+}
+
+/** Riwayat arsip & pemulihan PARA (append-only). */
+export interface ParaArchiveLog extends Owned {
+  id: string;
+  action: "archived" | "restored";
+  originalType: ArchiveOriginalType;
+  originalId?: string;
+  /** ID entri `para_archive` terkait */
+  archiveId: string;
+  title: string;
+  /** Ringkasan turunan, mis. "1 project · 2 task" */
+  summary?: string;
+  /** Nama pengguna yang melakukan aksi */
+  actorName?: string;
+  /** Waktu aksi (ISO) */
+  at: string;
 }
 
 // ============================================================================

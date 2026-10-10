@@ -115,7 +115,12 @@ export function buildLifeosContext(data: LifeosData, variant: "search" | "chat")
       ),
     ],
     ...(!isSearch
-      ? [["KEGIATAN/AREA", section(data.activities, (a) => `- ID: app:activity:${a.id} | ${a.title}`, 1000)]]
+      ? [
+          [
+            "SUB AREA/KEGIATAN/SUB KEGIATAN (AREA)",
+            section(data.activities, (a) => `- ID: app:activity:${a.id} | ${a.title}`, 1000),
+          ],
+        ]
       : []),
     [
       "PROJECT ACTIONS / TASKS",

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { HeroStat, ModulePage } from "@/components/layout/module-page";
 import { useActivities, useAreas, useProjects, useProjectTasks, useResources } from "@/data/collections";
-import { useSearchParam } from "@/hooks/use-search-param";
+import { useSearchParam, useSetSearchParams } from "@/hooks/use-search-param";
 import type { Area } from "@/types/entities";
 import { AreaDetailDialog } from "./components/area-dialogs";
 import { AreasTab } from "./components/areas-tab";
@@ -26,9 +26,10 @@ export function Component() {
   // Dialog detail dikendalikan URL (deep link dari overview, notifikasi, pencarian, chatbot)
   const [projectId, setProjectId] = useSearchParam("project");
   const [areaId, setAreaId] = useSearchParam("area");
-  const [taskId, setTaskId] = useSearchParam("task");
+  const [taskId] = useSearchParam("task");
+  const setParams = useSetSearchParams();
 
-  // ?task=<id> → buka project pemiliknya, atau area dari kegiatan pemiliknya
+  // ?task=<id> → buka project pemiliknya, atau area dari sub area/kegiatan pemiliknya
   const task = taskId ? tasks.find((t) => t.id === taskId) : undefined;
   const taskProject = task ? projects.find((p) => p.id === task.projectId) : undefined;
   const taskArea =
@@ -70,8 +71,7 @@ export function Component() {
             project={openProject}
             onOpenChange={(open) => {
               if (open) return;
-              setProjectId(null);
-              setTaskId(null);
+              setParams({ project: null, task: null });
             }}
           />
           <AreaDetailDialog
@@ -79,15 +79,14 @@ export function Component() {
             onArchive={setArchivingArea}
             onOpenChange={(open) => {
               if (open) return;
-              setAreaId(null);
-              setTaskId(null);
+              setParams({ area: null, task: null });
             }}
           />
           <ConfirmDialog
             open={!!archivingArea}
             onOpenChange={(open) => !open && setArchivingArea(null)}
             title="Arsipkan Area?"
-            description="Area ini dan semua project di dalamnya akan dipindahkan ke Arsip. Anda bisa memulihkannya nanti."
+            description="Area ini beserta semua project, sub area, kegiatan, sub kegiatan, dan task di dalamnya akan dipindahkan ke Arsip. Memulihkan area akan mengembalikan semuanya."
             itemName={archivingArea?.title}
             confirmLabel="Arsipkan"
             destructive={false}

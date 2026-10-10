@@ -30,10 +30,10 @@ export function AreasTab({
 
   const requestDelete = (area: Area) => {
     const p = projects.filter((x) => x.areaId === area.id).length;
-    const a = activities.filter((x) => x.areaId === area.id).length;
+    const a = activities.filter((x) => x.areaId === area.id && !x.parentId).length;
     if (p > 0 || a > 0) {
       toast.error("Tidak dapat menghapus Area", {
-        description: `Area "${area.title}" masih memiliki ${a} kegiatan dan ${p} project aktif. Hapus atau arsipkan item tersebut terlebih dahulu.`,
+        description: `Area "${area.title}" masih memiliki ${a} sub area dan ${p} project aktif. Hapus atau arsipkan item tersebut terlebih dahulu.`,
       });
       return;
     }

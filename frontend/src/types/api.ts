@@ -52,6 +52,7 @@ export const RECORD_TYPES = [
   "para_activity",
   "para_resource",
   "para_archive",
+  "para_archive_log",
   "archive_classification",
   "archive_jra",
   "archive_physical_reference",

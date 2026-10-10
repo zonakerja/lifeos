@@ -13,7 +13,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { DateRangeFilter } from "@/components/common/date-range-filter";
@@ -39,13 +39,16 @@ import { formatNumericDate } from "@/lib/dates";
 import { generateId } from "@/lib/ids";
 import { cn } from "@/lib/utils";
 import type { Activity, AttachedResource, Priority, Project, ProjectTask } from "@/types/entities";
+import type { AreaLevel } from "../lib/para";
 import { projectTimeProgress, taskProgress } from "../lib/progress";
 
-type TaskOwnerType = "Project" | "Kegiatan";
+type TaskOwnerType = "Project" | AreaLevel;
 
 interface TaskManagerProps {
   owner: Project | Activity;
   ownerType: TaskOwnerType;
+  /** Konten tambahan di header (mis. jalur induk / daftar turunan item area) */
+  headerExtra?: ReactNode;
 }
 
 const emptyTask = (): Omit<ProjectTask, "id" | "projectId"> => ({
@@ -57,8 +60,8 @@ const emptyTask = (): Omit<ProjectTask, "id" | "projectId"> => ({
   resources: [],
 });
 
-/** Pengelola Action (Project) / Task (Kegiatan). */
-export function TaskManager({ owner, ownerType }: TaskManagerProps) {
+/** Pengelola Action (Project) / Task (Sub Area, Kegiatan, Sub Kegiatan). */
+export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps) {
   const { items: tasks, setItems: setTasks } = useProjectTasks();
   const { canEdit } = usePermissions();
   const today = useToday();
@@ -130,6 +133,8 @@ export function TaskManager({ owner, ownerType }: TaskManagerProps) {
           <h2 className="text-2xl font-extrabold tracking-tight md:text-3xl">{owner.title}</h2>
           {owner.description && <p className="mt-1 text-sm text-muted-foreground">{owner.description}</p>}
         </div>
+
+        {headerExtra}
 
         {isProject && (
           <div className="grid gap-3 md:grid-cols-2">

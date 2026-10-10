@@ -1,4 +1,4 @@
-import type { Activity, Project, ProjectTask } from "@/types/entities";
+import type { Activity, Area, Project, ProjectTask } from "@/types/entities";
 
 /** Palet warna proyek (token desain) — dipilih stabil berdasarkan hash ID. */
 const PROJECT_COLORS = [
@@ -85,4 +85,82 @@ export const PARA_INFO = {
     title: "Archives Repository",
     description: "Arsip berisi item tidak aktif. Anda dapat memulihkan item kembali ke dashboard utama kapan saja.",
   },
+};
+
+// ============================================================================
+// Hierarki Area: Area → Sub Area → Kegiatan → Sub Kegiatan → Task
+// Ketiga tingkat di bawah Area disimpan sebagai `para_activity`; tingkatnya ditentukan rantai `parentId`
+// (tanpa induk = Sub Area). Task boleh melekat di tingkat mana pun.
+// ============================================================================
+
+export const AREA_LEVELS = ["Sub Area", "Kegiatan", "Sub Kegiatan"] as const;
+export type AreaLevel = (typeof AREA_LEVELS)[number];
+/** Kedalaman terdalam (Sub Kegiatan) — tidak bisa memiliki turunan lagi. */
+export const MAX_AREA_DEPTH = AREA_LEVELS.length - 1;
+
+/** Sub Area (tingkat teratas) dalam satu area. */
+export const rootActivities = (activities: Activity[], areaId: string) =>
+  activities.filter((a) => a.areaId === areaId && !a.parentId);
+
+/** Turunan langsung satu item (Sub Area → Kegiatan, Kegiatan → Sub Kegiatan). */
+export const childrenOf = (activities: Activity[], parentId: string) =>
+  activities.filter((a) => a.parentId === parentId);
+
+/** Rantai induk dari tingkat teratas sampai induk langsung (tidak termasuk item itu sendiri). */
+export const activityAncestors = (activities: Activity[], activity: Activity) => {
+  const byId = new Map(activities.map((a) => [a.id, a]));
+  const chain: Activity[] = [];
+  let parent = activity.parentId ? byId.get(activity.parentId) : undefined;
+  while (parent && !chain.includes(parent) && chain.length < MAX_AREA_DEPTH) {
+    chain.unshift(parent);
+    parent = parent.parentId ? byId.get(parent.parentId) : undefined;
+  }
+  return chain;
+};
+
+/** 0 = Sub Area, 1 = Kegiatan, 2 = Sub Kegiatan. */
+export const activityDepth = (activities: Activity[], activity: Activity) =>
+  Math.min(activityAncestors(activities, activity).length, MAX_AREA_DEPTH);
+
+export const activityLevel = (activities: Activity[], activity: Activity): AreaLevel =>
+  AREA_LEVELS[activityDepth(activities, activity)];
+
+/** ID item beserta seluruh turunannya (untuk hapus berantai). */
+export const activityTreeIds = (activities: Activity[], id: string) => {
+  const ids = [id];
+  for (let i = 0; i < ids.length; i++) {
+    for (const child of childrenOf(activities, ids[i])) if (!ids.includes(child.id)) ids.push(child.id);
+  }
+  return ids;
+};
+
+/** Jumlah item per tingkat, mis. [{ label: "Kegiatan", count: 2 }] (urut dari tingkat teratas). */
+export const levelCounts = (activities: Activity[], items: Activity[]) =>
+  AREA_LEVELS.map((label, depth) => ({
+    label,
+    count: items.filter((a) => activityDepth(activities, a) === depth).length,
+  })).filter((c) => c.count > 0);
+
+/** Free Project = project tanpa area (atau area-nya sudah tidak ada, mis. diarsipkan/dihapus). */
+export const freeProjectsOf = (projects: Project[], areas: Area[]) => {
+  const areaIds = new Set(areas.map((a) => a.id));
+  return projects.filter((p) => !p.areaId || !areaIds.has(p.areaId));
+};
+
+/** Gabung daftar: "a", "a dan b", "a, b dan c". */
+const joinParts = (parts: string[]) =>
+  parts.length <= 1 ? (parts[0] ?? "") : `${parts.slice(0, -1).join(", ")} dan ${parts[parts.length - 1]}`;
+
+/** Teks konfirmasi hapus project / item area beserta jumlah turunan yang ikut terhapus. */
+export const deleteDescription = (
+  label: "Project" | AreaLevel,
+  impact: { taskCount: number; children?: { label: string; count: number }[] },
+) => {
+  const parts = [
+    ...(impact.children ?? []).map((c) => `${c.count} ${c.label.toLowerCase()}`),
+    impact.taskCount ? `${impact.taskCount} ${label === "Project" ? "action" : "task"}` : "",
+  ].filter(Boolean);
+  return parts.length > 0
+    ? `${label} ini beserta ${joinParts(parts)} di dalamnya akan dihapus permanen. Gunakan Arsipkan bila ingin menyimpannya.`
+    : "Anda yakin ingin menghapus item ini secara permanen?";
 };

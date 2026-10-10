@@ -89,6 +89,7 @@ model User {
   tasks                     Task[]
   resources                 Resource[]
   paraArchives              ParaArchive[]
+  paraArchiveLogs           ParaArchiveLog[]
   archiveClassifications    ArchiveClassification[]
   archiveRetentionSchedules ArchiveRetentionSchedule[]
   archiveLocations          ArchiveLocation[]
@@ -439,6 +440,7 @@ model Activity {
   title       String?
   description String?
   areaId      String?   @map("area_id")
+  parentId    String?   @map("parent_id")
   deadline    DateTime? @db.Date
   status      String?
   resources   Json?
@@ -451,6 +453,7 @@ model Activity {
   @@unique([userId, clientId])
   @@index([userId, deletedAt])
   @@index([userId, areaId])
+  @@index([userId, parentId])
   @@map("activities")
 }
 
@@ -550,6 +553,32 @@ model ParaArchive {
   @@index([userId, deletedAt])
   @@index([userId, originalType])
   @@map("para_archives")
+}
+
+/// Record type `para_archive_log`
+model ParaArchiveLog {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  clientId     String    @map("client_id")
+  action       String?
+  originalType String?   @map("original_type")
+  originalId   String?   @map("original_id")
+  archiveId    String?   @map("archive_id")
+  title        String?
+  summary      String?
+  actorName    String?   @map("actor_name")
+  at           DateTime? @db.Timestamptz(3)
+  extra        Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, at])
+  @@index([userId, originalId])
+  @@map("para_archive_logs")
 }
 
 /// Record type `archive_classification`

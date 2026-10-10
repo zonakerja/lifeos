@@ -127,7 +127,7 @@ Ke depan: **chatbot AI untuk bertanya tentang arsip & hasil pekerjaan** (RAG).
 | Frontend | TypeScript 6 strict, React 19, Vite 8, React Router 8, TanStack Query 5, Zustand 5, react-hook-form + zod 4 |
 | UI | shadcn/ui + Tailwind v4, tampilan colorful per modul lewat design token; dark mode via token |
 | Backend | NestJS 12 (CommonJS) + TypeScript 6 + Prisma 7 + PostgreSQL 18; Node 24 LTS (versi lengkap: `docs/ARCHITECTURE.md` §2) |
-| Database | 20 tabel domain terstruktur dari satu spesifikasi + kolom `extra` jsonb (lossless), snake_case, timestamptz |
+| Database | 21 tabel domain terstruktur dari satu spesifikasi + kolom `extra` jsonb (lossless), snake_case, timestamptz |
 | Auth | access JWT 15 menit di memori + refresh token di cookie httpOnly berotasi |
 | AI provider | Multi-provider dipilih user: Gemini, Claude, OpenAI (thread fitur AI) |
 | AI data/RAG | **pgvector** di PostgreSQL (embedding & semantic search); **Redis** untuk antrian BullMQ, cache, rate-limit, memori sesi chat |
@@ -201,9 +201,9 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   Admin mengubah password/role user → sesi user itu dihapus.
 - **Users**: list/get (admin, super_admin), create/update/delete (super_admin; admin hanya kelola non-super-admin).
 - **Settings**: `GET /settings/app` publik (branding login); `PATCH` admin.
-- **Database**: tabel & kolom snake_case (`@@map/@map`), timestamptz(3), FK `users` cascade. 20 tabel domain
+- **Database**: tabel & kolom snake_case (`@@map/@map`), timestamptz(3), FK `users` cascade. 21 tabel domain
   (agenda_types, schedules, routines, todos, routine_completions, free_notes, ai_notes, note_lists, areas, projects,
-  activities, tasks, resources, para_archives, archive_classifications, archive_retention_schedules,
+  activities, tasks, resources, para_archives, para_archive_logs, archive_classifications, archive_retention_schedules,
   archive_locations, archive_borrowings, archive_dispositions, archive_move_logs) dengan kolom sistem
   `id, user_id, client_id, extra, created_at, updated_at, deleted_at` + `UNIQUE(user_id, client_id)`.
   - **Sumber tunggal** `src/records/record-schema.ts` (type → model/tabel, field & jenis
@@ -214,7 +214,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   - Tanpa FK antar entitas (ID buatan client, tulis per item asinkron, relasi polimorfik) — cukup diindeks.
   - **Audit kearsipan** `archive_audit_logs` (created/updated/deleted, diff `{field:{from,to}}`, actor) untuk tipe
     `audit: true` (resource hanya bila punya `archivalStatus`; snapshot PARA hanya berisi file). `GET /archive-audit`.
-  - Migrasi: satu baseline `20261009120000_init`. Migrasi baru → lihat docs/SETUP.md §10
+  - Migrasi: baseline `20261009120000_init` + `20261011120000_activity_parent` +
+    `20261011130000_para_archive_log`. Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?userId&from&to`, `PUT /records/:type/:clientId` `{ payload, userId? }` (upsert,
@@ -259,7 +260,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 - **Dialog form**: state di komponen *dalam* yang di-mount saat dialog terbuka (`useState(() => dariProps)`), atau
   `key` pada inner. **Jangan** sinkronisasi props→state dengan `useEffect`.
 - **Deep link via URL** (`useSearchParam`): `?edit=`, `?todo=`, `?date=`, `?project=`, `?area=`, `?task=`, `?resource=`,
-  `?note=`, `?archive=`, sub-tab `?sub=`/`?ref=`. Peta di `src/lib/deep-links.ts`.
+  `?note=`, `?archive=`, sub-tab `?sub=`/`?ref=`. Peta di `src/lib/deep-links.ts`. Mengubah **lebih dari satu** param
+  sekaligus → `useSetSearchParams()({ a: null, b: null })`, jangan dua setter `useSearchParam` berturut-turut.
 - **Waktu di render**: `useToday()`. **Hak akses**: `usePermissions()` (viewer read-only).
 - **AI**: hanya via `useAi()` (`src/lib/ai/use-ai.ts`), provider sementara Gemini dari browser (`gemini-2.5-flash`).
 - **Lampiran**: `features/resources/` (`AttachmentForm`, `AttachmentTable`, `ResourceAiDialog`, `openAttachment()`,
@@ -276,9 +278,18 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 
 ## 9. Glosarium Domain
 
-- **PARA**: Projects (deadline, tasks/actions berbobot, timeline), Areas (tanggung jawab berkelanjutan, berisi kegiatan),
+- **PARA**: Projects (deadline, tasks/actions berbobot, timeline), Areas (tanggung jawab berkelanjutan; hierarki
+  **Area → Sub Area → Kegiatan → Sub Kegiatan → Task**; ketiga tingkat = `para_activity` (tanpa `parentId` = Sub Area,
+  tingkat dari rantai `parentId`, maks. 3, semuanya menyimpan `areaId`); task boleh melekat di tingkat mana pun;
+  helper di `features/productivity/lib/para.ts` (`AREA_LEVELS`, `activityLevel`, `activityTreeIds`, …); area juga
+  memuat project — Free Project = project tanpa area yang valid, bisa diambil ke area dari dialog Area atau dilepas),
   Resources (link/file/note, tag konteks, ringkasan AI), Archives (snapshot `originalType` project/area/resource,
-  `data`, `archivedAt` → bisa dipulihkan).
+  `data`, `archivedAt` → bisa dipulihkan). Turunan ikut diarsipkan dalam **satu entri** di `related`
+  (project → action-nya; area → project, sub area/kegiatan/sub kegiatan, dan semua task-nya) dan ikut dipulihkan —
+  koleksi aktif tidak pernah berisi task yatim. Setiap arsip & pemulihan dicatat di `para_archive_log` (tab Archives →
+  "Log Arsip & Pemulihan"). Logika murni: `features/productivity/lib/para-archive.ts` (+ test). Hapus project / item
+  area juga menghapus turunan & task-nya (`useParaActions().deleteProject/deleteActivity`); hapus area diblokir
+  selama masih berisi sub area/project.
 - **Planner**: rutinitas `daily|weekly|monthly|interval` (+ `intervalType`, `freezePeriods`); jadwal multi-hari
   (`startDate/endDate`, `isAllDay`, type, location, media); todo berprioritas; `completions` per rutinitas per tanggal
   (ID `${routineId}:${date}`).
@@ -303,7 +314,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 |---|---|
 | Backend fondasi (auth cookie, users, settings, records, uploads, health, logging) | ✅ |
 | Frontend: Settings, Overview (+ global search, focus mode, notifikasi, chatbot), Planner, Notes, Productivity, File Control | ✅ |
-| Database terstruktur + audit kearsipan (satu migrasi baseline) | ✅ |
+| Database terstruktur + audit kearsipan (baseline + migrasi bertahap) | ✅ |
 | Keamanan (cookie httpOnly, CSP, sandbox berkas, upload streaming, rate limit) | ✅ |
 | Deployment VPS (compose prod, Caddy HTTPS, batas memori, backup luar server terenkripsi + pemantauan) — diuji end-to-end lokal, termasuk pemulihan dari luar server | ✅ |
 | Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot npm/docker/docker-compose/actions) | ✅ |
@@ -364,6 +375,30 @@ Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `
 - 2026-10-11 — Thread perbaikan **File Control** dimulai. Perbaikan 1: menu File Control gagal dimuat (504 Outdated
   Optimize Dep untuk `qrcode.react`) → Vite `optimizeDeps.entries` memindai seluruh `src/` saat start (dev saja).
 - 2026-10-11 — Thread perbaikan **Productivity** (PARA: Overview, Projects, Areas, Resources, Archives) dimulai.
+  Perbaikan 1 (arsip): sebelumnya mengarsipkan area meninggalkan kegiatan & task-nya, dan action project yang
+  diarsipkan tetap muncul di Planner/beranda/chatbot. Kini turunan dibundel di `ParaArchive.related` (disimpan di
+  kolom `extra`, tanpa migrasi), area = satu entri arsip (bukan lagi entri terpisah per project), pemulihan
+  mengembalikan semuanya; daftar arsip menampilkan "Termasuk: …". Arsip lama tanpa `related` tetap bisa dipulihkan.
+  Perbaikan 2 (hapus): hapus project/kegiatan kini ikut menghapus action/task-nya (sebelumnya tertinggal & tetap
+  muncul di Planner/beranda); konfirmasi menyebut jumlah yang ikut terhapus dan menyarankan Arsipkan.
+  Perbaikan 3: tombol Close modal Project/Area/Action tidak berfungsi — dua setter URL (`project`/`area` + `task`)
+  saling menimpa → `useSetSearchParams` (satu navigasi).
+  Enhancement 4 (revisi user): hierarki Area **Area → Sub Area → Kegiatan → Sub Kegiatan → Task** — "Kegiatan" lama
+  menjadi **Sub Area**, lalu ditambah Kegiatan & Sub Kegiatan (istilah mengikuti perencanaan pemerintah Program →
+  Kegiatan → Sub Kegiatan). Model: `para_activity.parentId` (kolom `parent_id`, migrasi
+  `20261011120000_activity_parent`), bukan tabel baru — semua konsumen yang mencari induk task lewat koleksi activity
+  (Planner, beranda, kalender, chatbot, arsip area) otomatis ikut. Hapus berantai ke seluruh turunan & task; konfirmasi
+  dan ringkasan arsip menghitung per tingkat. Identifier kode tetap `Activity` / `para_activity`.
+  Enhancement 5: dialog Area bisa "Ambil dari Free Project" dan "Lepas dari area".
+  Enhancement 6: expand/collapse pohon Sub Area & Kegiatan di sidebar dialog Area (default terbuka, tombol buka/tutup
+  semua, jumlah turunan tampil saat tertutup; memilih item lewat kartu/breadcrumb/form otomatis membuka induknya).
+  State hanya di memori (kembali terbuka saat dialog dibuka ulang).
+  Enhancement 7 (tab Archives): panel filter ringkas (lebar 176 px, jumlah per jenis); kartu arsip informatif (waktu +
+  relatif, pelaku, area asal/periode project, tipe/host/tag resource, progres task, "Lihat isi" = project, struktur
+  area, daftar task); tampilan **Log Arsip & Pemulihan** dari tabel baru `para_archive_logs` (record type
+  `para_archive_log`, migrasi `20261011130000_para_archive_log`) — ditulis `useParaActions` saat arsip/pulihkan,
+  pemilik log = pemilik arsip. Tidak memakai `archive_audit_logs` (khusus kearsipan File Control). Snapshot arsip kini
+  membawa `userId` pemilik item (sebelumnya arsip data user lain oleh super admin tercatat milik admin).
 
 ## 13. Konvensi Kode
 
@@ -508,6 +543,10 @@ utama tetap < 500 kB (cek output `npm run build`).
 - "Failed to fetch dynamically imported module …-page.tsx" + console `504 (Outdated Optimize Dep)` = Vite baru
   menemukan dependensi milik rute lazy saat rute dibuka lalu mengoptimasi ulang. Dicegah dengan
   `optimizeDeps.entries` (memindai `src/**`) di `frontend/vite.config.ts`; bila tetap terjadi, restart dev server.
+- `setSearchParams` React Router **tidak mengantrekan** updater fungsi: dua setter `useSearchParam` yang dipanggil
+  berturut-turut saling menimpa (perubahan pertama hilang, mis. dialog tidak bisa ditutup) → `useSetSearchParams`.
+- Uji dialog Radix saat panel browser tersembunyi: animasi tutup tidak berjalan, elemen tetap ada dengan
+  `data-state="closed"` → cari dialog dengan `[role=dialog][data-state=open]`.
 
 ## 16. Memori & Kesinambungan Antar-Chat
 

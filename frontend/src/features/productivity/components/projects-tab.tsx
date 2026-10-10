@@ -13,7 +13,7 @@ import { useToday } from "@/hooks/use-today";
 import { DEFAULT_DATE_FILTER, dateFilterRange } from "@/lib/date-filter";
 import { formatNumericDate } from "@/lib/dates";
 import type { Project } from "@/types/entities";
-import { isProjectActiveIn, PARA_INFO } from "../lib/para";
+import { deleteDescription, isProjectActiveIn, PARA_INFO } from "../lib/para";
 import { projectTaskProgress, projectTimeProgress } from "../lib/progress";
 import { useParaActions } from "../use-para-actions";
 import { MiniProgress } from "./overview-tab";
@@ -22,7 +22,7 @@ import { ProjectFormDialog } from "./project-dialogs";
 
 export function ProjectsTab({ onOpenProject }: { onOpenProject: (id: string) => void }) {
   const today = useToday();
-  const { items: projects, setItems: setProjects } = useProjects();
+  const { items: projects } = useProjects();
   const { items: areas } = useAreas();
   const { items: tasks } = useProjectTasks();
   const { canEdit } = usePermissions();
@@ -143,11 +143,11 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (id: string) => 
         open={!!deleting}
         onOpenChange={(open) => !open && setDeleting(null)}
         title="Hapus Project?"
-        description="Anda yakin ingin menghapus item ini secara permanen dari database?"
+        description={deleteDescription("Project", deleting ? actions.deleteImpact(deleting.id) : { taskCount: 0 })}
         itemName={deleting?.title}
         confirmLabel="Konfirmasi Hapus"
         onConfirm={() => {
-          if (deleting) setProjects((prev) => prev.filter((p) => p.id !== deleting.id));
+          if (deleting) actions.deleteProject(deleting);
           setDeleting(null);
         }}
       />
@@ -155,7 +155,7 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (id: string) => 
         open={!!archiving}
         onOpenChange={(open) => !open && setArchiving(null)}
         title="Arsipkan Project?"
-        description="Item ini akan dipindahkan ke Arsip. Anda bisa memulihkannya nanti."
+        description="Project ini beserta semua action-nya akan dipindahkan ke Arsip. Anda bisa memulihkannya nanti."
         itemName={archiving?.title}
         confirmLabel="Arsipkan"
         destructive={false}

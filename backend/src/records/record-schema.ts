@@ -189,8 +189,17 @@ export const RECORD_TABLES = {
     table: "activities",
     titleKey: "title",
     dateKey: "deadline",
-    fields: [s("title"), s("description"), s("areaId"), f("deadline", "ymd"), s("status"), f("resources", "json")],
-    indexes: [["areaId"]],
+    // Item area bertingkat: tanpa `parentId` = Sub Area; anak Sub Area = Kegiatan; anak Kegiatan = Sub Kegiatan
+    fields: [
+      s("title"),
+      s("description"),
+      s("areaId"),
+      s("parentId"),
+      f("deadline", "ymd"),
+      s("status"),
+      f("resources", "json"),
+    ],
+    indexes: [["areaId"], ["parentId"]],
   },
   para_task: {
     model: "Task",
@@ -259,6 +268,24 @@ export const RECORD_TABLES = {
     audit: true,
     fields: [s("originalType"), s("originalId"), f("data", "json"), f("archivedAt", "timestamp")],
     indexes: [["originalType"]],
+  },
+  /** Riwayat arsip & pemulihan PARA (append-only, ditulis saat item diarsipkan / dipulihkan). */
+  para_archive_log: {
+    model: "ParaArchiveLog",
+    table: "para_archive_logs",
+    titleKey: "title",
+    dateKey: "at",
+    fields: [
+      s("action"),
+      s("originalType"),
+      s("originalId"),
+      s("archiveId"),
+      s("title"),
+      s("summary"),
+      s("actorName"),
+      f("at", "timestamp"),
+    ],
+    indexes: [["at"], ["originalId"]],
   },
 
   // ---------------------------------------------------- File Control (arsip)

@@ -14,6 +14,7 @@ import {
   type FreeList,
   type FreeNote,
   type ParaArchive,
+  type ParaArchiveLog,
   type PhysicalReference,
   type Project,
   type ProjectTask,
@@ -47,6 +48,7 @@ export const useProjectTasks = () => useCollection<ProjectTask>("para_task");
 export const useActivities = () => useCollection<Activity>("para_activity");
 export const useResources = () => useCollection<Resource>("para_resource");
 export const useParaArchives = () => useCollection<ParaArchive>("para_archive");
+export const useParaArchiveLogs = () => useCollection<ParaArchiveLog>("para_archive_log");
 
 // File Control (kearsipan)
 export const useClassifications = () => useCollection<ArchiveClassification>("archive_classification");

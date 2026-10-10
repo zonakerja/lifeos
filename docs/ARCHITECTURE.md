@@ -150,10 +150,11 @@ dengan `ON DELETE CASCADE`, soft delete `deleted_at` pada tabel domain.
 | `list` | `note_lists` | title, archived, items |
 | `para_area` | `areas` | title, description, color |
 | `para_project` | `projects` | title, area_id, start_date, deadline, status, progress, linked_notes, resources |
-| `para_activity` | `activities` | title, area_id, deadline, status, resources |
+| `para_activity` | `activities` | title, area_id, parent_id (kosong = Sub Area; induk berantai → Kegiatan → Sub Kegiatan), deadline, status, resources |
 | `para_task` | `tasks` | project_id, title, due_date, priority, weight, completed, completed_at, resources |
 | `para_resource` | `resources` | title, type, url, upload_id, date, tags, ai_summary + **field kearsipan** (archival_status, archive_reg_id, classification_id, jra_id, retention_*_date, status, is_vital, is_auto_dispose, phys_*_id, digital_*, disposition_data) |
-| `para_archive` | `para_archives` | original_type, original_id, data, archived_at |
+| `para_archive` | `para_archives` | original_type, original_id, data, archived_at (turunan yang ikut diarsipkan — `related` — di `extra`) |
+| `para_archive_log` | `para_archive_logs` | action (archived/restored), original_type, original_id, archive_id, title, summary, actor_name, at — riwayat arsip & pemulihan PARA (append-only) |
 | `archive_classification` | `archive_classifications` | jenis, kode_pokok/sub/item, nama_* |
 | `archive_jra` | `archive_retention_schedules` | kategori_utama, sub_kategori, jenis_arsip, retensi_aktif, retensi_inaktif, keterangan |
 | `archive_physical_reference` | `archive_locations` | type (location/rack/box/folder), parent_id, code, name |
