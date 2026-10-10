@@ -31,7 +31,7 @@ Prisma, build image Docker; untuk perubahan infra juga stack produksi lokal + ce
   LTS 2026-10-20 dan didukung sampai **2028-04-30** — tidak mendesak. Mulai Node 27 rilis major menjadi tahunan.
 - **Kesiapan**: image `node:26-trixie-slim` tersedia; dependensi native kita memakai N-API (`@node-rs/argon2`) atau pure
   JS; Prisma 7, NestJS 12, Vite 8, Vitest 5 mendukung Node ≥ 24. Node 26 masih membundel npm 11.
-- **Perubahan**: `.nvmrc`, kedua `Dockerfile`, `engines`, `@types/node` 26, nvm-windows lokal; CI otomatis via `.nvmrc`.
+- **Perubahan**: `.nvmrc`, kedua `Dockerfile`, `engines`, `@types/node` 26, nvm-windows lokal (Windows ARM: `nvm install 26 arm64`, docs/SETUP.md §3 langkah 0); CI otomatis via `.nvmrc`.
 - **Rekomendasi**: kerjakan ± 4 minggu setelah LTS (sekitar 25 November 2026), satu commit, semua cek + image.
 
 ### 2.2 KaTeX 0.18.9 → 0.19 — prioritas rendah
@@ -58,7 +58,7 @@ Prisma, build image Docker; untuk perubahan infra juga stack produksi lokal + ce
   (`@prisma/orm-postgres`), butuh Node ≥ 22.18 & TS ≥ 5.9. Fitur yang **belum ada**: `$extends`, `increment` atomik,
   dan kode error gaya `P2002`.
 - Dampak ke LifeOS: `PrismaExceptionFilter` bergantung pada P2002/P2025/P2003; generator model domain
-  (`generate-domain-models.mts`) menulis `schema.prisma`; alur migrasi & cek drift (docs/SETUP.md §5, CI) berubah total.
+  (`generate-domain-models.mts`) menulis `schema.prisma`; alur migrasi & cek drift (docs/SETUP.md §10, CI) berubah total.
 - Dukungan: Prisma 7 tetap menerima bug fix & patch keamanan **18 bulan setelah Prisma 8 GA**.
 - Rekomendasi: **tetap di Prisma 7**. Evaluasi 3–6 bulan setelah GA ketika fitur & kode error setara; kerjakan
   terencana (mungkin diawali percobaan di branch). Jangan `npm i prisma@latest` — tag `latest` CLI menunjuk rc.

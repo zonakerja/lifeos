@@ -80,7 +80,7 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
   keluarga paket per commit, semua test + smoke + drift + image + CI hijau (resep di CLAUDE.md §14).
 - **PostgreSQL major** bukan sekadar ganti tag image (butuh dump/restore ke volume baru), dikerjakan terpisah —
   prosedur produksi di [DEPLOYMENT.md §8](DEPLOYMENT.md#8-upgrade-major-postgresql-mis-18--19), data dev di
-  [SETUP.md §2.1](SETUP.md#21-upgrade-major-postgresql-data-development). Image `postgres`/`pgvector` dipin per major
+  [SETUP.md §7.1](SETUP.md#71-upgrade-major-postgresql-data-development). Image `postgres`/`pgvector` dipin per major
   (`-pg18`); Dependabot hanya mengusulkan minor/patch.
 - **Overrides npm aktif** (menutup advisory di dependensi transitif; tinjau setiap upgrade paket induknya):
 

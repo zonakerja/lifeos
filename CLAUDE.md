@@ -11,7 +11,8 @@ Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE = fond
    `docs/FILE-CONTROL.md`; untuk deploy `docs/DEPLOYMENT.md`; untuk arsitektur & versi tech stack
    `docs/ARCHITECTURE.md` (fondasi); untuk upgrade dependensi `docs/UPGRADE-PLAN.md`.
 2. Cek kondisi repo: `git status`, `git log --oneline -10` (commit terakhir = pekerjaan terakhir).
-3. Nyalakan lingkungan (lihat §2): `wsl -e sh -c "sleep infinity"` (background) →
+3. **Cek status lingkungan dulu (§2a)** — jangan menyalakan yang sudah aktif. Yang belum aktif: nyalakan (lihat §2):
+   `wsl -e sh -c "sleep infinity"` (background) →
    `wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose up -d"` → preview `backend` & `frontend`
    (`.claude/launch.json`). Login `admin@lifeos.com` / `123`.
 4. Pastikan baseline sehat sebelum mengubah apa pun: `npm test` (backend & frontend), `npm run test:smoke` (backend).
@@ -32,10 +33,15 @@ Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE = fond
 - **Commit hanya bila user memerintahkan** (perubahan dibiarkan di working tree sampai diminta).
   **Push ke GitHub juga hanya bila user meminta.**
 - Aplikasi ini berdiri sendiri: jangan menambahkan rujukan, kompatibilitas, atau impor dari aplikasi lain/versi lama.
+- **Setiap selesai mengerjakan pekerjaan/task, akhiri jawaban dengan "Status lingkungan" (§2a)**: port mana yang
+  aktif/tidak, siapa yang menjalankan, dan cara menghentikannya — agar user tidak menyalakan ulang yang sudah aktif dan
+  bisa meminta "matikan semua" sebelum menutup laptop.
 
 ## 2. Lingkungan Development (laptop user)
 
-- **Windows 11 ARM64**. Node `24` arm64 via **nvm-windows** (`.nvmrc`), npm 11.
+- **Windows 11 ARM64**. Node `24` arm64 via **nvm-windows** (`.nvmrc`), npm 11. nvm-windows memasang **x64** secara
+  default (jalan diam-diam lewat emulasi) → selalu `nvm install 24 arm64` / `nvm use <versi> arm64`; cek
+  `node -p "process.arch"` = `arm64`. Panduan bercabang ARM64/x64: `docs/SETUP.md` §1 & §3 langkah 0.
   - Paket native tanpa prebuilt win32-arm64 gagal dipasang (tidak ada Python/Build Tools) → pilih paket dengan
     prebuilt arm64 / pure JS / WASM (contoh: `@node-rs/argon2`, Prisma 7 tanpa engine Rust + adapter `pg`).
   - npm 11 memblokir install script yang belum disetujui: daftar di field `allowScripts` (`backend/package.json`).
@@ -50,6 +56,57 @@ Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE = fond
 - Setelah banyak perubahan beruntun, Vite HMR bisa menyimpan modul rusak → restart dev server frontend.
 - Folder kerja: `D:\Development\Application\LifeOS`. `.claude/launch.json` berisi konfigurasi `backend` & `frontend`
   untuk preview browser Claude. Panel browser Claude sering tersembunyi → uji UI lewat `javascript_tool`.
+- **Aturan port (semua thread sama, tidak boleh diganti)**: frontend 5173, backend 4000, PostgreSQL 5432, Redis 6379,
+  SeaweedFS 8333/8888 (opsional: Prisma Studio 5555, Vite preview 4173, stack prod uji 80/443). Satu komponen = satu
+  proses: cek §2a dulu; bila port sudah dipakai (mis. user menjalankan dev server di terminalnya), **pakai yang ada**
+  — jangan `preview_start {name}` lagi; untuk melihat UI cukup `preview_start {url: "http://localhost:5173"}`. Vite
+  `strictPort: true` → gagal alih-alih pindah ke 5174. Panduan user: `docs/SETUP.md` §2–§6.
+- lazydocker terpasang di WSL (`wsl -e lazydocker`); jendela lazydocker yang terbuka juga menjaga WSL tetap hidup.
+
+## 2a. Status Lingkungan (wajib dilaporkan) & Mematikan Semua
+
+**Kapan**: di akhir setiap jawaban yang mengerjakan pekerjaan/task (bukan untuk jawaban tanya-jawab murni), dan setiap
+kali user bertanya status atau meminta "matikan semua". Selalu **cek ulang** sebelum melapor — jangan menebak dari
+ingatan percakapan.
+
+**Format laporan** (tabel ringkas, Bahasa Indonesia):
+
+| Komponen | Port | Status | Dijalankan oleh | Catatan |
+|---|---|---|---|---|
+| Frontend (Vite) | 5173 | 🟢 aktif / ⚪ mati | preview Claude / terminal user / — | http://localhost:5173 (login `admin@lifeos.com` / `123`) |
+| Backend (NestJS) | 4000 | … | … | http://localhost:4000/api/v1/health · Swagger `/api/docs` |
+| PostgreSQL (Docker) | 5432 | … | Docker (WSL) | DB `lifeos` + `lifeos_shadow` |
+| Redis (Docker) | 6379 | … | Docker (WSL) | |
+| SeaweedFS S3 / filer (Docker) | 8333 / 8888 | … | Docker (WSL) | filer UI http://localhost:8888 |
+| WSL | — | berjalan / berhenti | — | proses penjaga `sleep infinity` milik Claude (bila ada) |
+
+Tambahkan baris lain bila relevan (mis. stack produksi uji `lifeos-*test` di port 80/443, proses latar belakang Claude).
+Akhiri dengan satu kalimat: apa yang masih menyala dan apakah aman menutup laptop.
+
+**Cara mengecek** (PowerShell; tidak menyalakan apa pun):
+
+```powershell
+# Port yang sedang dipakai + prosesnya (wslrelay.exe = port container Docker)
+Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 80,443,4000,5173,5432,6379,8333,8888 } |
+  ForEach-Object { "{0} pid={1} {2}" -f $_.LocalPort, $_.OwningProcess, (Get-Process -Id $_.OwningProcess).ProcessName }
+# Proses node milik LifeOS (dev server frontend/backend, termasuk dari terminal user)
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*LifeOS*' } |
+  Select-Object ProcessId, CommandLine
+# Apakah WSL berjalan? (bila tidak ada distro berjalan → semua container pasti mati; jangan panggil docker)
+wsl --list --running
+```
+
+Bila WSL berjalan: `wsl -e sh -c "docker ps --format '{{.Names}} {{.Status}} {{.Ports}}'"`. Dev server yang dijalankan
+Claude terlihat di `preview_list`.
+
+**"Matikan semua"** (data tetap aman; urutan):
+1. Frontend & backend: `preview_stop` untuk server yang dijalankan Claude; yang dijalankan user di terminal → minta
+   user menekan `Ctrl+C`, atau (dengan persetujuan) `Stop-Process -Id <pid>` untuk proses node LifeOS di atas.
+2. Docker: `wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose stop"` — **`stop`, bukan
+   `down -v`** (volume/data tetap ada). Stack uji lain (`docker compose -p <nama> ...`) ikut dihentikan.
+3. Hentikan proses latar belakang Claude (mis. `wsl -e sh -c "sleep infinity"`) dengan TaskStop.
+4. Opsional (membebaskan RAM): `wsl --shutdown`.
+5. Cek ulang dengan perintah di atas, lalu laporkan tabel status (semua ⚪) — aman menutup laptop.
 
 ## 3. Repo & Git
 
@@ -157,7 +214,7 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   - Tanpa FK antar entitas (ID buatan client, tulis per item asinkron, relasi polimorfik) — cukup diindeks.
   - **Audit kearsipan** `archive_audit_logs` (created/updated/deleted, diff `{field:{from,to}}`, actor) untuk tipe
     `audit: true` (resource hanya bila punya `archivalStatus`; snapshot PARA hanya berisi file). `GET /archive-audit`.
-  - Migrasi: satu baseline `20261009120000_init`. Migrasi baru → lihat docs/SETUP.md §5
+  - Migrasi: satu baseline `20261009120000_init`. Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?userId&from&to`, `PUT /records/:type/:clientId` `{ payload, userId? }` (upsert,
@@ -178,7 +235,7 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 - Vite 8 + React 19 + TypeScript 6 strict + Tailwind v4 + shadcn/ui (`radix-maia`, lucide, `cn`) + React Router 8
   (rute `lazy`) + TanStack Query 5 + Zustand 5 + react-hook-form + zod 4 + sonner. Lint **oxlint** (0 warning,
   `components/ui/**` di-ignore). Test: Vitest (`npm test`).
-- Dev server 5173, proxy `/api` → localhost:4000; frontend memakai base relatif `/api/v1` (`VITE_API_BASE_URL`).
+- Dev server 5173 (`strictPort`), proxy `/api` → localhost:4000; frontend memakai base relatif `/api/v1` (`VITE_API_BASE_URL`).
 - Struktur: `app/` (router, providers), `config/navigation.ts` (sumber tunggal modul/tab/role), `types/`, `lib/api/`
   (client + endpoints), `data/` (useCollection + hook bertipe), `stores/`, `hooks/`, `components/{ui,layout,common}`,
   `features/<modul>/` (`<modul>-page.tsx` mengekspor `Component`).
@@ -252,6 +309,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot npm/docker/docker-compose/actions) | ✅ |
 | Tech stack terbaru yang stabil (versi: `docs/ARCHITECTURE.md` §2.1) | ✅ |
 | `npm audit` | ✅ via overrides; sisa `deepmerge-ts` (tunggu Prisma) — `docs/UPGRADE-PLAN.md` §3 |
+| Panduan setup awal / menyalakan / mematikan + aturan port (`docs/SETUP.md` §1–§6) | ✅ ditulis & diverifikasi 2026-10-11 dengan menjalankan §3 langkah 0–6 di laptop user (Node 24.21.0 arm64; login, unit test, smoke test lulus; `strictPort` terbukti menolak instance kedua) — laptop sudah ter-setup |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -279,7 +337,7 @@ Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `
   stack (§2); `docs/UPGRADE-PLAN.md` = kajian item yang belum di-upgrade + audit yang dipantau. Dokumen lain tidak
   menulis nomor versi, cukup merujuk.
 - 2026-10-10 — PostgreSQL 18 (`pgvector/pgvector:0.8.7-pg18`, Debian 12): volume bernomor major di-mount ke
-  `/var/lib/postgresql`; upgrade major = dump/restore ke volume baru (docs/DEPLOYMENT.md §8, docs/SETUP.md §2.1).
+  `/var/lib/postgresql`; upgrade major = dump/restore ke volume baru (docs/DEPLOYMENT.md §8, docs/SETUP.md §7.1).
   Dependabot juga memantau `docker-compose*.yml` (major PostgreSQL ada di sufiks tag → tidak pernah diubah otomatis).
   Seed dev dijalankan `tsx`; postinstall esbuild sengaja tidak diizinkan di `allowScripts`.
 - 2026-10-10 — Data development hanya dummy: boleh direset kapan saja tanpa backup (lihat §7).
@@ -291,7 +349,18 @@ Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `
 - 2026-10-10 — LifeOS satu-satunya project di laptop user → infra dev memakai **port default** (PostgreSQL 5432,
   Redis 6379, SeaweedFS S3 8333 / filer 8888; backend 4000, Vite 5173). Laptop dikembalikan ke kondisi "belum pernah
   dijalankan": tanpa container/volume/image Docker, tanpa `node_modules`, `dist`, Prisma Client hasil generate, dan
-  `backend/.env` — langkah menjalankan dari awal (termasuk lazydocker) dibuat di thread berikutnya.
+  `backend/.env` — langkah menjalankan dari awal (termasuk lazydocker) dibuat di thread berikutnya. Backend tetap port
+  4000 (konvensi API; default NestJS 3000 tidak dipakai).
+- 2026-10-10 — Permintaan user: setiap jawaban yang mengerjakan task diakhiri laporan **Status lingkungan** (§2a), dan
+  user bisa meminta "matikan semua" sebelum menutup laptop (prosedur §2a, data tetap aman).
+- 2026-10-10 — Panduan operasional user di `docs/SETUP.md` §1–§6 (setup awal sekali, menyalakan, mematikan, reset,
+  cek status; PowerShell + WSL + lazydocker). **Aturan port**: port tetap sama di semua terminal & thread, satu
+  komponen = satu proses (pakai yang sudah berjalan), Vite `strictPort: true` agar tidak pindah ke 5174. Bagian lama
+  SETUP.md bergeser nomor (infra §7, upgrade PostgreSQL dev §7.1, alur database §10).
+- 2026-10-11 — Panduan Node bercabang Windows ARM64 (`nvm ... arm64`) / Windows x64 (default nvm). Node x64 yang
+  sempat terpasang di laptop (24.21.0, emulasi) dihapus atas permintaan user, lalu dipasang Node **24.21.0 arm64**
+(`nvm install 24 arm64` + `nvm use 24.21.0 arm64`) dan diaktifkan; 24.18.0 dihapus. Setup awal SETUP.md §3 dijalankan
+  penuh di laptop (dev server dijalankan di tab Terminal panel, bukan preview Claude — atas pilihan user).
 
 ## 13. Konvensi Kode
 
@@ -307,7 +376,7 @@ Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `
 1. Frontend: tambah field di `src/types/entities.ts`, pakai di UI. Tanpa perubahan backend pun data tetap tersimpan
    (masuk kolom `extra`).
 2. Bila field perlu kolom bertipe (difilter/diindeks/dihitung di DB): tambah di `backend/src/records/record-schema.ts`
-   → `npm run db:generate-models` → buat migrasi (docs/SETUP.md §5) → `npx prisma migrate deploy` →
+   → `npm run db:generate-models` → buat migrasi (docs/SETUP.md §10) → `npx prisma migrate deploy` →
    `npx prisma generate` → restart backend. Data lama di `extra` untuk key itu tidak otomatis pindah ke kolom; bila
    perlu, tulis `UPDATE ... SET kolom = (extra->>'key')::tipe, extra = extra - 'key'` di migrasi yang sama.
 3. Tambah kasus di `record-mapper.spec.ts` bila ada jenis/aturan baru.
@@ -364,7 +433,7 @@ DTO class-validator), daftarkan di `app.module.ts`, guard `JwtAuthGuard` + `Role
    sebelumnya bila bisa (ganti glibc = collation berubah → perlu REINDEX).
 2. Dev: backup semua DB (`pg_dumpall` + `pg_dump -Fc` per DB: `lifeos`, `lifeos_shadow`, lainnya) dan jumlah baris
    per tabel → ubah `docker-compose.yml` (tag + volume baru) → `up -d --wait postgres` → `CREATE DATABASE` untuk DB
-   selain `lifeos` → `pg_restore` → `ANALYZE` → bandingkan jumlah baris (docs/SETUP.md §2.1).
+   selain `lifeos` → `pg_restore` → `ANALYZE` → bandingkan jumlah baris (docs/SETUP.md §7.1).
 3. `docker-compose.prod.yml` service `postgres` + volume baru, **dan** `FROM` di `infra/backup/Dockerfile` (pg_dump
    harus = major server).
 4. Uji: migrate deploy (DB lama & DB kosong), seed, drift, smoke, `CREATE EXTENSION vector` + `extversion`, UI.
@@ -406,6 +475,12 @@ utama tetap < 500 kB (cek output `npm run build`).
 - KaTeX ≥ 0.18 memberi prefix pada class CSS **internal**; `.katex`, `.katex-display`, `.katex-html` tetap. Jangan
   menarget class internal KaTeX di styling. `npm install <pkg>` mengubah `~` menjadi `^` di package.json (untuk 0.x
   rentangnya sama).
+- nvm-windows di Windows ARM: `nvm install 24` memasang **x64** (emulasi, tanpa error); `nvm use <versi>` tanpa
+  `arm64` gagal "Version not installed" untuk versi arm64; `nvm uninstall` versi yang sedang aktif menghapus symlink
+  `C:\nvm4w\nodejs` (perintah `node` hilang) → selalu sebut `arm64`, pindah versi dulu baru uninstall.
+- `npm --prefix backend exec -- prisma ...` dijalankan dari folder **root** (cwd tidak pindah) → Prisma tidak menemukan
+  `prisma.config.ts`. Pakai skrip (`npm --prefix backend run prisma:deploy`, yang berjalan di folder backend) atau
+  `cd backend` dulu.
 - Saat dev server frontend dibuka sebelum backend (watch) selesai kompilasi, console menampilkan `502` dari proxy Vite
   untuk request pertama — normal.
 - Image PostgreSQL ≥ 18 memakai `VOLUME /var/lib/postgresql` dan PGDATA `/var/lib/postgresql/<major>/docker`. Volume

@@ -11,6 +11,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Port tetap: bila 5173 sudah dipakai (dev server lain masih berjalan), gagal alih-alih pindah ke 5174
+    strictPort: true,
     // Proxy API ke backend agar frontend cukup memakai path relatif /api/v1 (tanpa CORS saat dev)
     proxy: {
       "/api": { target: "http://localhost:4000", changeOrigin: true },

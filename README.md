@@ -16,6 +16,9 @@ Personal operating system berbasis web untuk produktivitas pribadi dan pekerjaan
 
 ## Mulai cepat (development)
 
+Panduan lengkap (setup awal, menyalakan, mematikan, aturan port, laptop Windows + WSL):
+[docs/SETUP.md](docs/SETUP.md) §1–§6. Ringkasnya:
+
 ```bash
 docker compose up -d                 # postgres, redis, object storage
 cd backend && cp .env.example .env && npm install && npx prisma migrate deploy && npm run prisma:seed && npm run dev

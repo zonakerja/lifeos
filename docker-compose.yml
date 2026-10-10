@@ -18,7 +18,7 @@ services:
       - "5432:5432"
     volumes:
       # Image 18+: mount ke /var/lib/postgresql (PGDATA = /var/lib/postgresql/18/docker), bukan .../data.
-      # Volume baru per major; upgrade major = dump/restore (docs/SETUP.md §2.1).
+      # Volume baru per major; upgrade major = dump/restore (docs/SETUP.md §7.1).
       - lifeos-postgres18-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d lifeos"]

@@ -355,4 +355,4 @@ docker volume rm lifeos-prod_postgres<N>-data
 Catatan:
 - `pg_restore` bisa menampilkan peringatan tentang ekstensi/`COMMENT ON SCHEMA public`; yang penting tidak ada error
   pada tabel & data, dan jumlah baris sama.
-- Data development dipindah dengan cara yang sama — lihat [SETUP.md §2.1](SETUP.md#21-upgrade-major-postgresql-data-development).
+- Data development dipindah dengan cara yang sama — lihat [SETUP.md §7.1](SETUP.md#71-upgrade-major-postgresql-data-development).
