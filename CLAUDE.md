@@ -361,6 +361,9 @@ Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `
   sempat terpasang di laptop (24.21.0, emulasi) dihapus atas permintaan user, lalu dipasang Node **24.21.0 arm64**
 (`nvm install 24 arm64` + `nvm use 24.21.0 arm64`) dan diaktifkan; 24.18.0 dihapus. Setup awal SETUP.md §3 dijalankan
   penuh di laptop (dev server dijalankan di tab Terminal panel, bukan preview Claude — atas pilihan user).
+- 2026-10-11 — Thread perbaikan **File Control** dimulai. Perbaikan 1: menu File Control gagal dimuat (504 Outdated
+  Optimize Dep untuk `qrcode.react`) → Vite `optimizeDeps.entries` memindai seluruh `src/` saat start (dev saja).
+- 2026-10-11 — Thread perbaikan **Productivity** (PARA: Overview, Projects, Areas, Resources, Archives) dimulai.
 
 ## 13. Konvensi Kode
 
@@ -502,6 +505,9 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Folder `./backups` ditulis container sebagai root; hapus isinya lewat container (`docker run --rm -v …`).
 - PR Dependabot untuk major bump satu paket (mis. hanya `@nestjs/core` 12 tanpa `@nestjs/common`) pasti merah di CI
   → tutup PR-nya; major upgrade dilakukan manual untuk seluruh keluarga paket (lihat §12).
+- "Failed to fetch dynamically imported module …-page.tsx" + console `504 (Outdated Optimize Dep)` = Vite baru
+  menemukan dependensi milik rute lazy saat rute dibuka lalu mengoptimasi ulang. Dicegah dengan
+  `optimizeDeps.entries` (memindai `src/**`) di `frontend/vite.config.ts`; bila tetap terjadi, restart dev server.
 
 ## 16. Memori & Kesinambungan Antar-Chat
 
