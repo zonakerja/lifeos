@@ -17,7 +17,7 @@ Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE = fond
 4. Pastikan baseline sehat sebelum mengubah apa pun: `npm test` (backend & frontend), `npm run test:smoke` (backend).
 5. Tanyakan/konfirmasi ruang lingkup thread ke user bila belum jelas; catat keputusan di §12.
 6. **Sebelum thread berakhir**: perbarui §11 Status, §12 Log Keputusan, pola baru di §8/§8b/§14, jebakan baru di §15,
-   dan dokumen `docs/` yang terdampak — lalu commit. Knowledge yang hanya ada di percakapan akan hilang.
+   dan dokumen `docs/` yang terdampak — lalu tawarkan commit (commit hanya atas perintah user). Knowledge yang hanya ada di percakapan akan hilang.
 
 ---
 
@@ -29,7 +29,8 @@ Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE = fond
 - User bukan programmer full-time: jelaskan langkah & perintah dengan jelas; beri rekomendasi tegas bila user ragu.
 - Pengembangan dibagi per thread dengan ruang lingkup jelas (fitur, infrastruktur, upgrade). Thread non-fitur tidak
   boleh mengubah perilaku fitur.
-- Commit di akhir tahap yang disepakati. **Push ke GitHub hanya bila user meminta.**
+- **Commit hanya bila user memerintahkan** (perubahan dibiarkan di working tree sampai diminta).
+  **Push ke GitHub juga hanya bila user meminta.**
 - Aplikasi ini berdiri sendiri: jangan menambahkan rujukan, kompatibilitas, atau impor dari aplikasi lain/versi lama.
 
 ## 2. Lingkungan Development (laptop user)
@@ -83,11 +84,11 @@ Ke depan: **chatbot AI untuk bertanya tentang arsip & hasil pekerjaan** (RAG).
 ```
 LifeOS/
 ├── CLAUDE.md · README.md · .nvmrc · .prettierrc.json (Prettier tunggal, printWidth 120)
-├── docker-compose.yml        infra DEVELOPMENT (postgres 55432, redis 6380, SeaweedFS 9002/9003)
+├── docker-compose.yml        infra DEVELOPMENT (postgres 5432, redis 6379, SeaweedFS 8333/8888)
 ├── docker-compose.prod.yml   stack PRODUKSI (caddy, frontend, backend, postgres, redis, storage, backup)
 ├── .env.example              variabel produksi (disalin ke .env di VPS)
 ├── .github/                  workflows/ci.yml + dependabot.yml
-├── infra/                    caddy/Caddyfile · backup/backup.sh · seaweedfs/s3.json (kredensial S3 dev)
+├── infra/                    caddy/Caddyfile · backup/{Dockerfile,backup.sh} (image backup) · seaweedfs/s3.json (S3 dev)
 ├── backend/                  NestJS (Dockerfile, prisma/, src/, test/smoke.mjs)
 ├── frontend/                 React SPA (Dockerfile, nginx.conf, src/)
 └── docs/                     SETUP.md · DEPLOYMENT.md · ARCHITECTURE.md · UPGRADE-PLAN.md · FILE-CONTROL.md
@@ -99,9 +100,9 @@ LifeOS/
 
 | Service | Container | Host port | Kredensial |
 |---|---|---|---|
-| PostgreSQL 18 + pgvector 0.8.7 | lifeos-postgres | 55432 | db `lifeos`, `postgres/postgres`; DB tambahan `lifeos_shadow` (cek drift); volume `lifeos-postgres18-data` |
-| Redis 8.10 | lifeos-redis | 6380 | tanpa password |
-| SeaweedFS 4.48 (S3) | lifeos-storage | 9002 (S3), 9003 (filer UI) | `lifeos` / `lifeos-secret`, bucket `lifeos-assets` (dibuat otomatis) |
+| PostgreSQL 18 + pgvector 0.8.7 | lifeos-postgres | 5432 | db `lifeos`, `postgres/postgres`; DB tambahan `lifeos_shadow` (cek drift); volume `lifeos-postgres18-data` |
+| Redis 8.10 | lifeos-redis | 6379 | tanpa password |
+| SeaweedFS 4.48 (S3) | lifeos-storage | 8333 (S3), 8888 (filer UI) | `lifeos` / `lifeos-secret`, bucket `lifeos-assets` (dibuat otomatis) |
 
 Seed development: `admin@lifeos.com` / `123` (super_admin), `viewer@lifeos.com` / `123` (viewer).
 Volume PostgreSQL memuat nomor major (`lifeos-postgres18-data`, prod `postgres18-data`) dan di-mount ke
@@ -109,8 +110,13 @@ Volume PostgreSQL memuat nomor major (`lifeos-postgres18-data`, prod `postgres18
 `CREATE DATABASE lifeos_shadow` → `npx prisma migrate deploy` → `npm run prisma:seed`).
 
 **Produksi** (`docker compose -f docker-compose.prod.yml up -d --build`, project `lifeos-prod`, volume terpisah dari
-dev): hanya Caddy membuka 80/443; Redis berpassword; kredensial S3 SeaweedFS dirender dari env; backup ke `./backups`
-(`db-*.dump` + `storage-*.tar.gz`, retensi 14 hari); log Docker dirotasi. Seed produksi:
+dev): hanya Caddy membuka 80/443; Redis berpassword; kredensial S3 SeaweedFS dirender dari env; batas memori per
+service + tuning PostgreSQL/Redis/Node (env `*_MEM_LIMIT`, `PG_*`, `BACKEND_HEAP_MB`, `REDIS_MAXMEMORY`; DEPLOYMENT
+§1.1); log Docker dirotasi. **Backup** = image sendiri `infra/backup/` (base = image postgres + rclone + curl):
+`db-*.dump` tervalidasi + cermin bucket via API S3 (`storage/current` + `storage/changed/<waktu>`) di `./backups`,
+salinan luar server terenkripsi rclone crypt (`OFFSITE_S3_*`, `BACKUP_ENCRYPTION_PASSWORD`), heartbeat
+`BACKUP_HEALTHCHECK_URL` (healthchecks.io), healthcheck Docker; perintah `backup.sh --once | --health | rclone …`
+(remote `src`, `offsite`, `offsiteraw`). Pengamanan VPS (SSH key, fail2ban, unattended-upgrades): DEPLOYMENT §1.2. Seed produksi:
 `exec backend node dist/database/seed.js` (super admin dari `SEED_ADMIN_*`). Uji lokal: `APP_DOMAIN=localhost`
 (sertifikat internal Caddy; browser panel menolak → pakai `APP_DOMAIN=http://localhost` untuk uji UI).
 Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `docs/DEPLOYMENT.md`.
@@ -242,7 +248,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Frontend: Settings, Overview (+ global search, focus mode, notifikasi, chatbot), Planner, Notes, Productivity, File Control | ✅ |
 | Database terstruktur + audit kearsipan (satu migrasi baseline) | ✅ |
 | Keamanan (cookie httpOnly, CSP, sandbox berkas, upload streaming, rate limit) | ✅ |
-| Deployment VPS (compose prod, Caddy HTTPS, backup) — diuji end-to-end lokal, termasuk backup/restore | ✅ |
+| Deployment VPS (compose prod, Caddy HTTPS, batas memori, backup luar server terenkripsi + pemantauan) — diuji end-to-end lokal, termasuk pemulihan dari luar server | ✅ |
 | Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot npm/docker/docker-compose/actions) | ✅ |
 | Tech stack terbaru yang stabil (versi: `docs/ARCHITECTURE.md` §2.1) | ✅ |
 | `npm audit` | ✅ via overrides; sisa `deepmerge-ts` (tunggu Prisma) — `docs/UPGRADE-PLAN.md` §3 |
@@ -277,6 +283,15 @@ Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `
   Dependabot juga memantau `docker-compose*.yml` (major PostgreSQL ada di sufiks tag → tidak pernah diubah otomatis).
   Seed dev dijalankan `tsx`; postinstall esbuild sengaja tidak diizinkan di `allowScripts`.
 - 2026-10-10 — Data development hanya dummy: boleh direset kapan saja tanpa backup (lihat §7).
+- 2026-10-10 — Infrastruktur produksi diperkuat (disetujui user): backup dengan image sendiri (rclone 1.75) →
+  berkas lewat API S3 (bukan `tar` volume yang sedang berjalan), salinan luar server S3-compatible (R2/B2) terenkripsi
+  rclone crypt, heartbeat healthchecks.io + uptime monitor; batas memori per container & tuning PostgreSQL untuk VPS
+  4 GB (override lewat env untuk 2 GB); panduan pengamanan VPS. SeaweedFS `-volume.max=0` (default 8 volume ⇒
+  upload gagal setelah ± 7–8 GB). Dependabot: abaikan nginx minor ganjil (mainline) & KaTeX ≥ 0.19 (dijadwalkan).
+- 2026-10-10 — LifeOS satu-satunya project di laptop user → infra dev memakai **port default** (PostgreSQL 5432,
+  Redis 6379, SeaweedFS S3 8333 / filer 8888; backend 4000, Vite 5173). Laptop dikembalikan ke kondisi "belum pernah
+  dijalankan": tanpa container/volume/image Docker, tanpa `node_modules`, `dist`, Prisma Client hasil generate, dan
+  `backend/.env` — langkah menjalankan dari awal (termasuk lazydocker) dibuat di thread berikutnya.
 
 ## 13. Konvensi Kode
 
@@ -318,6 +333,9 @@ DTO class-validator), daftarkan di `app.module.ts`, guard `JwtAuthGuard` + `Role
 **Memanggil domain eksternal dari browser**: tambahkan ke `connect-src` (atau direktif terkait) di
 `frontend/nginx.conf`, kalau tidak akan diblokir CSP di produksi (di dev tidak terlihat!). Lebih baik lewat backend.
 
+**Mengubah logika File Control** (status, retensi, penyusutan, wadah, format ID, impor CSV): perbarui juga
+`docs/FILE-CONTROL.md` (dan `lib/archive.test.ts` bila logika murni berubah) di commit yang sama.
+
 **Menambah komponen shadcn**: `cd frontend && npx shadcn@latest add <nama> --yes` (hasil di `components/ui/`).
 
 **Upgrade major dependensi** (Dependabot sengaja tidak membuat PR major):
@@ -347,7 +365,8 @@ DTO class-validator), daftarkan di `app.module.ts`, guard `JwtAuthGuard` + `Role
 2. Dev: backup semua DB (`pg_dumpall` + `pg_dump -Fc` per DB: `lifeos`, `lifeos_shadow`, lainnya) dan jumlah baris
    per tabel → ubah `docker-compose.yml` (tag + volume baru) → `up -d --wait postgres` → `CREATE DATABASE` untuk DB
    selain `lifeos` → `pg_restore` → `ANALYZE` → bandingkan jumlah baris (docs/SETUP.md §2.1).
-3. `docker-compose.prod.yml`: service `postgres` **dan** `backup` (pg_dump harus = versi server) + volume baru.
+3. `docker-compose.prod.yml` service `postgres` + volume baru, **dan** `FROM` di `infra/backup/Dockerfile` (pg_dump
+   harus = major server).
 4. Uji: migrate deploy (DB lama & DB kosong), seed, drift, smoke, `CREATE EXTENSION vector` + `extversion`, UI.
 5. Stack prod lokal: jalankan compose **versi sebelum perubahan** (salinan dari git) di project
    `lifeos-upgradetest`, isi data (seed + record + upload), lalu ikuti persis docs/DEPLOYMENT.md §8 ke compose
@@ -397,6 +416,15 @@ utama tetap < 500 kB (cek output `npm run build`).
   saat memanggil `wsl -e sh /mnt/...` → awali dengan `MSYS_NO_PATHCONV=1` atau jalankan via `wsl -e sh -c "..."`.
 - esbuild (dependensi `tsx`) punya postinstall yang diblokir npm 11; sengaja `"esbuild": false` di `allowScripts`
   — binary diambil dari paket `@esbuild/<platform>`, postinstall hanya optimasi.
+- SeaweedFS `weed server` default `-volume.max=8` dan tiap bucket (collection) memesan 7 volume → upload gagal
+  "No writable volumes and no free volumes left" setelah ± 7–8 GB atau bila ada bucket kedua. Compose memakai
+  `-volume.max=0` (otomatis sesuai sisa disk). SeaweedFS juga menyimpan folder kosong (S3 asli tidak).
+- Image turunan `postgres`/`pgvector` mewarisi `VOLUME /var/lib/postgresql` → setiap container baru meninggalkan
+  volume anonim. Service `backup` me-mount `tmpfs` di path itu.
+- `backup.sh` (dash): `set -e` tidak berlaku di fungsi yang dipanggil dari `if`/`||` → setiap langkah memakai
+  `|| return 1` eksplisit. Di skrip Node, `String.replace` mengubah `$$` menjadi `$` — pakai fungsi pengganti
+  (`replace(a, () => b)`) saat mengedit compose yang berisi `$$VAR`.
+- Folder `./backups` ditulis container sebagai root; hapus isinya lewat container (`docker run --rm -v …`).
 - PR Dependabot untuk major bump satu paket (mis. hanya `@nestjs/core` 12 tanpa `@nestjs/common`) pasti merah di CI
   → tutup PR-nya; major upgrade dilakukan manual untuk seluruh keluarga paket (lihat §12).
 

@@ -55,6 +55,7 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 | | Redis | **8.10** (`redis:8.10-alpine`) | Antrian BullMQ; cache/rate-limit/sesi chat (rencana) |
 | | SeaweedFS | 4.48 | S3-compatible self-host (dev & default produksi) |
 | Edge | Caddy / nginx | 2.11 / 1.30 (stable) | HTTPS otomatis + reverse proxy / sajian SPA + CSP |
+| Backup | rclone (`rclone/rclone:1.75.1`) di image `infra/backup` (base = image postgres) | 1.75 | Cermin object storage via API S3 + salinan luar server terenkripsi (crypt) |
 | CI | GitHub Actions | checkout v7, setup-node v7, setup-buildx v4, build-push v7; runner `ubuntu-24.04` | Lint, test, build, smoke, drift, image |
 
 ### 2.2 Batasan platform (wajib dijaga)
@@ -73,7 +74,8 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 - **Pemilihan versi**: hanya rilis stabil (tanpa `-rc/-beta/-next`), dirilis ≥ 2–4 minggu, ekosistem plugin sudah
   mendukung (`peerDependencies`), Node hanya LTS. Instal dengan `npm install --before=<tanggal>`.
 - **Dependabot** (`.github/dependabot.yml`): ekosistem npm (backend & frontend), `docker` (Dockerfile),
-  `docker-compose` (image infra di `docker-compose*.yml`), dan GitHub Actions. PR mingguan minor/patch (npm
+  `docker-compose` (image infra di `docker-compose*.yml`), dan GitHub Actions. Aturan `ignore` tambahan: nginx minor
+  ganjil (mainline) dan versi yang dijadwalkan manual (saat ini KaTeX ≥ 0.19). PR mingguan minor/patch (npm
   dikelompokkan); update **major** diabaikan dan dikerjakan terencana — satu
   keluarga paket per commit, semua test + smoke + drift + image + CI hijau (resep di CLAUDE.md §14).
 - **PostgreSQL major** bukan sekadar ganti tag image (butuh dump/restore ke volume baru), dikerjakan terpisah —
@@ -236,12 +238,14 @@ Token warna OKLCH di `src/index.css` (terang & gelap via class `.dark`). Warna m
 ```
 Internet ─► Caddy :443 (TLS otomatis, HSTS) ─┬─ /api/* ─► backend (non-root, migrasi saat start)
                                              └─ lainnya ─► frontend (nginx: SPA + CSP)
-jaringan internal: postgres · redis (password) · SeaweedFS S3 · backup harian (pg_dump + arsip berkas)
+jaringan internal: postgres · redis (password) · SeaweedFS S3 · backup harian (pg_dump + cermin S3 → luar server terenkripsi)
 ```
 
 - `docker-compose.yml` = infrastruktur development saja; `docker-compose.prod.yml` = stack produksi (operasional di
   DEPLOYMENT.md).
-- Image di-pin versinya (§2.1); rotasi log Docker; secret hanya dari `.env`.
+- Image di-pin versinya (§2.1); rotasi log Docker; secret hanya dari `.env`; batas memori per container.
+- Backup: dump tervalidasi + berkas lewat API S3, salinan luar server terenkripsi, heartbeat pemantauan
+  (DEPLOYMENT.md §4–§5). SeaweedFS `-volume.max=0` agar kapasitas mengikuti disk.
 - Pengujian: unit test Vitest (logika murni: record mapper, aturan kearsipan), smoke test end-to-end (±50 skenario
   terhadap server nyata, membuat & menghapus user sementara). CI GitHub Actions menjalankan semuanya + cek drift skema
   + build image; Dependabot untuk pembaruan dependensi (§2.3).

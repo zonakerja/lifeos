@@ -52,7 +52,7 @@ class EnvironmentVariables {
 
   @Transform(({ value }) => Number(value))
   @IsInt()
-  REDIS_PORT = 6380;
+  REDIS_PORT = 6379;
 
   @IsOptional()
   @IsString()

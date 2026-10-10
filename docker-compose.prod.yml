@@ -11,6 +11,7 @@
 
 name: lifeos-prod
 
+# Batas memori default untuk VPS 4 GB (total ± 3,3 GB). VPS 2 GB: lihat docs/DEPLOYMENT.md §1.1.
 x-logging: &logging
   driver: json-file
   options:
@@ -35,12 +36,14 @@ services:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+    deploy: { resources: { limits: { memory: 128m } } }
     logging: *logging
 
   frontend:
     build: ./frontend
     image: lifeos-frontend:${APP_VERSION:-latest}
     restart: unless-stopped
+    deploy: { resources: { limits: { memory: 64m } } }
     logging: *logging
 
   backend:
@@ -53,6 +56,8 @@ services:
       storage: { condition: service_healthy }
     environment:
       NODE_ENV: production
+      # Heap V8 di bawah batas memori container agar GC bekerja sebelum OOM kill
+      NODE_OPTIONS: --max-old-space-size=${BACKEND_HEAP_MB:-512}
       PORT: 4000
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DATABASE_URL: postgresql://lifeos:${POSTGRES_PASSWORD}@postgres:5432/lifeos?schema=public
@@ -76,6 +81,7 @@ services:
       UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-100}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+    deploy: { resources: { limits: { memory: "${BACKEND_MEM_LIMIT:-768m}" } } }
     logging: *logging
 
   postgres:
@@ -86,6 +92,20 @@ services:
       POSTGRES_DB: lifeos
       POSTGRES_USER: lifeos
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD di .env}
+    # Tuning untuk VPS kecil (default PostgreSQL mengasumsikan RAM sangat sedikit). Sesuaikan dengan POSTGRES_MEM_LIMIT.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-256MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-768MB}
+      - -c
+      - work_mem=${PG_WORK_MEM:-8MB}
+      - -c
+      - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-64MB}
+      - -c
+      - max_connections=50
+    shm_size: 256m
     volumes:
       # Image 18+: mount ke /var/lib/postgresql (PGDATA = /var/lib/postgresql/18/docker)
       - postgres18-data:/var/lib/postgresql
@@ -94,14 +114,17 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy: { resources: { limits: { memory: "${POSTGRES_MEM_LIMIT:-1g}" } } }
     logging: *logging
 
   redis:
     image: redis:8.10-alpine
     restart: unless-stopped
-    command: ["sh", "-c", 'exec redis-server --appendonly yes --maxmemory-policy noeviction --requirepass "$$REDIS_PASSWORD"']
+    command: ["sh", "-c", 'exec redis-server --appendonly yes --maxmemory "$$REDIS_MAXMEMORY" --maxmemory-policy noeviction --requirepass "$$REDIS_PASSWORD"']
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD di .env}
+      # Di bawah batas container: saat penuh Redis menolak tulis (noeviction) alih-alih di-OOM kill
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-192mb}
     volumes:
       - redis-data:/data
     healthcheck:
@@ -109,6 +132,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy: { resources: { limits: { memory: "${REDIS_MEM_LIMIT:-256m}" } } }
     logging: *logging
 
   storage:
@@ -124,7 +148,7 @@ services:
       - >-
         printf '{"identities":[{"name":"lifeos","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","List","Tagging","Write"]}]}'
         "$$S3_ACCESS_KEY_ID" "$$S3_SECRET_ACCESS_KEY" > /tmp/s3.json &&
-        exec weed server -dir=/data -ip.bind=0.0.0.0 -master.volumeSizeLimitMB=1024
+        exec weed server -dir=/data -ip.bind=0.0.0.0 -master.volumeSizeLimitMB=1024 -volume.max=0
         -s3 -s3.port=8333 -s3.config=/tmp/s3.json
     volumes:
       - storage-data:/data
@@ -134,16 +158,19 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    deploy: { resources: { limits: { memory: "${STORAGE_MEM_LIMIT:-512m}" } } }
     logging: *logging
 
   backup:
-    # Backup harian: dump database (pg_dump -Fc) + arsip berkas object storage ke ./backups.
-    # Image sama dengan service postgres agar versi pg_dump = versi server.
-    image: pgvector/pgvector:0.8.7-pg18
+    # Backup berkala: dump database tervalidasi + cermin object storage (API S3) ke ./backups, salinan terenkripsi
+    # ke S3 luar server (opsional), heartbeat pemantauan. Panduan: docs/DEPLOYMENT.md §4.
+    # Base image infra/backup/Dockerfile HARUS sama dengan image service postgres (versi pg_dump = versi server).
+    build: ./infra/backup
+    image: lifeos-backup:${APP_VERSION:-latest}
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
-    entrypoint: ["/bin/sh", "/scripts/backup.sh"]
+      storage: { condition: service_healthy }
     environment:
       PGHOST: postgres
       PGUSER: lifeos
@@ -151,10 +178,30 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD}
       BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_HEALTHCHECK_URL: ${BACKUP_HEALTHCHECK_URL:-}
+      # Sumber berkas = object storage aplikasi (sama dengan backend)
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://storage:8333}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      ASSET_BUCKET: ${ASSET_BUCKET:-lifeos-assets}
+      # Salinan luar server (kosongkan OFFSITE_S3_BUCKET untuk menonaktifkan)
+      OFFSITE_S3_PROVIDER: ${OFFSITE_S3_PROVIDER:-Other}
+      OFFSITE_S3_ENDPOINT: ${OFFSITE_S3_ENDPOINT:-}
+      OFFSITE_S3_REGION: ${OFFSITE_S3_REGION:-auto}
+      OFFSITE_S3_ACCESS_KEY_ID: ${OFFSITE_S3_ACCESS_KEY_ID:-}
+      OFFSITE_S3_SECRET_ACCESS_KEY: ${OFFSITE_S3_SECRET_ACCESS_KEY:-}
+      OFFSITE_S3_BUCKET: ${OFFSITE_S3_BUCKET:-}
+      OFFSITE_S3_PREFIX: ${OFFSITE_S3_PREFIX:-lifeos}
+      OFFSITE_RETENTION_DAYS: ${OFFSITE_RETENTION_DAYS:-30}
+      BACKUP_ENCRYPTION_PASSWORD: ${BACKUP_ENCRYPTION_PASSWORD:-}
     volumes:
-      - ./infra/backup/backup.sh:/scripts/backup.sh:ro
       - ${BACKUP_DIR:-./backups}:/backups
-      - storage-data:/storage:ro
+    # Base image mendeklarasikan VOLUME /var/lib/postgresql; tmpfs mencegah volume anonim baru tiap container dibuat
+    tmpfs:
+      - /var/lib/postgresql
+    deploy: { resources: { limits: { memory: 512m, cpus: "1" } } }
     logging: *logging
 
 volumes:

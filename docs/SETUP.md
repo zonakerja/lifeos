@@ -31,10 +31,10 @@ docker compose ps
 
 | Service | Host port | Kredensial dev |
 |---|---|---|
-| PostgreSQL + pgvector | `55432` | db `lifeos`, `postgres` / `postgres` |
-| Redis | `6380` | — |
-| SeaweedFS S3 API | `9002` | `lifeos` / `lifeos-secret` (`infra/seaweedfs/s3.json`) |
-| SeaweedFS filer UI | `9003` | — |
+| PostgreSQL + pgvector | `5432` | db `lifeos`, `postgres` / `postgres` |
+| Redis | `6379` | — |
+| SeaweedFS S3 API | `8333` | `lifeos` / `lifeos-secret` (`infra/seaweedfs/s3.json`) |
+| SeaweedFS filer UI | `8888` | — |
 
 Bucket `lifeos-assets` dibuat otomatis oleh backend saat start.
 
@@ -154,7 +154,7 @@ Lihat [DEPLOYMENT.md](DEPLOYMENT.md) (VPS dengan `docker-compose.prod.yml`: Cadd
 
 | Gejala | Solusi |
 |---|---|
-| `ECONNREFUSED` ke 55432/6380 | Container mati (WSL idle) → `docker compose up -d` lagi |
+| `ECONNREFUSED` ke 5432/6379/8333 | Container mati (WSL idle) → `docker compose up -d` lagi |
 | Vite menampilkan modul usang setelah banyak perubahan | Restart `npm run dev` frontend |
 | `Konfigurasi environment tidak valid` saat backend start | Lengkapi `backend/.env` sesuai `.env.example` |
 | Prisma error tabel/kolom tidak ada | `npx prisma migrate deploy` lalu `npx prisma generate` |

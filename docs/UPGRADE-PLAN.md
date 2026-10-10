@@ -40,6 +40,8 @@ Prisma, build image Docker; untuk perubahan infra juga stack produksi lokal + ce
 - `rehype-katex` (rilis terakhir 7.0.1, Agustus 2024) masih mengunci `^0.16` → override `katex: "$katex"` tetap
   diperlukan (lihat ARCHITECTURE §2.3).
 - Rekomendasi: upgrade setelah umur ≥ 4 minggu (± 29 Oktober 2026), uji render blok & inline di Notes AI.
+- Dependabot mengabaikan `katex >=0.19.0` (`.github/dependabot.yml`) agar PR tidak datang lebih awal — **hapus aturan
+  itu** saat upgrade dikerjakan.
 
 ### 2.3 TypeScript 6 → 7 — pantau
 - TS 7.0 (compiler native/Go, build jauh lebih cepat) GA 2026-07-08, tetapi **belum punya API programatik stabil**

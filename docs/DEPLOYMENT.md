@@ -9,7 +9,7 @@ Internet ──► Caddy :80/:443 (HTTPS otomatis Let's Encrypt, HSTS, kompresi)
                ├── /api/*  ──► backend  (NestJS, migrasi otomatis saat start, log JSON)
                └── lainnya ──► frontend (nginx: SPA statis + CSP & header keamanan)
              jaringan internal Docker (tidak terbuka ke internet):
-               postgres (pgvector) · redis (password) · storage (SeaweedFS S3) · backup (harian)
+               postgres (pgvector) · redis (password) · storage (SeaweedFS S3) · backup (harian → S3 luar server)
 ```
 
 | Service | Image | Data |
@@ -20,7 +20,7 @@ Internet ──► Caddy :80/:443 (HTTPS otomatis Let's Encrypt, HSTS, kompresi)
 | postgres | `pgvector/pgvector` (PostgreSQL + pgvector) | volume `postgres18-data` (nomor major di nama volume, lihat §8) |
 | redis | `redis` alpine (AOF, password) | volume `redis-data` |
 | storage | `chrislusf/seaweedfs` | volume `storage-data` |
-| backup | `pgvector/pgvector` + `infra/backup/backup.sh` | folder `./backups` |
+| backup | dibangun dari `infra/backup/Dockerfile` (pg_dump + rclone) | folder `./backups` + bucket S3 luar server (terenkripsi) |
 
 Tag image di-pin di `docker-compose.prod.yml`; daftar versinya ada di [ARCHITECTURE.md §2.1](ARCHITECTURE.md#21-komponen-dan-versi-per-2026-10-10).
 
@@ -80,7 +80,8 @@ dipulihkan tetapi sesi login lama tidak berlaku.
 - [ ] Ikuti §1 (Docker + firewall) → §2 (instalasi) di bawah.
 - [ ] Login di `https://<APP_DOMAIN>`, ganti password admin, hapus `SEED_ADMIN_PASSWORD` dari `.env`.
 - [ ] Jalankan smoke test dari laptop (§5) untuk memastikan semuanya berfungsi.
-- [ ] Atur penyalinan folder `backups/` ke luar server (§4).
+- [ ] Isi `OFFSITE_S3_*` + `BACKUP_ENCRYPTION_PASSWORD` (backup luar server) dan `BACKUP_HEALTHCHECK_URL` (§4, §5).
+- [ ] Daftarkan pemantau uptime untuk `https://<APP_DOMAIN>/api/v1/health` (§5).
 
 **Belum punya domain?** Untuk uji coba sementara, aplikasi bisa dijalankan tanpa HTTPS dengan
 `APP_DOMAIN=http://<IP-VPS>` dan `COOKIE_SECURE=false` di `.env`. **Jangan dipakai untuk data sungguhan**: password dan
@@ -108,6 +109,64 @@ sudo ufw allow 443/tcp
 sudo ufw allow 443/udp
 sudo ufw enable
 ```
+
+Catatan: port yang dipublikasikan Docker melewati aturan `ufw`. Karena itu hanya Caddy (80/443) yang membuka port di
+`docker-compose.prod.yml`; jangan menambahkan `ports:` pada service lain.
+
+### 1.1 Batas memori container
+
+Setiap service punya batas memori (`deploy.resources.limits`) agar satu service yang boros tidak membuat seluruh VPS
+macet. Default untuk **VPS 4 GB** (total ± 3,3 GB): postgres 1 GB, backend 768 MB, storage 512 MB, backup 512 MB,
+redis 256 MB, caddy 128 MB, frontend 64 MB. PostgreSQL di-tuning (`shared_buffers` 256 MB, `effective_cache_size`
+768 MB, `max_connections` 50), Redis menolak tulis saat mencapai `REDIS_MAXMEMORY` (bukan di-kill), dan heap Node
+dibatasi `BACKEND_HEAP_MB`.
+
+Untuk **VPS 2 GB** (+ swap), tambahkan ke `.env`:
+
+```bash
+POSTGRES_MEM_LIMIT=512m
+PG_SHARED_BUFFERS=128MB
+PG_EFFECTIVE_CACHE_SIZE=384MB
+BACKEND_MEM_LIMIT=512m
+BACKEND_HEAP_MB=384
+STORAGE_MEM_LIMIT=384m
+```
+
+Pemakaian aktual: `docker stats --no-stream`. Container yang terkena batas akan di-restart otomatis
+(`dc ps` → kolom STATUS; `docker inspect <container> --format '{{.State.OOMKilled}}'`) — naikkan batasnya bila
+sering terjadi.
+
+### 1.2 Pengamanan server
+
+Lakukan sekali setelah VPS aktif (sebagai user non-root dengan `sudo`):
+
+```bash
+# 1. Login SSH hanya dengan key. Di LAPTOP: buat key bila belum ada, lalu salin ke VPS
+ssh-keygen -t ed25519            # (laptop) cukup sekali
+ssh-copy-id <user>@<IP-VPS>      # (laptop) lalu pastikan "ssh <user>@<IP-VPS>" masuk TANPA password
+
+# Di VPS: matikan login password & login root (JANGAN tutup sesi SSH yang sedang aktif sebelum mencoba sesi baru)
+sudo tee /etc/ssh/sshd_config.d/99-lifeos.conf >/dev/null <<'EOF'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+EOF
+sudo systemctl reload ssh
+
+# 2. fail2ban: blokir IP yang berulang kali gagal login SSH
+sudo apt-get update && sudo apt-get install -y fail2ban
+sudo systemctl enable --now fail2ban
+
+# 3. Patch keamanan OS otomatis (restart otomatis dinyalakan pukul 03:00 bila kernel diperbarui)
+sudo apt-get install -y unattended-upgrades
+sudo dpkg-reconfigure -f noninteractive unattended-upgrades
+echo 'Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "03:00";' | sudo tee /etc/apt/apt.conf.d/52lifeos-reboot
+```
+
+Cek: `sudo sshd -T | grep -E "passwordauthentication|permitrootlogin"` (harus `no`), `sudo fail2ban-client status sshd`,
+`systemctl status unattended-upgrades`. Semua container memakai `restart: unless-stopped`, jadi aplikasi hidup
+kembali setelah reboot otomatis.
 
 ## 2. Instalasi
 
@@ -139,26 +198,73 @@ Disarankan backup manual sebelum pembaruan besar (lihat §4).
 
 ## 4. Backup & restore
 
-Service `backup` membuat backup setiap `BACKUP_INTERVAL_HOURS` (default 24 jam) ke `./backups`:
-`db-<waktu>.dump` (pg_dump format custom) dan `storage-<waktu>.tar.gz` (berkas upload), dan menghapus backup yang
-lebih tua dari `BACKUP_RETENTION_DAYS` (default 14). **Salin folder `backups/` ke luar server** secara berkala
-(mis. `rclone`/`rsync` ke penyimpanan lain) — backup di disk yang sama tidak melindungi dari kerusakan VPS.
+Service `backup` (`infra/backup/`) berjalan setiap `BACKUP_INTERVAL_HOURS` (default 24 jam):
+
+| Langkah | Hasil di `./backups` | Salinan luar server (bila `OFFSITE_S3_BUCKET` diisi) |
+|---|---|---|
+| `pg_dump` format custom, divalidasi `pg_restore --list` | `db-<waktu>.dump`, retensi `BACKUP_RETENTION_DAYS` (14) | `db/`, retensi `OFFSITE_RETENTION_DAYS` (30) |
+| Berkas upload diambil lewat **API S3** (konsisten walau storage berjalan) | `storage/current/` (cermin) + `storage/changed/<waktu>/` (berkas yang dihapus/diganti) | `storage/current/` + `storage/changed/<waktu>/` |
+
+- **Luar server**: bucket S3-compatible di penyedia lain (Cloudflare R2 / Backblaze B2 — gratis s.d. 10 GB). Isi &
+  nama berkas dienkripsi (rclone crypt) dengan `BACKUP_ENCRYPTION_PASSWORD`; penyedia tidak bisa membaca isinya.
+  **Simpan `.env` (terutama `BACKUP_ENCRYPTION_PASSWORD`) di password manager** — tanpa itu backup luar server tidak
+  bisa dibuka. Tanpa `OFFSITE_S3_BUCKET`, backup hanya ada di disk VPS (log menampilkan PERINGATAN).
+- **Pemantauan**: `BACKUP_HEALTHCHECK_URL` di-ping setiap sukses dan `<url>/fail` saat gagal (§5). Healthcheck
+  Docker service `backup` menjadi `unhealthy` bila sukses terakhir lebih lama dari interval + 2 jam.
+- Backup manual dan backup terjadwal tidak bisa berjalan bersamaan (dikunci).
+
+### 4.1 Menyiapkan bucket luar server (Cloudflare R2)
+
+1. Dashboard Cloudflare → **R2** → *Create bucket* (mis. `lifeos-backup`, lokasi Asia-Pacific).
+2. R2 → *Manage API tokens* → *Create API token*: izin **Object Read & Write**, batasi ke bucket tadi. Catat
+   *Access Key ID*, *Secret Access Key*, dan endpoint `https://<account-id>.r2.cloudflarestorage.com`.
+3. Isi `.env`: `OFFSITE_S3_PROVIDER=Cloudflare`, `OFFSITE_S3_ENDPOINT`, `OFFSITE_S3_ACCESS_KEY_ID`,
+   `OFFSITE_S3_SECRET_ACCESS_KEY`, `OFFSITE_S3_BUCKET=lifeos-backup`, `BACKUP_ENCRYPTION_PASSWORD`
+   (`openssl rand -hex 32`), lalu `docker compose -f docker-compose.prod.yml up -d backup`.
+4. Uji: `dc exec backup backup.sh --once` lalu `dc exec backup backup.sh rclone lsf -R offsite:` (daftar berkas
+   terdekripsi). Di dashboard R2, nama berkas tampak acak — itu tanda enkripsi aktif.
+
+Backblaze B2: buat bucket privat + *Application Key*, `OFFSITE_S3_PROVIDER=Other`,
+`OFFSITE_S3_ENDPOINT=https://s3.<region>.backblazeb2.com`, `OFFSITE_S3_REGION=<region>`.
+
+### 4.2 Perintah
 
 ```bash
-# Backup manual sekarang
-docker compose -f docker-compose.prod.yml exec backup sh /scripts/backup.sh --once
+alias dc='docker compose -f docker-compose.prod.yml'
 
-# Restore database (aplikasi dihentikan dulu)
-docker compose -f docker-compose.prod.yml stop backend
-docker compose -f docker-compose.prod.yml exec -T postgres \
-  pg_restore --clean --if-exists --no-owner -U lifeos -d lifeos < backups/db-YYYYMMDD-HHMMSS.dump
+dc exec backup backup.sh --once                       # backup manual sekarang
+dc logs --tail 20 backup                              # hasil backup terakhir
+dc exec backup backup.sh rclone lsf offsite:db        # daftar dump di luar server
+ls -lh backups/                                       # backup lokal
 
-# Restore berkas object storage
-docker compose -f docker-compose.prod.yml stop storage
-docker run --rm -v lifeos-prod_storage-data:/data -v "$PWD/backups:/backups" alpine \
-  sh -c "rm -rf /data/* && tar -xzf /backups/storage-YYYYMMDD-HHMMSS.tar.gz -C /data"
-docker compose -f docker-compose.prod.yml up -d
+# Restore database dari backup lokal (aplikasi dihentikan dulu)
+dc stop backend
+dc exec -T postgres pg_restore --clean --if-exists --no-owner -U lifeos -d lifeos < backups/db-YYYYMMDD-HHMMSS.dump
+
+# Restore berkas dari cermin lokal ke object storage
+dc exec backup backup.sh rclone copy /backups/storage/current src:lifeos-assets
+dc up -d
 ```
+
+### 4.3 Pemulihan dari luar server (VPS rusak/hilang)
+
+Siapkan VPS baru (§1–§2) dengan **`.env` yang sama** (dari password manager), lalu:
+
+```bash
+dc up -d --wait
+dc exec backup backup.sh rclone lsf offsite:db                              # pilih dump terbaru
+dc exec backup backup.sh rclone copy offsite:db/db-YYYYMMDD-HHMMSS.dump /backups/restore/
+dc exec backup backup.sh rclone copy offsite:storage/current /backups/restore/storage
+dc stop backend
+dc exec -T postgres pg_restore --clean --if-exists --no-owner -U lifeos -d lifeos \
+  < backups/restore/db-YYYYMMDD-HHMMSS.dump
+dc exec backup backup.sh rclone copy /backups/restore/storage src:lifeos-assets
+dc up -d
+```
+
+Lalu login, cek data di setiap modul & buka beberapa lampiran. Prosedur ini sudah diuji (stack produksi lokal):
+data & berkas yang dihapus kembali utuh. **Latih sekali setiap beberapa bulan** di stack uji agar yakin backup bisa
+dipakai.
 
 ## 5. Operasional
 
@@ -168,11 +274,23 @@ docker compose -f docker-compose.prod.yml up -d
 | Log aplikasi (JSON) | `dc logs -f backend` — setiap request punya `reqId` (header `X-Request-Id`) |
 | Log akses | `dc logs -f caddy` |
 | Rotasi log | otomatis (json-file 10 MB × 5 per service) |
+| Pemakaian memori | `docker stats --no-stream` (batas per service: §1.1) |
+| Status backup | `dc ps backup` (healthy/unhealthy) · `dc logs --tail 20 backup` |
 | Uji end-to-end | `API_URL=https://<domain>/api/v1 SMOKE_ADMIN_EMAIL=... SMOKE_ADMIN_PASSWORD=... npm --prefix backend run test:smoke` (membuat & menghapus user sementara) |
+
+### 5.1 Pemantauan (disarankan, gratis)
+
+| Yang dipantau | Layanan | Cara |
+|---|---|---|
+| Backup berjalan & sukses | [healthchecks.io](https://healthchecks.io) | Buat *check* periode 1 hari, *grace* 2 jam; salin URL ping ke `BACKUP_HEALTHCHECK_URL`. Email dikirim bila backup gagal (`/fail`) atau tidak berjalan. |
+| Aplikasi dapat diakses | [UptimeRobot](https://uptimerobot.com) (atau Better Stack) | Monitor HTTP(S) `https://<APP_DOMAIN>/api/v1/health` setiap 5 menit; status 503 = database/redis/storage bermasalah. |
+| Sertifikat HTTPS | sama (UptimeRobot SSL monitoring) | Peringatan sebelum sertifikat kedaluwarsa (Caddy memperbarui otomatis; ini jaring pengaman). |
 
 ## 6. Keamanan yang sudah diterapkan
 
 - Hanya port 80/443 yang terbuka; database, Redis (berpassword), dan storage hanya di jaringan internal.
+- SSH hanya dengan key, fail2ban, patch keamanan OS otomatis (§1.2); batas memori per container (§1.1).
+- Backup luar server terenkripsi (§4).
 - HTTPS + HSTS (Caddy), CSP ketat & header keamanan (nginx), Helmet di API, rate limit (login 10/menit).
 - Refresh token di cookie `httpOnly` + `Secure` + `SameSite=Strict`; access token 15 menit di memori; rotasi token
   dengan deteksi pemakaian ulang; ganti password mencabut sesi lain.
@@ -205,12 +323,12 @@ COUNT_SQL="SELECT table_name, (xpath('/row/c/text()', query_to_xml(format('SELEC
 
 # 1. Hentikan penulis data, lalu backup (database + berkas) dan catat jumlah baris
 dc stop caddy backend
-dc exec backup sh /scripts/backup.sh --once
-ls -lh backups/                       # salin juga db-*.dump terbaru ke luar server
+dc exec backup backup.sh --once       # juga tersalin ke luar server (§4)
+ls -lh backups/
 dc exec -T postgres psql -U lifeos -d lifeos -At -c "$COUNT_SQL" > backups/counts-before.txt
 
-# 2. Ubah docker-compose.prod.yml: tag image postgres DAN backup ke versi M, volume postgres<N>-data →
-#    postgres<M>-data (di service postgres dan daftar volumes), path mount sesuai dokumentasi image M.
+# 2. Ubah tag image ke versi M di docker-compose.prod.yml (service postgres) DAN infra/backup/Dockerfile (FROM),
+#    volume postgres<N>-data → postgres<M>-data (service postgres + daftar volumes), path mount sesuai image M.
 dc stop postgres backup
 dc up -d --wait postgres              # cluster M kosong di volume baru (database lifeos dibuat otomatis)
 
@@ -227,8 +345,8 @@ dc up -d --build                      # backend menjalankan migrate deploy saat 
 curl https://<domain>/api/v1/health
 #   lalu login, cek data di setiap modul, jalankan smoke test (§5), dan backup manual pertama di versi M.
 
-# 5. Rollback (bila verifikasi gagal): kembalikan docker-compose.prod.yml ke versi N, lalu
-dc down && dc up -d                   # volume postgres<N>-data masih utuh
+# 5. Rollback (bila verifikasi gagal): kembalikan docker-compose.prod.yml & infra/backup/Dockerfile ke versi N, lalu
+dc down && dc up -d --build           # volume postgres<N>-data masih utuh
 
 # 6. Setelah beberapa hari stabil: hapus volume lama
 docker volume rm lifeos-prod_postgres<N>-data

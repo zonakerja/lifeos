@@ -6,18 +6,11 @@ Kode: `frontend/src/features/file-control/` (peta file di §9).
 
 ## 1. Data
 
-| Record type (API) | Tabel | Isi |
-|---|---|---|
-| `para_resource` (type `file`) | `resources` | arsip = resource bertipe file + field kearsipan |
-| `para_archive` (`originalType: resource`, `data.type: file`) | `para_archives` | arsip yang resource-nya diarsipkan di PARA |
-| `archive_classification` | `archive_classifications` | kode klasifikasi |
-| `archive_jra` | `archive_retention_schedules` | jadwal retensi |
-| `archive_physical_reference` | `archive_locations` | wadah fisik (lokasi/rak/box/folder) |
-| `archive_borrowing` | `archive_borrowings` | transaksi peminjaman |
-| `archive_disposition` | `archive_dispositions` | berita acara penyusutan |
-| `archive_move_log` | `archive_move_logs` | riwayat pemindahan |
-
-Semua perubahan data kearsipan tercatat otomatis di `archive_audit_logs` (lihat ARCHITECTURE.md §4.4).
+Record type yang dipakai modul ini (nama tabel & kolom: [ARCHITECTURE.md §4.2](ARCHITECTURE.md#42-tabel-domain-20)):
+`para_resource` bertipe `file` (arsip), `para_archive` bertipe file (arsip yang resource-nya diarsipkan di PARA),
+`archive_classification` (klasifikasi), `archive_jra` (jadwal retensi), `archive_physical_reference` (wadah fisik),
+`archive_borrowing` (peminjaman), `archive_disposition` (berita acara penyusutan), `archive_move_log` (riwayat
+pemindahan). Semua perubahan data kearsipan tercatat otomatis di `archive_audit_logs` (ARCHITECTURE.md §4.4).
 
 **Sumber arsip**: resource bertipe file (`isArchived: false`) + isi snapshot PARA Archive bertipe file
 (`isArchived: true`, `archiveWrapperId`). Setiap perubahan dirutekan kembali ke asalnya; field sementara
