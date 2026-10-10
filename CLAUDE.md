@@ -129,7 +129,7 @@ Ke depan: **chatbot AI untuk bertanya tentang arsip & hasil pekerjaan** (RAG).
 | Backend | NestJS 12 (CommonJS) + TypeScript 6 + Prisma 7 + PostgreSQL 18; Node 24 LTS (versi lengkap: `docs/ARCHITECTURE.md` §2) |
 | Database | 21 tabel domain terstruktur dari satu spesifikasi + kolom `extra` jsonb (lossless), snake_case, timestamptz |
 | Auth | access JWT 15 menit di memori + refresh token di cookie httpOnly berotasi |
-| AI provider | Multi-provider dipilih user: Gemini, Claude, OpenAI (thread fitur AI) |
+| AI provider | Multi-provider dipilih user: Gemini, Claude, OpenAI — dipanggil **hanya dari backend** (SDK resmi), API key milik user terenkripsi AES-256-GCM, model bisa diganti user |
 | AI data/RAG | **pgvector** di PostgreSQL (embedding & semantic search); **Redis** untuk antrian BullMQ, cache, rate-limit, memori sesi chat |
 | Object storage | S3-compatible: SeaweedFS (dev & default prod), bisa S3/R2/B2 lewat env `S3_*` |
 | Deployment | Docker Compose di VPS; Caddy (HTTPS otomatis) → backend & frontend (nginx); backup harian |
@@ -191,6 +191,7 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 - Env divalidasi saat boot (`src/config/env.validation.ts`). Env baru → daftarkan di sana + `backend/.env.example`
   (+ `docker-compose.prod.yml` & root `.env.example` bila perlu di produksi). Tanpa fallback secret.
   Env opsional penting: `TRUST_PROXY`, `COOKIE_SECURE` (default true di production), `LOG_LEVEL`, `REDIS_PASSWORD`.
+  Env wajib `AI_ENCRYPTION_KEY` (64 hex) — mengganti nilainya membuat API key AI tersimpan tidak terbaca.
 - Global: Helmet, CORS, ValidationPipe whitelist + forbidNonWhitelisted, `PrismaExceptionFilter`, Throttler
   (600/menit; login 10/menit; refresh 30/menit), log `nestjs-pino` (`src/config/logger.config.ts`: JSON di production,
   `reqId`/`X-Request-Id`, header & token disensor), shutdown hooks, body JSON 5 MB.
@@ -201,6 +202,18 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   Admin mengubah password/role user → sesi user itu dihapus.
 - **Users**: list/get (admin, super_admin), create/update/delete (super_admin; admin hanya kelola non-super-admin).
 - **Settings**: `GET /settings/app` publik (branding login); `PATCH` admin.
+- **AI** (`src/ai/`, detail: `docs/ARCHITECTURE.md` §3.1): `GET/PATCH /ai/settings`, `PUT/DELETE /ai/settings/:provider`,
+  `POST /ai/settings/:provider/test`, `POST /ai/generate` (multipart `prompt` + `files[]`, maks. 5 / 20 MB). Katalog
+  provider & model default di `ai-providers.ts`; satu klien per provider di `providers/` (Gemini `generateContent`
+  stateless, Claude Messages streaming + `effort`/`fallbacks`, OpenAI Responses `store:false`). Kredensial di
+  `ai_credentials` (terenkripsi, API hanya mengembalikan `keyHint`), provider aktif di `users.ai_provider`, sakelar
+  **cadangan otomatis** `users.ai_fallback` (`ai-routing.ts`: lampiran tak didukung / kuota / tak terjangkau → provider
+  lain yang punya key; respons `fallback`). Error
+  provider → 429 (kuota) / 422 (lainnya) — **jangan** 401 atau ≥ 502 (lihat §15). Viewer boleh memakai AI (tidak menulis data).
+- **Indeks pengetahuan / RAG** (`src/ai/index/`, detail: `docs/ARCHITECTURE.md` §3.2): tabel `ai_chunks` (pgvector 768,
+  `gemini-embedding-2` dengan key Gemini pemilik data; tanpa key → tanpa embedding, pencarian kata saja), antrian BullMQ
+  `ai-index` dipicu `RecordsService` & ekstraksi, sakelar `users.ai_index_enabled`, `GET /ai/index`,
+  `POST /ai/index/rebuild`, `GET /ai/index/search` (vektor + full-text, RRF). Tipe yang diindeks: `INDEXED_TYPES`.
 - **Database**: tabel & kolom snake_case (`@@map/@map`), timestamptz(3), FK `users` cascade. 21 tabel domain
   (agenda_types, schedules, routines, todos, routine_completions, free_notes, ai_notes, note_lists, areas, projects,
   activities, tasks, resources, para_archives, para_archive_logs, archive_classifications, archive_retention_schedules,
@@ -215,13 +228,15 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   - **Audit kearsipan** `archive_audit_logs` (created/updated/deleted, diff `{field:{from,to}}`, actor) untuk tipe
     `audit: true` (resource hanya bila punya `archivalStatus`; snapshot PARA hanya berisi file). `GET /archive-audit`.
   - Migrasi: baseline `20261009120000_init` + `20261011120000_activity_parent` +
-    `20261011130000_para_archive_log`. Migrasi baru → lihat docs/SETUP.md §10
+    `20261011130000_para_archive_log` + `20261011140000_ai_credentials` +
+    `20261011150000_ai_fallback`. Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?userId&from&to`, `PUT /records/:type/:clientId` `{ payload, userId? }` (upsert,
   juga undelete), `DELETE /records/:type/:clientId?userId=` (soft delete). Admin tanpa `userId` melihat semua user.
 - **Uploads**: multer diskStorage (tmp) → SHA-256 streaming → S3 `<userId>/<yyyy>/<mm>/<ts>-<uuid><ext>` → `assets` +
-  `asset_extractions` → job BullMQ `asset-extraction` (teks ≤ 20 MB). `GET /uploads/:id` (Bearer), `POST /uploads/:id/link`
+  `asset_extractions` → job BullMQ `asset-extraction` (≤ 20 MB: teks, PDF, DOCX, XLSX; gambar/PDF scan → OCR Gemini milik
+  pemilik berkas; selesai → indeks RAG). `GET /uploads/:id` (Bearer), `POST /uploads/:id/link`
   → `/uploads/:id/download?token=` 10 menit. Respons berkas: `CSP: sandbox`, konten aktif dipaksa attachment.
 - **Health**: `/health` (readiness, 503 bila dependensi down), `/health/live` (liveness).
 - **Seed**: `src/database/seed.ts` (dev: akun demo via `prisma db seed` → `tsx`; production: super admin dari env,
@@ -251,9 +266,9 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   status `success | warning | info | destructive`. Font Figtree. Setiap halaman memakai `<ModulePage module="...">`.
   Pakai komponen shadcn; jangan membuat modal/tombol custom.
 - **Bundle**: rute, halaman login, `Markdown` (react-markdown + KaTeX, `markdown-renderer.tsx`), dan `html5-qrcode`
-  dimuat malas. Chunk utama ±360 kB; tanpa peringatan ukuran chunk.
-- **CSP produksi** (`nginx.conf`): `script-src 'self'`, `connect-src 'self' https://generativelanguage.googleapis.com`
-  (AI dari browser), `style-src 'self' 'unsafe-inline'`, `img/media blob: data:`. Domain eksternal baru → tambahkan di sini.
+  dimuat malas. Chunk utama ±440 kB (total JS awal ±645 kB); tanpa peringatan ukuran chunk.
+- **CSP produksi** (`nginx.conf`): `script-src 'self'`, `connect-src 'self'` (AI lewat backend), `style-src 'self'
+  'unsafe-inline'`, `img/media blob: data:`. Domain eksternal baru → tambahkan di sini (lebih baik lewat backend).
 
 ### Pola implementasi frontend (WAJIB)
 - **Koleksi data**: pakai hook bertipe di `src/data/collections.ts`; tipe entitas di `src/types/entities.ts`.
@@ -263,7 +278,10 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   `?note=`, `?archive=`, sub-tab `?sub=`/`?ref=`. Peta di `src/lib/deep-links.ts`. Mengubah **lebih dari satu** param
   sekaligus → `useSetSearchParams()({ a: null, b: null })`, jangan dua setter `useSearchParam` berturut-turut.
 - **Waktu di render**: `useToday()`. **Hak akses**: `usePermissions()` (viewer read-only).
-- **AI**: hanya via `useAi()` (`src/lib/ai/use-ai.ts`), provider sementara Gemini dari browser (`gemini-2.5-flash`).
+- **AI**: hanya via `useAi()` (`src/lib/ai/use-ai.ts`) → `aiApi.generate(prompt, files)` (`POST /ai/generate`);
+  `isConfigured` dari `user.aiProvider`; bila backend memakai provider cadangan, `useAi` menampilkan toast (fitur tidak
+  perlu menangani). Pesan belum diatur: `AI_NOT_CONFIGURED`; kuota habis = `ApiError` status 429.
+  Pengaturan: `features/settings/ai-settings-tab.tsx` + hook `src/data/use-ai-settings.ts` (tab URL tetap `/settings/api`).
 - **Lampiran**: `features/resources/` (`AttachmentForm`, `AttachmentTable`, `ResourceAiDialog`, `openAttachment()`,
   `mergeIntoGlobalResources()`, `useFileSummarizer()`).
 - **Komponen umum**: `ConfirmDialog`, `SectionCard`, `RenameDialog`, `SearchableSelect`, `PaginationControl`+`paginate()`,
@@ -301,8 +319,11 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 
 Fondasi aplikasi sudah lengkap (backend, frontend semua modul, data layer, database terstruktur, keamanan, deployment
 VPS, CI, dokumentasi). Berikutnya:
-1. AI multi-provider di backend (Gemini/Claude/OpenAI, key terenkripsi; hapus API key dari browser & kolom plaintext).
-2. Ekstraksi PDF/DOCX/XLSX/OCR, embedding pgvector + chatbot RAG atas arsip & resource.
+1. ~~AI multi-provider di backend~~ ✅ 2026-10-11. Lanjutan thread AI: perbaikan per fitur AI (chatbot, pencarian,
+   Notes AI, ringkasan resource) di atas fondasi baru.
+2. RAG: ~~tahap 1 ekstraksi + indeks pgvector~~ ✅ 2026-10-11 → **tahap 2** chatbot `POST /ai/chat` di backend memakai
+   `AiIndexService.search` + riwayat chat **permanen** di PostgreSQL (keputusan user) → tahap 3 Redis (cache embedding
+   pertanyaan, batas pemakaian harian, throttler).
 3. (Opsional) tampilan riwayat audit arsip di UI (`GET /archive-audit` sudah tersedia).
 
 Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1): KaTeX 0.19 (≥ 29 Okt 2026), Node 26
@@ -321,10 +342,12 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Tech stack terbaru yang stabil (versi: `docs/ARCHITECTURE.md` §2.1) | ✅ |
 | `npm audit` | ✅ via overrides; sisa `deepmerge-ts` (tunggu Prisma) — `docs/UPGRADE-PLAN.md` §3 |
 | Panduan setup awal / menyalakan / mematikan + aturan port (`docs/SETUP.md` §1–§6) | ✅ ditulis & diverifikasi 2026-10-11 dengan menjalankan §3 langkah 0–6 di laptop user (Node 24.21.0 arm64; login, unit test, smoke test lulus; `strictPort` terbukti menolak instance kedua) — laptop sudah ter-setup |
+| AI multi-provider di backend (Gemini/Claude/OpenAI, key terenkripsi, model bisa diganti user) | ✅ 2026-10-11 — unit + smoke + UI diuji; panggilan ke provider sungguhan menunggu API key user |
+| RAG tahap 1: ekstraksi PDF/DOCX/XLSX/OCR + indeks pgvector (Gemini embedding) + pencarian gabungan | ✅ 2026-10-11 — unit + smoke (record → indeks → cari → hapus) + embedding Gemini sungguhan di akun admin dev |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
-Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `users.api_key` (roadmap butir 1).
+Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
 
 ## 12. Log Keputusan
 
@@ -399,6 +422,27 @@ Isu terbuka: API key Gemini masih dipakai dari browser & disimpan plaintext di `
   `para_archive_log`, migrasi `20261011130000_para_archive_log`) — ditulis `useParaActions` saat arsip/pulihkan,
   pemilik log = pemilik arsip. Tidak memakai `archive_audit_logs` (khusus kearsipan File Control). Snapshot arsip kini
   membawa `userId` pemilik item (sebelumnya arsip data user lain oleh super admin tercatat milik admin).
+- 2026-10-11 — Thread **fitur AI** dimulai. Pemicu: Gemini menolak `gemini-2.5-flash` ("no longer available to new
+  users"). Keputusan (jalur fondasi, disetujui user): AI dipindah ke **backend** (`src/ai/`) dengan SDK resmi
+  `@google/genai`, `@anthropic-ai/sdk`, `openai`; API key per user per provider di tabel `ai_credentials` terenkripsi
+  AES-256-GCM (`AI_ENCRYPTION_KEY`), kolom `users.api_key` dihapus (key lama tidak dimigrasi — user memasukkan ulang),
+  provider aktif `users.ai_provider`. Model default `gemini-3.8-flash`, `claude-opus-5-5`, `gpt-6.1-sol`, tetapi model
+  **bisa diganti user** di Pengaturan → AI agar penghentian model berikutnya tidak butuh rilis. Gemini memakai
+  `generateContent` (masih didukung penuh, stateless) — bukan Interactions API yang secara default menyimpan interaksi
+  di server Google. Saran model Gemini juga memuat `gemini-3.1-pro-preview` (Pro hanya ada versi preview; 2.5 Pro
+  tertutup untuk pengguna baru) dan `gemini-3.5-flash-lite`; default tetap Flash stabil. Audio hanya Gemini.
+  Atas permintaan user ditambah **cadangan otomatis** (sakelar, default menyala): satu provider aktif untuk semua fitur,
+  provider lain yang punya key otomatis dipakai bila provider aktif kehabisan kuota / tidak terjangkau / tidak
+  mendukung lampiran; key ditolak & model tidak tersedia sengaja tidak dialihkan agar terlihat dan diperbaiki. CSP `connect-src` tidak lagi mengizinkan Google. Prompt fitur-fitur AI belum
+  diubah (dikerjakan per fitur di thread ini).
+- 2026-10-11 — RAG (keputusan user): embedding **Gemini** (`gemini-embedding-2`, 768 dimensi, stabil, auto-normalisasi),
+  riwayat chat **permanen** (tahap 2), mulai tahap 1. Vektor di pgvector (bukan Redis: data, hak akses, dan backup tetap
+  satu tempat). Ditambah sakelar per user "Indeks pengetahuan" (privasi: mati = indeks dihapus) dan indeks tanpa
+  embedding bila user tidak punya key Gemini (pencarian kata tetap jalan, tidak ada data keluar). Ekstraktor pure JS:
+  `unpdf`, `mammoth`, `read-excel-file` (`exceljs` ditolak: tidak dirawat sejak 2023); OCR lewat Gemini, bukan OCR
+  lokal (berat untuk VPS). HNSW = indeks parsial di migrasi SQL agar cek drift Prisma tetap bersih.
+- 2026-10-11 — Thread AI **dijeda** atas permintaan user setelah RAG tahap 1 (di-commit). Thread berikutnya: perbaikan
+  fitur **Planner** dan **Notes Space**; setelah itu lanjut RAG tahap 2 (chatbot backend + riwayat chat permanen).
 
 ## 13. Konvensi Kode
 
@@ -481,6 +525,17 @@ DTO class-validator), daftarkan di `app.module.ts`, guard `JwtAuthGuard` + `Role
    lama project uji.
 6. Volume dev lama boleh dihapus setelah verifikasi (data dev dummy); volume produksi lama baru dihapus setelah stabil.
 
+**Menambah provider/model AI**: model baru dari provider yang sama cukup diganti user di Pengaturan → AI; ubah default
+di `backend/src/ai/ai-providers.ts` (`defaultModel`, `suggestedModels`) saat generasi model berganti. Provider baru:
+nilai enum `AiProvider` di `schema.prisma` + migrasi, entri katalog `AI_PROVIDERS`, klien `providers/<nama>.client.ts`
+(SDK resmi, petakan error ke `AiProviderError`), daftarkan di `CLIENTS` (`ai.service.ts`), tipe `AiProviderId` di
+frontend `types/api.ts`; tambah kasus di `ai.spec.ts` & smoke test.
+
+**Menambah tipe data ke indeks RAG**: tambah record type + labelnya di `INDEXED_TYPES`
+(`backend/src/ai/index/index-text.ts`) dan label sumber di `frontend/src/features/settings/ai-index-card.tsx`; field
+payload otomatis ikut (kecuali key berakhiran `Id`, lihat `KEEP_KEYS`). Lalu "Indeks ulang" di Pengaturan → AI.
+Mengganti model/dimensi embedding = migrasi kolom `vector(N)` + indeks HNSW baru + bangun ulang semua indeks.
+
 **Menambah dependensi npm**: pilih paket dengan prebuilt arm64/pure JS; paket berat → import dinamis agar chunk
 utama tetap < 500 kB (cek output `npm run build`).
 
@@ -543,6 +598,20 @@ utama tetap < 500 kB (cek output `npm run build`).
 - "Failed to fetch dynamically imported module …-page.tsx" + console `504 (Outdated Optimize Dep)` = Vite baru
   menemukan dependensi milik rute lazy saat rute dibuka lalu mengoptimasi ulang. Dicegah dengan
   `optimizeDeps.entries` (memindai `src/**`) di `frontend/vite.config.ts`; bila tetap terjadi, restart dev server.
+- Backend dev (`nest start --watch`) yang crash saat restart otomatis (mis. env wajib baru belum ada di `backend/.env`)
+  tidak hidup lagi walau file diubah: proses watcher tetap ada tetapi port 4000 kosong → restart `npm run dev`.
+- Status 401 dari backend memicu refresh sesi di `lib/api/client.ts`, dan status ≥ 502 diganti pesan "Server tidak
+  dapat dihubungi" → error layanan pihak ketiga (provider AI) dipetakan ke 422/429.
+- `@google/genai` & `protobufjs` punya install script (no-op / cek versi) → sengaja `false` di `allowScripts`.
+- Dua migrasi dengan timestamp sama diurutkan menurut nama folder — beri migrasi baru timestamp yang lebih besar dari
+  migrasi terakhir di `prisma/migrations` (cek dulu, thread lain bisa menambah migrasi).
+- Prisma tidak mengenal indeks HNSW: indeks biasa maupun ekspresi cast (`embedding::vector(768)`) dianggap drift
+  (`DROP INDEX`). Indeks **parsial** (`... WHERE embedding IS NOT NULL`) dan indeks ekspresi fungsi (GIN
+  `to_tsvector`) diabaikan Prisma → aman. Query vektor wajib memakai kondisi yang sama.
+- Smoke test yang menyimpan API key palsu: hapus key itu sebelum menulis record/berkas, kalau tidak worker indeks & OCR
+  akan memanggil provider sungguhan dengan key palsu.
+- `git worktree` sementara untuk membandingkan build: tautkan `node_modules` dengan junction lalu **hapus junction dulu**
+  (`rmdir`) sebelum `git worktree remove --force`, agar `node_modules` asli tidak ikut terhapus.
 - `setSearchParams` React Router **tidak mengantrekan** updater fungsi: dua setter `useSearchParam` yang dipanggil
   berturut-turut saling menimpa (perubahan pertama hilang, mis. dialog tidak bisa ditutup) → `useSetSearchParams`.
 - Uji dialog Radix saat panel browser tersembunyi: animasi tutup tidak berjalan, elemen tetap ada dengan

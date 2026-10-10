@@ -38,6 +38,48 @@ const ok = (label, cond, extra = "") => {
 };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+/** PDF satu halaman minimal berlapis teks. */
+const makePdf = (text) => {
+  const stream = `BT /F1 12 Tf 72 720 Td (${text}) Tj ET`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = objects.map((obj, i) => {
+    const offset = pdf.length;
+    pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`;
+    return offset;
+  });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("");
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return Buffer.from(pdf, "latin1");
+};
+
+/** DOCX minimal satu paragraf (jszip = devDependency backend). */
+const makeDocx = async (text) => {
+  const { default: JSZip } = await import("jszip");
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
+  );
+  zip.file(
+    "_rels/.rels",
+    `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
+  );
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`,
+  );
+  return zip.generateAsync({ type: "nodebuffer" });
+};
+
 // ---------------------------------------------------------------- auth (admin)
 let r = await j("POST", "/auth/login", {
   email: ADMIN_EMAIL,
@@ -76,8 +118,76 @@ ok(
 try {
   r = await j("GET", "/auth/me", null, at);
   ok("me", r.s === 200 && r.d.email === email, r);
-  r = await j("PATCH", "/auth/me", { phone: "0811", apiKey: "k-test" }, at);
-  ok("patch me", r.s === 200 && r.d.apiKey === "k-test", r);
+  r = await j("PATCH", "/auth/me", { phone: "0811" }, at);
+  ok("patch me", r.s === 200 && r.d.phone === "0811", r);
+  r = await j("PATCH", "/auth/me", { apiKey: "k-test" }, at);
+  ok("api key no longer on profile 400", r.s === 400, r);
+
+  // ------------------------------------------------------------ AI (tanpa memanggil provider sungguhan)
+  const aiForm = (files = []) => {
+    const form = new FormData();
+    form.append("prompt", "Halo");
+    for (const [content, type, name] of files) form.append("files", new Blob([content], { type }), name);
+    return form;
+  };
+  const fakeKey = "smoke-fake-key-ABCD1234";
+  r = await j("GET", "/ai/settings", null, at);
+  ok(
+    "ai settings default",
+    r.s === 200 &&
+      r.d.activeProvider === null &&
+      r.d.fallbackEnabled === true &&
+      r.d.providers.length === 3 &&
+      r.d.providers.every((p) => !p.configured),
+    r,
+  );
+  r = await j("POST", "/ai/generate", aiForm(), at);
+  ok("ai generate without provider 400", r.s === 400, r);
+  r = await j("PUT", "/ai/settings/gemini", {}, at);
+  ok("ai save without key 400", r.s === 400, r);
+  r = await j("PUT", "/ai/settings/unknown", { apiKey: fakeKey }, at);
+  ok("ai unknown provider 400", r.s === 400, r);
+  r = await j("PUT", "/ai/settings/gemini", { apiKey: fakeKey, model: "gemini-smoke" }, at);
+  const gemini = r.d.providers?.find((p) => p.id === "gemini");
+  ok(
+    "ai save key (first = active, key never returned)",
+    r.s === 200 &&
+      r.d.activeProvider === "gemini" &&
+      gemini.configured &&
+      gemini.keyHint === "1234" &&
+      gemini.model === "gemini-smoke" &&
+      !JSON.stringify(r.d).includes(fakeKey),
+    r,
+  );
+  r = await j("GET", "/auth/me", null, at);
+  ok("me has aiProvider, no key", r.d.aiProvider === "gemini" && !JSON.stringify(r.d).includes(fakeKey), r);
+  r = await j("PUT", "/ai/settings/gemini", { model: null }, at);
+  const geminiReset = r.d.providers?.find((p) => p.id === "gemini");
+  ok("ai reset model keeps key", r.s === 200 && geminiReset.model === null && geminiReset.configured, r);
+  r = await j("PUT", "/ai/settings/anthropic", { apiKey: fakeKey }, at);
+  ok("ai second provider not auto-active", r.s === 200 && r.d.activeProvider === "gemini", r);
+  r = await j("PATCH", "/ai/settings", { activeProvider: "openai" }, at);
+  ok("ai activate unconfigured 400", r.s === 400, r);
+  r = await j("PATCH", "/ai/settings", { activeProvider: "anthropic" }, at);
+  ok("ai switch provider", r.s === 200 && r.d.activeProvider === "anthropic", r);
+  // Cadangan dimatikan: audio tidak dialihkan ke Gemini (yang akan memanggil Google dengan key palsu)
+  r = await j("PATCH", "/ai/settings", { fallbackEnabled: false }, at);
+  ok("ai fallback off", r.s === 200 && r.d.fallbackEnabled === false && r.d.activeProvider === "anthropic", r);
+  r = await j("POST", "/ai/generate", aiForm([["audio", "audio/webm", "rekaman.webm"]]), at);
+  ok(
+    "ai attachment unsupported, no fallback 400",
+    r.s === 400 && /audio/.test(r.d.message) && /Cadangan/.test(r.d.message),
+    r,
+  );
+  r = await j("PATCH", "/ai/settings", { fallbackEnabled: "ya" }, at);
+  ok("ai fallback invalid value 400", r.s === 400, r);
+  r = await j("POST", "/ai/generate", aiForm([["PK", "application/zip", "arsip.zip"]]), at);
+  ok("ai unsupported file type 400", r.s === 400, r);
+  r = await j("DELETE", "/ai/settings/anthropic", null, at);
+  ok("ai remove active falls back", r.s === 200 && r.d.activeProvider === "gemini", r);
+  // Hapus key Gemini palsu sebelum ada record/berkas, agar indeks, embedding, & OCR tidak memanggil Google
+  r = await j("DELETE", "/ai/settings/gemini", null, at);
+  ok("ai remove fake gemini key", r.s === 200 && r.d.activeProvider === null, r);
 
   // ------------------------------------------------------------ settings (tulis nilai yang sama)
   r = await j("GET", "/settings/app");
@@ -194,6 +304,83 @@ try {
   ok("bad link 401", r.s === 401, r);
   r = await j("DELETE", `/uploads/${assetId}`, null, at);
   ok("delete upload", r.s === 200, r);
+
+  // ------------------------------------------------------------ ekstraksi dokumen (PDF, DOCX, gambar)
+  const uploadAndWait = async (content, type, name) => {
+    const form = new FormData();
+    form.append("file", new Blob([content], { type }), name);
+    const up = await j("POST", "/uploads", form, at);
+    for (let i = 0; i < 20; i++) {
+      await new Promise((res) => setTimeout(res, 500));
+      const meta = await j("GET", `/uploads/${up.d.id}/metadata`, null, at);
+      if (!["pending", "extracting"].includes(meta.d.extraction?.status))
+        return { id: up.d.id, extraction: meta.d.extraction };
+    }
+    return { id: up.d.id, extraction: null };
+  };
+  const pdf = await uploadAndWait(makePdf("Surat Keputusan Nomor 77 tentang Arsip Vital"), "application/pdf", "sk.pdf");
+  ok(
+    "extract pdf",
+    pdf.extraction?.status === "completed" && pdf.extraction.extractedText.includes("Nomor 77"),
+    pdf.extraction,
+  );
+  const docx = await uploadAndWait(
+    await makeDocx("Notulen rapat penyusutan arsip"),
+    "application/octet-stream",
+    "notulen.docx",
+  );
+  ok(
+    "extract docx (mime from extension)",
+    docx.extraction?.status === "completed" && docx.extraction.extractedText.includes("penyusutan arsip"),
+    docx.extraction,
+  );
+  // Gambar butuh OCR Gemini; user sementara tidak punya key Gemini → tidak didukung (berkas tetap tersimpan)
+  const png = await uploadAndWait(Buffer.from("89504e470d0a1a0a", "hex"), "image/png", "scan.png");
+  ok("image without gemini key unsupported", png.extraction?.status === "unsupported", png.extraction);
+  for (const id of [pdf.id, docx.id, png.id]) await j("DELETE", `/uploads/${id}`, null, at);
+
+  // ------------------------------------------------------------ indeks pengetahuan (RAG)
+  r = await j("GET", "/ai/index", null, at);
+  ok(
+    "ai index status",
+    r.s === 200 && r.d.enabled === true && r.d.model === "gemini-embedding-2" && typeof r.d.chunks === "number",
+    r,
+  );
+  r = await j("PATCH", "/ai/settings", { indexEnabled: false }, at);
+  ok("ai index disable", r.s === 200 && r.d.indexEnabled === false, r);
+  r = await j("PATCH", "/ai/settings", { indexEnabled: true }, at);
+  ok("ai index enable", r.s === 200 && r.d.indexEnabled === true, r);
+  r = await j("POST", "/ai/index/rebuild", null, at);
+  ok("ai index rebuild queued", r.s === 202 && r.d.queued === true, r);
+  r = await j("GET", "/ai/index/search?q=arsip", null, at);
+  ok("ai index search", r.s === 200 && Array.isArray(r.d), r);
+  r = await j("GET", "/ai/index/search?q=", null, at);
+  ok("ai index search empty 400", r.s === 400, r);
+  // Tanpa key Gemini: record tetap terindeks untuk pencarian kata (tanpa embedding), lalu hilang saat dihapus
+  const waitSearch = async (q, predicate) => {
+    for (let i = 0; i < 30; i++) {
+      const res = await j("GET", `/ai/index/search?q=${encodeURIComponent(q)}`, null, at);
+      if (predicate(res.d)) return res.d;
+      await new Promise((res2) => setTimeout(res2, 500));
+    }
+    return null;
+  };
+  r = await j(
+    "PUT",
+    "/records/free_note/rag-1",
+    { payload: { title: "Rapat koordinasi", content: "Pembahasan arsip vital ZEBRA7781" } },
+    at,
+  );
+  const hits = await waitSearch("ZEBRA7781", (d) => Array.isArray(d) && d.length > 0);
+  ok(
+    "ai index record keyword search",
+    hits?.[0]?.sourceType === "free_note" &&
+      hits[0].sourceId === "rag-1" &&
+      hits[0].title === "Catatan: Rapat koordinasi",
+    hits,
+  );
+  r = await j("DELETE", "/records/free_note/rag-1", null, at);
+  ok("ai index record removed", !!(await waitSearch("ZEBRA7781", (d) => Array.isArray(d) && d.length === 0)));
 
   // ------------------------------------------------------------ refresh token (cookie httpOnly)
   r = await j("POST", "/auth/refresh");

@@ -35,8 +35,8 @@ import { scheduleStart } from "@/features/planner/lib/planner-logic";
 import { openAttachment } from "@/features/resources/resource-utils";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSearchParam } from "@/hooks/use-search-param";
-import { useAi } from "@/lib/ai/use-ai";
-import { errorMessage } from "@/lib/api/client";
+import { AI_NOT_CONFIGURED, useAi } from "@/lib/ai/use-ai";
+import { ApiError, errorMessage } from "@/lib/api/client";
 import { uploadsApi } from "@/lib/api/endpoints";
 import { formatDayMonth, todayYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
@@ -47,7 +47,8 @@ type ProcessStatus = "idle" | "processing" | "done" | "error";
 
 const NO_SCHEDULE = "__none__";
 const AI_FILE = (mime: string) => mime === "application/pdf" || mime.startsWith("image/") || mime === "text/plain";
-const isQuotaError = (msg: string) => /quota|429|exceeded/i.test(msg);
+/** Kuota/limit provider AI habis (backend mengembalikan 429). */
+const isQuotaError = (error: unknown) => error instanceof ApiError && error.status === 429;
 const fileOf = (note: AiNote): NoteFileAttachment | null =>
   note.fileAttachment && "name" in note.fileAttachment ? (note.fileAttachment as NoteFileAttachment) : null;
 
@@ -243,14 +244,13 @@ function AiNoteEditor({
 
   const reportAiError = (title: string, error: unknown, quotaHint: string) => {
     const msg = errorMessage(error);
-    if (isQuotaError(msg))
-      toast.error("Limit API Tercapai ⚠️", { description: `Limit API Gemini Anda tercapai. ${quotaHint}` });
+    if (isQuotaError(error)) toast.error("Limit API Tercapai ⚠️", { description: `${msg} ${quotaHint}` });
     else toast.error(title, { description: msg });
   };
 
   const requireAi = () => {
     if (ai.isConfigured) return true;
-    toast.error("API Key belum disetting", { description: "Atur API Key Gemini di Pengaturan → API Key AI." });
+    toast.error("AI belum diatur", { description: AI_NOT_CONFIGURED });
     return false;
   };
 
@@ -658,7 +658,7 @@ function AiNoteEditor({
                     </EmptyDescription>
                     {!ai.isConfigured && (
                       <p className="rounded-md bg-destructive/10 px-2 py-1 text-[11px] font-semibold text-destructive">
-                        API Key belum disetting. Atur di menu Pengaturan.
+                        AI belum diatur. Atur di Pengaturan → AI.
                       </p>
                     )}
                   </EmptyHeader>

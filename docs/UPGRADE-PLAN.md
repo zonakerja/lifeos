@@ -82,6 +82,7 @@ Prisma, build image Docker; untuk perubahan infra juga stack produksi lokal + ce
 |---|---|---|---|---|
 | Backend | `deepmerge-ts` 7.x (via `@prisma/config`) | high (stack exhaustion objek rekursif) | Ya, hanya membaca `prisma.config.ts` milik kita | Fix hanya di major 8 (API berbeda) → tunggu patch Prisma 7.x |
 | Frontend | `braces`/`micromatch`/`fast-glob` (via CLI `shadcn`) | high | Tidak (dev tool) | Ikut update `shadcn` |
+| Backend | `sprintf-js` (via `argparse` 1.x milik `mammoth`) | moderate (DoS lewat format string) | Terpasang, tetapi hanya dipakai CLI `mammoth`; aplikasi memanggil `extractRawText` saja | Belum ada versi perbaikan; hapus bila `mammoth` pindah ke `argparse` 2 |
 
 ## 4. Sumber kajian
 

@@ -1,3 +1,4 @@
+import { ApiError } from "@/lib/api/client";
 import {
   useActivities,
   useAiNotes,
@@ -151,10 +152,8 @@ export function buildLifeosContext(data: LifeosData, variant: "search" | "chat")
   return `[DATA APLIKASI LIFEOS USER]\n${parts.map(([title, body]) => `--- ${title} ---\n${body}`).join("\n")}`;
 }
 
-/** Pesan error AI yang ramah (kuota habis, dsb). */
+/** Pesan error AI untuk ditampilkan di chat (pesan dari backend sudah menjelaskan penyebab & tindakannya). */
 export const aiErrorMessage = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
-  return message.toLowerCase().includes("quota")
-    ? "⚠️ **Limit API Gemini Habis.** Kuota gratis telah habis. Silakan coba lagi nanti."
-    : `❌ Terjadi kesalahan: ${message}`;
+  return error instanceof ApiError && error.status === 429 ? `⚠️ ${message}` : `❌ ${message}`;
 };

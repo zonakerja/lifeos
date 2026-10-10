@@ -11,7 +11,6 @@ import {
   Grid2x2,
   HardDrive,
   Hourglass,
-  KeyRound,
   Layers,
   LayoutGrid,
   ListChecks,
@@ -122,7 +121,7 @@ export const MODULES: ModuleDef[] = [
       { id: "profile", label: "Profil Saya", icon: UserRound },
       { id: "users", label: "Manajemen User", icon: Users, roles: ["super_admin", "admin"] },
       { id: "app", label: "Aplikasi", icon: Settings2, roles: ["super_admin", "admin"] },
-      { id: "api", label: "API Key AI", icon: KeyRound },
+      { id: "api", label: "AI", icon: Sparkles },
     ],
   },
 ];

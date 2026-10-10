@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ModulePage } from "@/components/layout/module-page";
-import { ApiKeyTab } from "@/features/settings/api-key-tab";
+import { AiSettingsTab } from "@/features/settings/ai-settings-tab";
 import { AppTab } from "@/features/settings/app-tab";
 import { ProfileTab } from "@/features/settings/profile-tab";
 import { UsersTab } from "@/features/settings/users-tab";
@@ -9,7 +9,7 @@ const TABS: Record<string, () => ReactNode> = {
   profile: () => <ProfileTab />,
   users: () => <UsersTab />,
   app: () => <AppTab />,
-  api: () => <ApiKeyTab />,
+  api: () => <AiSettingsTab />,
 };
 
 export function Component() {

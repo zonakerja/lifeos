@@ -3,7 +3,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Markdown } from "@/components/common/markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useAi } from "@/lib/ai/use-ai";
+import { AI_NOT_CONFIGURED, useAi } from "@/lib/ai/use-ai";
 import { cn } from "@/lib/utils";
 import { aiErrorMessage, buildLifeosContext, useLifeosData } from "./lifeos-context";
 
@@ -97,10 +97,7 @@ function ChatBody() {
     setMessages((prev) => [...prev, { role: "user", content: text }]);
 
     if (!ai.isConfigured) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "ai", content: "⚠️ **API Key belum diatur!** Silakan atur di menu Pengaturan → API Key AI." },
-      ]);
+      setMessages((prev) => [...prev, { role: "ai", content: `⚠️ **${AI_NOT_CONFIGURED}**` }]);
       return;
     }
 

@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { LoggerModule } from "nestjs-pino";
+import { AiModule } from "./ai/ai.module";
 import { AuthModule } from "./auth/auth.module";
 import { validateEnv } from "./config/env.validation";
 import { loggerConfig } from "./config/logger.config";
@@ -32,6 +33,7 @@ import { UsersModule } from "./users/users.module";
     RecordsModule,
     ExtractionModule,
     UploadsModule,
+    AiModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

@@ -7,6 +7,7 @@ import { unlink } from "node:fs/promises";
 import { extname } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { AuthUser } from "../common/types/auth-user";
+import { ASSET_SOURCE } from "../ai/index/index-text";
 import { ExtractionQueueService } from "../extraction/extraction-queue.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
@@ -161,7 +162,11 @@ export class UploadsService {
       throw new ForbiddenException("Viewer tidak memiliki akses tulis.");
     }
     const asset = await this.findAccessible(id, user);
-    await this.prisma.asset.delete({ where: { id: asset.id } });
+    // Potongan indeks AI (RAG) dari isi berkas ikut dihapus
+    await this.prisma.$transaction([
+      this.prisma.aiChunk.deleteMany({ where: { sourceType: ASSET_SOURCE, sourceId: asset.id } }),
+      this.prisma.asset.delete({ where: { id: asset.id } }),
+    ]);
     await this.storage
       .deleteObject(asset.objectKey)
       .catch((error) =>

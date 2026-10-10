@@ -1,15 +1,30 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { forwardRef, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AssetExtractionStatus, AssetStatus } from "../generated/prisma/client";
 import { Job, Worker } from "bullmq";
+import { AiService } from "../ai/ai.service";
+import { isFallbackError } from "../ai/ai-routing";
+import { AiIndexQueueService } from "../ai/index/ai-index-queue.service";
+import { ASSET_SOURCE } from "../ai/index/index-text";
+import { AiProviderError } from "../ai/providers/ai-client";
 import { redisConnectionOptions } from "../redis/redis.module";
 import { ASSET_EXTRACTION_QUEUE } from "./extraction-queue.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { type ExtractionMethod, extractDocumentText, isExtractable, normalizeMimeType } from "./text-extractors";
 
-/** Batas ukuran berkas teks yang dibaca ke memori untuk ekstraksi (lebih besar → unsupported). */
+/** Batas ukuran berkas yang dibaca ke memori untuk ekstraksi (lebih besar → unsupported). */
 const MAX_EXTRACT_BYTES = 20 * 1024 * 1024;
+/** Batas teks yang disimpan per berkas. */
+const MAX_EXTRACTED_CHARS = 2_000_000;
 
+/** Alasan berkas tidak menghasilkan teks (disimpan di `metadata.reason`). */
+type SkipReason = "unsupported_type" | "too_large" | "needs_gemini_key" | "empty";
+
+/**
+ * Ekstraksi teks berkas upload (in-process, BullMQ): teks polos, PDF (lapisan teks), DOCX, XLSX; gambar dan PDF hasil
+ * scan dibaca lewat Gemini milik pemilik berkas (OCR). Hasilnya dipakai ringkasan AI dan indeks pengetahuan (RAG).
+ */
 @Injectable()
 export class ExtractionWorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ExtractionWorkerService.name);
@@ -19,6 +34,8 @@ export class ExtractionWorkerService implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly storage: ObjectStorageService,
+    @Inject(forwardRef(() => AiService)) private readonly ai: AiService,
+    @Inject(forwardRef(() => AiIndexQueueService)) private readonly indexQueue: AiIndexQueueService,
   ) {}
 
   onModuleInit() {
@@ -56,20 +73,21 @@ export class ExtractionWorkerService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
+    const mimeType = normalizeMimeType(asset.mimeType, asset.originalName);
     try {
-      const extractedText =
-        asset.size > MAX_EXTRACT_BYTES ? null : await this.extractText(asset.objectKey, asset.mimeType);
-      const status = extractedText === null ? AssetExtractionStatus.unsupported : AssetExtractionStatus.completed;
+      const result = await this.readText(asset.userId, asset.objectKey, asset.size, mimeType, asset.originalName);
+      const text = "text" in result ? result.text.slice(0, MAX_EXTRACTED_CHARS) : null;
 
       await this.prisma.assetExtraction.update({
         where: { assetId: asset.id },
         data: {
-          status,
-          extractedText,
-          summary: extractedText ? this.createSummary(extractedText) : null,
+          status: text ? AssetExtractionStatus.completed : AssetExtractionStatus.unsupported,
+          extractedText: text,
+          summary: text ? this.createSummary(text) : null,
           metadata: {
-            mimeType: asset.mimeType,
-            extractedCharacters: extractedText?.length ?? 0,
+            mimeType,
+            extractedCharacters: text?.length ?? 0,
+            ...("method" in result ? { method: result.method, pages: result.pages } : { reason: result.reason }),
           },
           completedAt: new Date(),
         },
@@ -78,12 +96,19 @@ export class ExtractionWorkerService implements OnModuleInit, OnModuleDestroy {
         where: { id: asset.id },
         data: { status: AssetStatus.ready },
       });
+      if (text) await this.indexQueue.enqueueSource(asset.userId, ASSET_SOURCE, asset.id);
     } catch (error) {
+      const message =
+        error instanceof AiProviderError
+          ? `OCR Gemini: ${error.providerMessage}`
+          : error instanceof Error
+            ? error.message
+            : "Unknown extraction error";
       await this.prisma.assetExtraction.update({
         where: { assetId: asset.id },
         data: {
           status: AssetExtractionStatus.failed,
-          error: error instanceof Error ? error.message : "Unknown extraction error",
+          error: message,
           completedAt: new Date(),
         },
       });
@@ -91,24 +116,30 @@ export class ExtractionWorkerService implements OnModuleInit, OnModuleDestroy {
         where: { id: asset.id },
         data: { status: AssetStatus.failed },
       });
-      throw error;
+      // Key ditolak / berkas rusak tidak akan berhasil bila diulang; kuota habis & gangguan jaringan diulang BullMQ
+      if (!(error instanceof AiProviderError) || isFallbackError(error.kind)) throw error;
     }
   }
 
-  private async extractText(objectKey: string, mimeType: string) {
-    if (!this.isPlainText(mimeType)) return null;
+  private async readText(
+    userId: string,
+    objectKey: string,
+    size: number,
+    mimeType: string,
+    name: string,
+  ): Promise<{ text: string; method: ExtractionMethod; pages?: number } | { reason: SkipReason }> {
+    if (!isExtractable(mimeType)) return { reason: "unsupported_type" };
+    if (size > MAX_EXTRACT_BYTES) return { reason: "too_large" };
 
     const buffer = await this.storage.getObjectBuffer(objectKey);
-    return buffer.toString("utf8");
-  }
-
-  private isPlainText(mimeType: string) {
-    return (
-      mimeType.startsWith("text/") ||
-      mimeType === "application/json" ||
-      mimeType === "application/xml" ||
-      mimeType === "application/yaml"
-    );
+    const outcome = await extractDocumentText(buffer, mimeType);
+    if (outcome === null) return { reason: "unsupported_type" };
+    if (outcome === "ocr") {
+      const text = await this.ai.ocr(userId, buffer, mimeType, name);
+      if (text === null) return { reason: "needs_gemini_key" };
+      return text.trim() ? { text, method: "ocr" } : { reason: "empty" };
+    }
+    return outcome.text.trim() ? outcome : { reason: "empty" };
   }
 
   private createSummary(text: string) {

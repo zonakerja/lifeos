@@ -22,9 +22,4 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   address?: string;
-
-  @ApiPropertyOptional({ description: "API key Gemini milik user" })
-  @IsOptional()
-  @IsString()
-  apiKey?: string;
 }

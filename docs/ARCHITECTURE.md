@@ -9,10 +9,11 @@ dicatat di §2** (dokumen lain merujuk ke sini). Rencana & kajian upgrade ada di
 Browser (React SPA)
    │  /api/v1 (JWT Bearer + cookie refresh httpOnly)   dev: Vite proxy · prod: Caddy (HTTPS)
    ▼
-NestJS API ──── PostgreSQL (+pgvector)      data domain, user, aset, audit
-   │      ├──── Redis (BullMQ)              antrian ekstraksi dokumen (+ AI di masa depan)
-   │      └──── S3-compatible storage       berkas upload (SeaweedFS dev / S3, R2, B2 prod)
-   └── Worker ekstraksi (BullMQ, in-process)
+NestJS API ──── PostgreSQL (+pgvector)      data domain, user, aset, audit, kredensial AI, indeks RAG (ai_chunks)
+   │      ├──── Redis (BullMQ + status)     antrian ekstraksi dokumen & pengindeksan RAG
+   │      ├──── S3-compatible storage       berkas upload (SeaweedFS dev / S3, R2, B2 prod)
+   │      └──── Provider AI (HTTPS)         Gemini / Claude / OpenAI dengan API key milik user
+   └── Worker ekstraksi & indeks RAG (BullMQ, in-process)
 ```
 
 Prinsip:
@@ -20,8 +21,8 @@ Prinsip:
   backend menyimpannya ke tabel terstruktur per domain.
 - **Data milik user** — setiap baris domain punya `user_id`; role `super_admin`/`admin` dapat melihat data semua user,
   `viewer` read-only.
-- **Secret di server** — tidak ada token/kredensial di storage browser (kecuali API key AI milik user yang
-  sementara dipakai langsung dari browser, lihat §8).
+- **Secret di server** — tidak ada token/kredensial di storage browser. API key AI milik user disimpan terenkripsi
+  di server dan hanya dipakai backend; browser tidak pernah memanggil provider AI secara langsung (§3.1).
 
 ## 2. Tech stack & kebijakan dependensi
 
@@ -41,6 +42,8 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 | | nestjs-pino / pino | 5.3 / 10.4 | Log terstruktur JSON |
 | | `@node-rs/argon2` | 2.2 | Hash password Argon2id, prebuilt arm64 |
 | | `@aws-sdk/client-s3` | 3.x | Object storage S3-compatible |
+| | `@google/genai` / `@anthropic-ai/sdk` / `openai` | 2.28 / 0.133 / 7.32 | SDK resmi provider AI (dipanggil hanya dari backend, §3.1) |
+| | `unpdf` / `mammoth` / `read-excel-file` | 1.8 / 1.13 / 9.3 | Ekstraksi teks PDF / DOCX / XLSX (pure JS, aman ARM64; §3.2) |
 | | dotenv | 18.0 | Env untuk CLI Prisma & seed (aplikasi memakai `@nestjs/config`) |
 | | tsx (esbuild 0.28) | 4.23 | Menjalankan seed TypeScript di development (`prisma db seed`); produksi memakai `dist/` |
 | | ESLint / typescript-eslint / Vitest | 10.12 / 8.71 / 5.0 | Lint & unit test |
@@ -103,7 +106,8 @@ NestJS (CommonJS), prefix `api/v1`, port 4000.
 | `users` | manajemen user (admin/super_admin) |
 | `settings` | branding aplikasi (`GET` publik) |
 | `records` | API domain generik + audit kearsipan |
-| `uploads` / `extraction` | upload berkas, link unduh bertanda tangan, job ekstraksi teks |
+| `uploads` / `extraction` | upload berkas, link unduh bertanda tangan, job ekstraksi teks (§3.2) |
+| `ai` | AI multi-provider: pengaturan provider/key/model per user, `POST /ai/generate` (§3.1); indeks pengetahuan RAG `ai/index/` (§3.2) |
 | `health` | `/health` readiness (database, redis, storage) · `/health/live` liveness |
 | `database/seed.ts` | seed dev (akun demo) / produksi (super admin dari env) |
 
@@ -114,6 +118,68 @@ deployment di belakang reverse proxy. Swagger di `/api/docs` (non-production).
 **Observabilitas**: log terstruktur `nestjs-pino` (JSON di production, pretty di development), setiap request punya
 `reqId` (header `X-Request-Id`, diteruskan bila dikirim klien), header `Authorization`/`Cookie`/`Set-Cookie` dan token
 unduhan disensor; health check tidak dicatat.
+
+### 3.1 AI multi-provider (`src/ai/`)
+
+| Endpoint | Fungsi |
+|---|---|
+| `GET /ai/settings` | provider aktif, `fallbackEnabled`, daftar provider (label, model default & saran, lampiran yang didukung, `configured`, `keyHint`, `model`) |
+| `PUT /ai/settings/:provider` `{ apiKey?, model? }` | simpan/ganti key (kosong = pertahankan) dan model (`null` = default); provider pertama otomatis aktif |
+| `DELETE /ai/settings/:provider` | hapus key; bila aktif, pindah ke provider lain yang punya key atau AI nonaktif |
+| `PATCH /ai/settings` `{ activeProvider?, fallbackEnabled? }` | ganti provider aktif (harus sudah punya key) / sakelar cadangan otomatis |
+| `POST /ai/settings/:provider/test` | uji key & model dengan prompt singkat (10/menit) |
+| `POST /ai/generate` (multipart: `prompt` + `files[]`) | jawab prompt → `{ text, provider, model, fallback }` (30/menit) |
+
+- **Provider** (`ai-providers.ts` = katalog, satu klien per provider di `providers/`, SDK resmi):
+  Gemini `generateContent` (stateless; Interactions API menyimpan percakapan di server Google secara default),
+  Claude Messages API (streaming, `effort` + `fallbacks: "default"` pada model yang mendukung), OpenAI Responses
+  API (`store: false`). Model default ada di katalog, tetapi **user bisa mengganti model** di Pengaturan → AI — bila
+  provider menghentikan model, tidak perlu rilis aplikasi.
+- **Lampiran**: maks. 5 berkas / 20 MB total, diterima di memori lalu dikirim inline. PDF, gambar (png/jpeg/gif/webp),
+  teks (dikirim sebagai teks) untuk semua provider; audio hanya Gemini.
+- **Cadangan otomatis** (`users.ai_fallback`, default menyala; logika murni di `ai-routing.ts`): urutan provider =
+  provider aktif lalu provider lain yang punya key (urutan katalog); provider yang tidak mendukung semua jenis lampiran
+  dilewati (mis. audio saat aktif Claude → Gemini). Kuota habis, provider tidak terjangkau, atau key tidak terbaca →
+  provider berikutnya dicoba; key ditolak, model tidak tersedia, permintaan tidak valid, dan penolakan filter keamanan
+  **tidak** dialihkan (masalah yang harus diperbaiki user). Respons berisi `fallback: { from, reason, message }` →
+  frontend menampilkan toast. Semua gagal → error provider pertama + "Provider cadangan juga gagal". Tanpa cadangan /
+  tidak ada provider yang mendukung lampiran → 400 dengan saran. `/test` tidak memakai cadangan.
+- **Kredensial**: tabel `ai_credentials` (`UNIQUE(user_id, provider)`), key dienkripsi AES-256-GCM dengan
+  `AI_ENCRYPTION_KEY` (format `v1.<iv>.<tag>.<ciphertext>`); API hanya mengembalikan 4 karakter terakhir (`keyHint`).
+  Provider aktif di `users.ai_provider`. Kunci enkripsi diganti/hilang ⇒ key tersimpan tidak terbaca (422, user
+  memasukkan ulang).
+- **Error provider → HTTP**: kuota/limit → 429; key ditolak, model tidak tersedia, ditolak filter keamanan, provider
+  tidak terjangkau → 422 dengan pesan Indonesia yang menyebut tindakan (mis. "Ganti model di Pengaturan → AI").
+  Sengaja tidak memakai 401 (memicu refresh sesi di frontend) maupun ≥ 502 (disamarkan frontend sebagai "server tidak
+  dapat dihubungi"). Log mencatat provider, model, durasi, jenis error — tidak pernah key maupun isi prompt.
+
+### 3.2 Ekstraksi dokumen & indeks pengetahuan (RAG tahap 1)
+
+**Ekstraksi** (`extraction/`, job BullMQ `asset-extraction`, berkas ≤ 20 MB, teks ≤ 2 juta karakter): teks polos,
+PDF berlapis teks (`unpdf`, penanda `[Halaman N]`), DOCX (`mammoth`), XLSX (`read-excel-file`, `[Sheet: …]`, baris
+`a | b`). Gambar dan PDF hasil scan (< 10 karakter/halaman) dibaca lewat **Gemini milik pemilik berkas** (OCR); tanpa
+key Gemini → `unsupported` (`metadata.reason = needs_gemini_key`). MIME `application/octet-stream` ditebak dari
+ekstensi. Logika murni di `text-extractors.ts` (diuji dengan berkas PDF/DOCX/XLSX buatan test).
+
+**Indeks** (`ai/index/`): tabel `ai_chunks` = potongan teks (± 1.800 karakter, tumpang-tindih 200) per sumber —
+record (17 tipe di `INDEXED_TYPES`, teks generik `key: nilai` dari payload sehingga field baru otomatis ikut) dan isi
+berkas (`sourceType = "asset"`) — dengan embedding `gemini-embedding-2` 768 dimensi (format teks
+`title: … | text: …` / `task: search result | query: …`).
+- **Pemicu**: `PUT/DELETE /records/:type/:clientId` dan ekstraksi selesai → job `ai-index` (BullMQ; deduplikasi per
+  sumber, jeda 3 detik, `keepLastIfActive`); hapus berkas → potongannya dihapus. Key Gemini disimpan / sakelar
+  dinyalakan / `POST /ai/index/rebuild` → bangun ulang semua sumber (hash per potongan: yang tidak berubah dilewati;
+  berkas yang dulu `unsupported` diekstrak ulang). Worker 1 job sekaligus; kuota habis diulang (backoff), key ditolak
+  tidak diulang. Status & error terakhir di Redis `ai:index:status:<userId>` (TTL 30 hari).
+- **Tanpa key Gemini** potongan tetap disimpan tanpa embedding (`model = "none"`) → pencarian kata persis tetap jalan
+  dan tidak ada data dikirim ke luar; embedding dilengkapi saat key tersedia. **Sakelar `users.ai_index_enabled`**
+  (default menyala) mati → semua potongan dihapus dan tidak ada yang diindeks.
+- **Pencarian** `GET /ai/index/search?q=&limit=`: kemiripan makna (pgvector cosine, indeks HNSW) + kata persis
+  (full-text `simple`, indeks GIN — penting untuk nomor arsip/kode) digabung **Reciprocal Rank Fusion**, duplikat isi
+  (berkas yang diunggah berulang) dibuang. Gagal embedding pertanyaan → kata kunci saja. `GET /ai/index` = status.
+- **Indeks khusus di migrasi SQL** (tidak bisa dinyatakan di Prisma): HNSW dibuat sebagai **indeks parsial**
+  (`WHERE embedding IS NOT NULL`) agar tidak dianggap drift oleh Prisma — query vektor wajib menyertakan kondisi itu;
+  GIN berupa indeks ekspresi `to_tsvector('simple', title || ' ' || content)`.
+- Tahap berikutnya (belum): chatbot `POST /ai/chat` memakai pencarian ini + riwayat chat permanen di database.
 
 ### Keamanan
 - **Access token** JWT 15 menit, dikirim via header `Authorization`, hanya disimpan di memori frontend.
@@ -134,7 +200,8 @@ Konvensi: model Prisma PascalCase, **tabel & kolom snake_case**, timestamp `time
 dengan `ON DELETE CASCADE`, soft delete `deleted_at` pada tabel domain.
 
 ### 4.1 Tabel inti
-`users`, `refresh_tokens`, `app_settings`, `assets`, `asset_extractions`, `archive_audit_logs`.
+`users` (+ `ai_provider`, `ai_fallback`, `ai_index_enabled`), `refresh_tokens`, `app_settings`, `assets`,
+`asset_extractions`, `archive_audit_logs`, `ai_credentials` (§3.1), `ai_chunks` (pgvector, §3.2).
 
 ### 4.2 Tabel domain (20)
 
@@ -208,7 +275,7 @@ src/
   app/          router (rute lazy), providers, query client
   config/       navigation.ts — sumber tunggal modul, path, tab, ikon, role
   types/        tipe API & entitas domain
-  lib/          api client (refresh token otomatis), tanggal, deep link, AI (useAi)
+  lib/          api client (refresh token otomatis), tanggal, deep link, AI (useAi → POST /ai/generate)
   data/         useCollection + hook koleksi bertipe (collections.ts)
   stores/       auth-store, ui-store
   hooks/        useSearchParam, useToday, usePermissions, useRetained
@@ -259,7 +326,6 @@ jaringan internal: postgres · redis (password) · SeaweedFS S3 · backup harian
 
 ## 8. Rencana berikutnya
 
-- AI multi-provider di backend (Gemini/Claude/OpenAI, key terenkripsi), sehingga browser tidak lagi memanggil Gemini langsung.
-- Ekstraksi PDF/DOCX/XLSX/OCR, embedding **pgvector** + chatbot RAG atas arsip & resource (Redis untuk antrian, cache,
-  memori sesi chat).
+- RAG tahap 2: chatbot di backend (`POST /ai/chat`) memakai pencarian indeks (§3.2), riwayat chat permanen di
+  PostgreSQL; tahap 3: Redis untuk cache embedding pertanyaan, batas pemakaian harian, penyimpanan throttler.
 - Upgrade tech stack yang masih tertunda: lihat [UPGRADE-PLAN.md](UPGRADE-PLAN.md).

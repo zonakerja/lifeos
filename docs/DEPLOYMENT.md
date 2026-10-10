@@ -68,10 +68,12 @@ Fitur tambahan yang berguna: snapshot/backup VPS dari penyedia, dan firewall di 
 | `APP_DOMAIN` | domain/subdomain dari langkah 0.2, mis. `lifeos.namakamu.id` |
 | `ACME_EMAIL` | email aktif (notifikasi sertifikat Let's Encrypt) |
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `S3_SECRET_ACCESS_KEY` | string acak masing-masing berbeda: jalankan `openssl rand -hex 32` di VPS untuk tiap variabel |
+| `AI_ENCRYPTION_KEY` | kunci enkripsi API key AI milik user: `openssl rand -hex 32` (tepat 64 karakter hex). **Jangan diganti** setelah dipakai — key AI yang sudah tersimpan tidak bisa dibaca lagi dan setiap user harus memasukkannya ulang |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | akun super admin pertama (password ≥ 8 karakter, ganti setelah login pertama) |
 
 Simpan salinan `.env` di password manager — tanpa `POSTGRES_PASSWORD` & secret yang sama, backup database tetap bisa
-dipulihkan tetapi sesi login lama tidak berlaku.
+dipulihkan tetapi sesi login lama tidak berlaku, dan tanpa `AI_ENCRYPTION_KEY` yang sama API key AI milik user harus
+dimasukkan ulang.
 
 ### 0.4 Checklist hari-H
 
@@ -295,6 +297,8 @@ dipakai.
 - Refresh token di cookie `httpOnly` + `Secure` + `SameSite=Strict`; access token 15 menit di memori; rotasi token
   dengan deteksi pemakaian ulang; ganti password mencabut sesi lain.
 - Berkas upload disajikan dengan `CSP: sandbox`, konten aktif (HTML/SVG/JS) dipaksa diunduh.
+- API key AI milik user dienkripsi AES-256-GCM (`AI_ENCRYPTION_KEY`) dan hanya dipakai backend; browser tidak pernah
+  menerima key maupun memanggil provider AI (CSP `connect-src 'self'`).
 - Container backend berjalan sebagai user non-root; secret hanya dari `.env` (tidak ada di image).
 
 ## 7. Object storage eksternal (opsional)

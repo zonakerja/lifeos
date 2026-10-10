@@ -16,7 +16,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useRetained } from "@/hooks/use-retained";
-import { useAi } from "@/lib/ai/use-ai";
+import { AI_NOT_CONFIGURED, useAi } from "@/lib/ai/use-ai";
 import { errorMessage } from "@/lib/api/client";
 import { fetchAttachmentBlob } from "./resource-utils";
 
@@ -58,7 +58,7 @@ function ResourceAiDialogInner({ resource, open, onOpenChange, onSave }: Resourc
   const generate = async () => {
     if (!resource) return;
     if (!ai.isConfigured) {
-      toast.error("API Key Gemini belum disetting", { description: "Atur di Pengaturan → API Key AI." });
+      toast.error("AI belum diatur", { description: AI_NOT_CONFIGURED });
       return;
     }
     setGenerating(true);

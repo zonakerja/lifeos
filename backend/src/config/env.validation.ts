@@ -88,6 +88,10 @@ class EnvironmentVariables {
   @Min(1)
   UPLOAD_MAX_MB = 100;
 
+  /** Kunci AES-256 (64 karakter hex, `openssl rand -hex 32`) untuk mengenkripsi API key AI milik user. */
+  @Matches(/^[0-9a-fA-F]{64}$/, { message: "AI_ENCRYPTION_KEY harus 64 karakter hex (openssl rand -hex 32)." })
+  AI_ENCRYPTION_KEY: string;
+
   @IsOptional()
   @IsIn(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
   LOG_LEVEL?: string;

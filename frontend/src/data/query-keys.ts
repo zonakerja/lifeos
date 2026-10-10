@@ -6,4 +6,6 @@ export const queryKeys = {
   users: ["users"] as const,
   records: (type: RecordType) => ["records", type] as const,
   uploads: ["uploads"] as const,
+  aiSettings: ["ai-settings"] as const,
+  aiIndex: ["ai-index"] as const,
 };

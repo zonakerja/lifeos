@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAi } from "@/lib/ai/use-ai";
-import { errorMessage } from "@/lib/api/client";
+import { ApiError, errorMessage } from "@/lib/api/client";
 
 export type SummaryStatus = "idle" | "processing" | "done" | "error";
 
@@ -37,7 +37,7 @@ export function useFileSummarizer() {
     } catch (error) {
       setStatus("error");
       const msg = errorMessage(error);
-      if (/quota|429|exceeded/i.test(msg)) {
+      if (error instanceof ApiError && error.status === 429) {
         toast.error("Limit API Tercapai ⚠️", {
           description:
             "File tetap terlampir dengan status 'No AI'. Simpan dulu, lalu gunakan ikon robot pada tabel untuk mengekstrak ulang nanti.",

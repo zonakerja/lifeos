@@ -1,5 +1,10 @@
 import { apiUrl, request } from "@/lib/api/client";
 import type {
+  AiGenerateResult,
+  AiIndexStatus,
+  AiSearchHit,
+  AiProviderId,
+  AiSettings,
   ApiRecord,
   AppSettings,
   AppSettingsInput,
@@ -15,7 +20,6 @@ export interface ProfileInput {
   email?: string;
   phone?: string;
   address?: string;
-  apiKey?: string;
 }
 
 export interface UserInput {
@@ -83,5 +87,26 @@ export const uploadsApi = {
       method: "POST",
     });
     return apiUrl(url);
+  },
+};
+
+export const aiApi = {
+  settings: () => request<AiSettings>("/ai/settings"),
+  update: (input: { activeProvider?: AiProviderId | null; fallbackEnabled?: boolean; indexEnabled?: boolean }) =>
+    request<AiSettings>("/ai/settings", { method: "PATCH", body: input }),
+  /** `apiKey` kosong = pertahankan key tersimpan; `model` null = model default provider. */
+  saveProvider: (provider: AiProviderId, input: { apiKey?: string; model?: string | null }) =>
+    request<AiSettings>(`/ai/settings/${provider}`, { method: "PUT", body: input }),
+  removeProvider: (provider: AiProviderId) => request<AiSettings>(`/ai/settings/${provider}`, { method: "DELETE" }),
+  indexStatus: () => request<AiIndexStatus>("/ai/index"),
+  rebuildIndex: () => request<{ queued: boolean }>("/ai/index/rebuild", { method: "POST" }),
+  searchIndex: (q: string, limit = 8) => request<AiSearchHit[]>("/ai/index/search", { query: { q, limit } }),
+  test: (provider: AiProviderId) => request<AiGenerateResult>(`/ai/settings/${provider}/test`, { method: "POST" }),
+  /** Prompt + lampiran (PDF/gambar/audio/teks) diproses di backend dengan provider aktif user. */
+  generate: (prompt: string, files: Blob[] = []) => {
+    const form = new FormData();
+    form.append("prompt", prompt);
+    files.forEach((file, i) => form.append("files", file, file instanceof File ? file.name : `lampiran-${i + 1}`));
+    return request<AiGenerateResult>("/ai/generate", { method: "POST", body: form });
   },
 };

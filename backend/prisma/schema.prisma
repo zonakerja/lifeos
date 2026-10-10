@@ -57,23 +57,38 @@ enum AuditAction {
   @@map("audit_action")
 }
 
+enum AiProvider {
+  gemini
+  anthropic
+  openai
+
+  @@map("ai_provider")
+}
+
 // ---------------------------------------------------------------- Identitas
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  role         UserRole @default(member)
-  phone        String?
-  address      String?
-  // API key AI milik user (sementara plaintext; akan dipindah ke penyimpanan kredensial terenkripsi).
-  apiKey       String?  @map("api_key")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id             String      @id @default(cuid())
+  name           String
+  email          String      @unique
+  passwordHash   String      @map("password_hash")
+  role           UserRole    @default(member)
+  phone          String?
+  address        String?
+  // Provider AI yang dipakai user (kredensialnya di ai_credentials)
+  aiProvider     AiProvider? @map("ai_provider")
+  // Cadangan otomatis: provider lain (yang punya key) dipakai bila provider aktif kehabisan kuota, tidak terjangkau,
+  // atau tidak mendukung lampiran
+  aiFallback     Boolean     @default(true) @map("ai_fallback")
+  // Indeks pengetahuan (RAG): data user di-embed dengan Gemini; dimatikan = indeks dihapus & tidak ada data dikirim
+  aiIndexEnabled Boolean     @default(true) @map("ai_index_enabled")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   refreshTokens             RefreshToken[]
   assets                    Asset[]
+  aiCredentials             AiCredential[]
+  aiChunks                  AiChunk[]
   // <generated:user-relations>
   agendaTypes               AgendaType[]
   schedules                 Schedule[]
@@ -119,6 +134,24 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+// API key AI per user per provider, terenkripsi AES-256-GCM (AI_ENCRYPTION_KEY); tidak pernah dikirim ke browser.
+model AiCredential {
+  id           String     @id @default(cuid())
+  userId       String     @map("user_id")
+  provider     AiProvider
+  encryptedKey String     @map("encrypted_key")
+  // 4 karakter terakhir key, untuk ditampilkan di Pengaturan
+  keyHint      String     @map("key_hint")
+  // Kosong = model default provider (src/ai/ai-providers.ts)
+  model        String?
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@map("ai_credentials")
+}
+
 model AppSettings {
   id           String   @id @default("global")
   name         String   @default("LifeOS")
@@ -134,6 +167,31 @@ model AppSettings {
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("app_settings")
+}
+
+// Potongan teks data user + embedding untuk RAG (src/ai/index/). Indeks HNSW (vector) dan GIN (full-text) dibuat
+// dengan SQL di migrasi karena tidak bisa dinyatakan di skema Prisma.
+model AiChunk {
+  id          String                      @id @default(cuid())
+  userId      String                      @map("user_id")
+  // Record type (mis. "free_note") atau "asset" untuk isi berkas
+  sourceType  String                      @map("source_type")
+  // clientId record atau id asset
+  sourceId    String                      @map("source_id")
+  chunkIndex  Int                         @map("chunk_index")
+  title       String
+  content     String
+  contentHash String                      @map("content_hash")
+  // Model embedding yang dipakai (ganti model ⇒ indeks ulang)
+  model       String
+  embedding   Unsupported("vector(768)")?
+  createdAt   DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user        User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceType, sourceId, chunkIndex])
+  @@index([userId, sourceType, sourceId])
+  @@map("ai_chunks")
 }
 
 // ---------------------------------------------------------------- Aset & berkas

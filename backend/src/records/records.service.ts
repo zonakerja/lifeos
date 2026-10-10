@@ -1,5 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { AuditAction, Prisma, UserRole } from "../generated/prisma/client";
+import { AiIndexQueueService } from "../ai/index/ai-index-queue.service";
+import { isIndexedType } from "../ai/index/index-text";
 import { AuthUser } from "../common/types/auth-user";
 import { PrismaService } from "../prisma/prisma.service";
 import { ListRecordsQueryDto } from "./dto/list-records-query.dto";
@@ -56,7 +58,11 @@ function isArchivalData(type: RecordType, payload?: Payload) {
 
 @Injectable()
 export class RecordsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Perubahan data diindeks ulang untuk RAG di latar belakang (tidak menahan respons)
+    private readonly indexQueue: AiIndexQueueService,
+  ) {}
 
   parseType(type: string): RecordType {
     if (!Object.hasOwn(RECORD_TABLES, type)) {
@@ -111,6 +117,7 @@ export class RecordsService {
       }
       return saved;
     });
+    if (isIndexedType(type)) void this.indexQueue.enqueueSource(row.userId as string, type, clientId);
     return toApiRecord(type, spec, row);
   }
 
@@ -119,7 +126,7 @@ export class RecordsService {
     const spec: TableSpec = RECORD_TABLES[type];
     const ownerFilter = isAdmin(user) ? (query.userId ? { userId: query.userId } : {}) : { userId: user.id };
 
-    await this.prisma.$transaction(async (tx) => {
+    const ownerId = await this.prisma.$transaction(async (tx) => {
       const table = this.delegate(tx, type);
       const candidates = await table.findMany({
         where: { clientId, deletedAt: null, ...ownerFilter },
@@ -132,7 +139,9 @@ export class RecordsService {
         data: { deletedAt: new Date() },
       });
       if (spec.audit) await this.audit(tx, type, user, row.userId, clientId, rowToPayload(spec, row), undefined);
+      return row.userId as string;
     });
+    if (isIndexedType(type)) void this.indexQueue.enqueueSource(ownerId, type, clientId);
     return { success: true };
   }
 

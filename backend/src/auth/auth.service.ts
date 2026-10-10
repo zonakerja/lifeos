@@ -92,7 +92,7 @@ export class AuthService {
       where: { id: authUser.id },
     });
     if (!user) throw new NotFoundException("User tidak ditemukan.");
-    return toPublicUser(user, { includeApiKey: true });
+    return toPublicUser(user);
   }
 
   async updateProfile(authUser: AuthUser, dto: UpdateProfileDto) {
@@ -100,7 +100,7 @@ export class AuthService {
       where: { id: authUser.id },
       data: { ...dto, email: dto.email?.toLowerCase() },
     });
-    return toPublicUser(user, { includeApiKey: true });
+    return toPublicUser(user);
   }
 
   async changePassword(authUser: AuthUser, dto: ChangePasswordDto, currentRefreshToken?: string) {
@@ -168,7 +168,7 @@ export class AuthService {
     });
 
     return {
-      user: toPublicUser(user, { includeApiKey: true }),
+      user: toPublicUser(user),
       accessToken,
       refreshToken,
       refreshTtlSeconds: this.refreshTtlSeconds,

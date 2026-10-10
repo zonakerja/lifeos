@@ -7,10 +7,75 @@ export interface PublicUser {
   role: UserRole;
   phone: string | null;
   address: string | null;
-  /** Hanya tersedia untuk user yang sedang login (profil sendiri). */
-  apiKey?: string | null;
+  /** Provider AI yang sedang dipakai (null = AI belum diatur). */
+  aiProvider: AiProviderId | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type AiProviderId = "gemini" | "anthropic" | "openai";
+export type AiAttachmentKind = "image" | "pdf" | "audio" | "text";
+
+export interface AiProviderSettings {
+  id: AiProviderId;
+  label: string;
+  defaultModel: string;
+  suggestedModels: string[];
+  supports: Record<AiAttachmentKind, boolean>;
+  keyUrl: string;
+  configured: boolean;
+  /** 4 karakter terakhir API key (key utuh tidak pernah dikirim ke browser). */
+  keyHint: string | null;
+  /** null = model default provider. */
+  model: string | null;
+  updatedAt: string | null;
+}
+
+export interface AiSettings {
+  activeProvider: AiProviderId | null;
+  /** Cadangan otomatis ke provider lain yang punya key (kuota habis, tidak terjangkau, lampiran tak didukung). */
+  fallbackEnabled: boolean;
+  /** Indeks pengetahuan (RAG) dengan embedding Gemini. */
+  indexEnabled: boolean;
+  providers: AiProviderSettings[];
+}
+
+export interface AiIndexStatus {
+  enabled: boolean;
+  /** User punya API key Gemini (dipakai untuk embedding). */
+  embeddingAvailable: boolean;
+  model: string;
+  sources: number;
+  chunks: number;
+  /** Potongan yang sudah ber-embedding (sisanya hanya bisa dicari dengan kata persis). */
+  embeddedChunks: number;
+  lastIndexedAt: string | null;
+  lastError: string | null;
+  lastErrorAt: string | null;
+  /** Job indeks yang belum selesai (semua user). */
+  pendingJobs: number;
+}
+
+export interface AiSearchHit {
+  id: string;
+  sourceType: string;
+  sourceId: string;
+  chunkIndex: number;
+  title: string;
+  content: string;
+  score: number;
+}
+
+export interface AiGenerateResult {
+  text: string;
+  provider: AiProviderId;
+  model: string;
+  /** Terisi bila jawaban diberikan provider cadangan, bukan provider aktif. */
+  fallback?: {
+    from: AiProviderId;
+    reason: "attachment" | "quota" | "unavailable" | "credential";
+    message: string;
+  } | null;
 }
 
 /** Respons login/refresh. Refresh token dikirim sebagai cookie httpOnly, bukan di body. */

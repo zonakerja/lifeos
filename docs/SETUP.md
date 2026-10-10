@@ -396,7 +396,8 @@ Lihat [DEPLOYMENT.md](DEPLOYMENT.md) (VPS dengan `docker-compose.prod.yml`: Cadd
 | `Cannot connect to the Docker daemon` di WSL | Tunggu beberapa detik setelah WSL baru hidup, lalu ulangi |
 | `database "lifeos_shadow" already exists` | Aman diabaikan (sudah dibuat sebelumnya) |
 | Vite menampilkan modul usang setelah banyak perubahan | Restart `npm run dev` frontend |
-| `Konfigurasi environment tidak valid` saat backend start | Lengkapi `backend/.env` sesuai `.env.example` |
+| `Konfigurasi environment tidak valid` saat backend start | Lengkapi `backend/.env` sesuai `.env.example` (mis. setelah `git pull` menambah variabel baru seperti `AI_ENCRYPTION_KEY`: buat dengan `node -p "require('crypto').randomBytes(32).toString('hex')"`) |
+| Fitur AI: "AI belum diatur" / "Model … tidak tersedia" / "API key … ditolak" | Buka **Pengaturan → AI**: simpan API key, pilih provider aktif, ganti model bila provider menghentikannya, lalu **Uji koneksi** |
 | Prisma error tabel/kolom tidak ada | `npx prisma migrate deploy` lalu `npx prisma generate` |
 | `Cannot find module '../generated/prisma/client'` | Prisma Client belum dibuat → `npm --prefix backend install` atau `npm --prefix backend run prisma:generate` |
 | Node/npm terasa lambat di Windows ARM, `node -p "process.arch"` = `x64` | Node x64 berjalan lewat emulasi → pasang versi arm64 (§3 langkah 0, "Salah arsitektur?") lalu pasang ulang `node_modules` |

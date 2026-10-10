@@ -21,7 +21,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { describeFrequency, scheduleStart } from "@/features/planner/lib/planner-logic";
-import { useAi } from "@/lib/ai/use-ai";
+import { AI_NOT_CONFIGURED, useAi } from "@/lib/ai/use-ai";
 import { links } from "@/lib/deep-links";
 import { aiErrorMessage, buildLifeosContext, type LifeosData, useLifeosData } from "./lifeos-context";
 
@@ -198,7 +198,7 @@ function GlobalSearchPanel({ onClose }: { onClose: () => void }) {
   const askAi = async () => {
     if (!query.trim()) return;
     if (!ai.isConfigured) {
-      setAnswer("⚠️ API Key Gemini belum diatur. Silakan atur di menu Pengaturan → API Key AI.");
+      setAnswer(`⚠️ ${AI_NOT_CONFIGURED}`);
       return;
     }
     setLoading(true);

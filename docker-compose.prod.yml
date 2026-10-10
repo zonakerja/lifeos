@@ -65,6 +65,7 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set JWT_REFRESH_SECRET di .env}
       JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      AI_ENCRYPTION_KEY: ${AI_ENCRYPTION_KEY:?Set AI_ENCRYPTION_KEY di .env}
       CORS_ORIGIN: https://${APP_DOMAIN}
       TRUST_PROXY: "true"
       # Kosong = Secure (HTTPS). Set false HANYA untuk uji coba tanpa domain/HTTPS (lihat DEPLOYMENT.md §0.4)

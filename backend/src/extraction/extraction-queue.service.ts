@@ -24,8 +24,10 @@ export class ExtractionQueueService implements OnModuleDestroy {
     });
   }
 
-  async enqueue(assetId: string) {
-    await this.queue.add("extract", { assetId }, { jobId: assetId });
+  /** `rerun`: ekstrak ulang berkas yang dulu belum didukung (job lama dengan id yang sama masih tersimpan). */
+  async enqueue(assetId: string, options: { rerun?: boolean } = {}) {
+    const jobId = options.rerun ? `${assetId}-rerun-${Date.now()}` : assetId;
+    await this.queue.add("extract", { assetId }, { jobId });
   }
 
   async onModuleDestroy() {
