@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { PageLoader } from "@/components/common/page-loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { useProfileSync } from "@/data/use-auth";
+import { usePendingUploadsJanitor } from "@/hooks/use-pending-uploads-janitor";
 import { FloatingChatbot } from "@/features/assistant/floating-chatbot";
 import { GlobalSearchButton } from "@/features/assistant/global-search";
 import { FocusModeButton } from "@/features/focus/focus-mode";
@@ -12,6 +13,8 @@ import { NotificationsPopover } from "@/features/overview/components/notificatio
 
 export function AppShell() {
   useProfileSync();
+  // Berkas yang diunggah tetapi tidak jadi disimpan (reload / tutup tab) dibersihkan dari storage
+  usePendingUploadsJanitor();
 
   return (
     <SidebarProvider>

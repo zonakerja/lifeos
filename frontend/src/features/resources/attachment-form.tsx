@@ -13,7 +13,9 @@ import { useAiNotes, useFreeNotes, useLists, useResources } from "@/data/collect
 import { errorMessage } from "@/lib/api/client";
 import { uploadsApi } from "@/lib/api/endpoints";
 import { generateId } from "@/lib/ids";
+import { trackPendingUpload, untrackPendingUpload } from "@/lib/pending-uploads";
 import type { AttachedResource, AttachmentType } from "@/types/entities";
+import { readAiSummaryPreference, writeAiSummaryPreference } from "./ai-summary-preference";
 import { emptyAttachment } from "./resource-utils";
 import { SummaryStatusBadge } from "./summary-status-badge";
 import { useFileSummarizer } from "./use-file-summarizer";
@@ -33,8 +35,11 @@ interface AttachmentFormProps {
   defaultDate?: string;
   /** Konteks upload untuk backend (mis. "task", "project") */
   uploadContext?: string;
-  /** Ringkas otomatis file yang diunggah dengan AI (PDF/gambar/teks) */
-  autoSummarize?: boolean;
+  /**
+   * Tawarkan ringkasan AI untuk file yang diunggah (PDF/gambar/teks) lewat centang "Ringkas dengan AI" — default mati,
+   * pilihan terakhir diingat per browser (`ai-summary-preference.ts`). AI hanya dipanggil bila dicentang.
+   */
+  offerAiSummary?: boolean;
   /** Prefix ID lampiran (mis. "tr" task, "pr" project) */
   idPrefix?: string;
   /** Jenis lampiran yang boleh dipilih (default semua); jenis pertama menjadi pilihan awal */
@@ -47,7 +52,7 @@ interface AttachmentFormProps {
 export function AttachmentForm({
   defaultDate = "",
   uploadContext,
-  autoSummarize = false,
+  offerAiSummary = false,
   idPrefix = "tr",
   types = ALL_TYPES,
   onAdd,
@@ -59,6 +64,10 @@ export function AttachmentForm({
   // Di dalam item bersama (izin edit), berkas disimpan atas nama pemilik item
   const { uploadOwnerId } = usePermissions();
   const summarizer = useFileSummarizer();
+  const [aiSummary, setAiSummary] = useState(() => offerAiSummary && readAiSummaryPreference());
+  // File terakhir yang diunggah (untuk meringkas bila centang AI baru dinyalakan) + penanda permintaan terbaru
+  const lastFileRef = useRef<File | null>(null);
+  const summaryRunRef = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
   // Berkas yang sudah diunggah tetapi belum "Tambahkan" — dihapus dari storage bila diganti, dibatalkan, atau form
   // ditutup, agar tidak menjadi berkas sampah
@@ -66,7 +75,10 @@ export function AttachmentForm({
   const discardPending = () => {
     const id = pendingUploadRef.current;
     pendingUploadRef.current = null;
-    if (id) void uploadsApi.remove(id).catch(() => undefined);
+    if (id) {
+      untrackPendingUpload(id);
+      void uploadsApi.remove(id).catch(() => undefined);
+    }
   };
   useEffect(() => () => discardPending(), []);
   const { items: freeNotes } = useFreeNotes();
@@ -116,6 +128,9 @@ export function AttachmentForm({
       const asset = await uploadsApi.upload(file, uploadContext, uploadOwnerId);
       discardPending(); // berkas sebelumnya (Ganti File)
       pendingUploadRef.current = asset.id;
+      // Dicatat agar tetap dibersihkan bila tab di-reload/ditutup sebelum "Tambahkan" (lihat lib/pending-uploads.ts)
+      trackPendingUpload(asset.id);
+      lastFileRef.current = file;
       patch({
         uploadId: asset.id,
         url: undefined,
@@ -129,9 +144,26 @@ export function AttachmentForm({
       return;
     }
     setUploading(false);
-    if (autoSummarize) {
-      const summary = await summarizer.summarize(file);
-      if (summary) patch({ aiSummary: summary });
+    patch({ aiSummary: undefined });
+    if (aiSummary) void runSummary(file);
+    else summaryRunRef.current++; // abaikan hasil ringkasan berkas sebelumnya
+  };
+
+  /** Ringkas `file` dengan AI; hasil diabaikan bila berkas diganti / centang dimatikan / sudah ditambahkan. */
+  const runSummary = async (file: File) => {
+    const run = ++summaryRunRef.current;
+    const summary = await summarizer.summarize(file);
+    if (summary && run === summaryRunRef.current) patch({ aiSummary: summary });
+  };
+
+  const toggleAiSummary = (enabled: boolean) => {
+    setAiSummary(enabled);
+    writeAiSummaryPreference(enabled);
+    if (!enabled) {
+      summaryRunRef.current++;
+      summarizer.setStatus("idle");
+    } else if (lastFileRef.current && draft.uploadId && !draft.aiSummary && summarizer.status !== "processing") {
+      void runSummary(lastFileRef.current);
     }
   };
 
@@ -144,10 +176,20 @@ export function AttachmentForm({
       toast.error("Pilih file terlebih dahulu.");
       return;
     }
+    if (summarizer.status === "processing") {
+      // Tidak menunggu AI: lampiran ditambahkan tanpa ringkasan (bisa dibuat nanti lewat ikon robot)
+      summaryRunRef.current++;
+      summarizer.setStatus("idle");
+      toast.info("Ringkasan AI dilewati", { description: "Buat nanti lewat ikon robot di tabel lampiran." });
+    }
     // Berkas yang diunggah lalu jenisnya diganti (mis. ke Web Link) tidak ikut dilampirkan
     const keepsUpload = draft.type === "file" || !!draft.existingId;
-    if (keepsUpload) pendingUploadRef.current = null;
-    else discardPending();
+    if (keepsUpload) {
+      // Diserahkan ke form pemakai (yang bertanggung jawab atas berkas sampai disimpan)
+      untrackPendingUpload(pendingUploadRef.current ?? undefined);
+      pendingUploadRef.current = null;
+    } else discardPending();
+    lastFileRef.current = null;
     onAdd({
       ...draft,
       ...(keepsUpload ? {} : { uploadId: undefined, mimeType: undefined, size: undefined }),
@@ -215,7 +257,19 @@ export function AttachmentForm({
           >
             {uploading ? <Spinner /> : <Upload />} {draft.uploadId ? "Ganti File" : "Pilih File"}
           </Button>
-          {autoSummarize && <SummaryStatusBadge status={summarizer.status} />}
+          {offerAiSummary && (
+            <span className="flex items-center gap-2">
+              <Checkbox
+                id="att-ai-summary"
+                checked={aiSummary}
+                onCheckedChange={(checked) => toggleAiSummary(checked === true)}
+              />
+              <Label htmlFor="att-ai-summary" className="text-xs font-normal text-muted-foreground">
+                Ringkas dengan AI
+              </Label>
+              {aiSummary && <SummaryStatusBadge status={summarizer.status} />}
+            </span>
+          )}
           {draft.uploadId && (
             <span className="flex items-center gap-1 text-xs font-medium text-success">
               <CheckCircle2 className="size-3.5" /> Terunggah: {draft.name}
@@ -290,7 +344,7 @@ export function AttachmentForm({
           >
             Batal
           </Button>
-          <Button type="button" size="sm" onClick={submit} disabled={uploading || summarizer.status === "processing"}>
+          <Button type="button" size="sm" onClick={submit} disabled={uploading}>
             <Plus /> Tambahkan
           </Button>
         </div>

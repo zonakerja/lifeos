@@ -3,8 +3,8 @@
  * Graf akses berbagi — logika murni (tanpa database), diuji `share-graph.spec.ts`.
  * ----------------------------------------------------------------------------
  * Pemilik membagikan item induk (root). Penerima mendapat akses ke:
- *  1. root + TURUNAN-nya dengan izin yang sama (project → action; area → sub area/kegiatan/sub kegiatan, project,
- *     dan semua task-nya; agenda → Notes AI yang terhubung);
+ *  1. root + TURUNAN-nya dengan izin yang sama (project → action & agenda; area → sub area/kegiatan/sub kegiatan,
+ *     project, dan semua task & agenda-nya; agenda → Notes AI yang terhubung);
  *  2. RUJUKAN dari item yang dapat diakses (catatan/resource yang dilampirkan, klasifikasi/JRA/wadah arsip,
  *     agenda dari Notes AI) — hanya `view` dan tidak menurunkan turunan;
  *  3. BERKAS (uploadId di payload item yang dapat diakses) dengan izin tertinggi item yang merujuknya.
@@ -40,6 +40,8 @@ export interface ShareStructure {
   projects: { id: string; areaId?: string | null }[];
   activities: { id: string; areaId?: string | null; parentId?: string | null }[];
   tasks: { id: string; projectId?: string | null }[];
+  /** Agenda milik project / item area (`Schedule.projectId`) */
+  schedules?: { id: string; projectId?: string | null }[];
   aiNotes: { id: string; linkedScheduleId?: string | null }[];
 }
 
@@ -71,6 +73,7 @@ export function expandDescendants(roots: ShareRoot[], structure: ShareStructure)
     return map;
   };
   const tasksByParent = byParent(structure.tasks, (t) => t.projectId);
+  const schedulesByParent = byParent(structure.schedules ?? [], (s) => s.projectId);
   const activitiesByParent = byParent(structure.activities, (a) => a.parentId);
   const activitiesByArea = byParent(structure.activities, (a) => a.areaId);
   const projectsByArea = byParent(structure.projects, (p) => p.areaId);
@@ -79,11 +82,15 @@ export function expandDescendants(roots: ShareRoot[], structure: ShareStructure)
   const children = (type: string, id: string): [string, string][] => {
     switch (type) {
       case "para_project":
-        return (tasksByParent.get(id) ?? []).map((t) => ["para_task", t.id]);
+        return [
+          ...(tasksByParent.get(id) ?? []).map((t): [string, string] => ["para_task", t.id]),
+          ...(schedulesByParent.get(id) ?? []).map((s): [string, string] => ["schedule", s.id]),
+        ];
       case "para_activity":
         return [
           ...(activitiesByParent.get(id) ?? []).map((a): [string, string] => ["para_activity", a.id]),
           ...(tasksByParent.get(id) ?? []).map((t): [string, string] => ["para_task", t.id]),
+          ...(schedulesByParent.get(id) ?? []).map((s): [string, string] => ["schedule", s.id]),
         ];
       case "para_area":
         return [
@@ -201,13 +208,14 @@ export function mergeUploadPermissions(
 }
 
 /**
- * Pemilik record baru yang dibuat kolaborator: diturunkan dari induknya (task di project/kegiatan, kegiatan di sub
- * area/area, project di area). Mengembalikan pasangan [type, id] induk yang dirujuk payload.
+ * Pemilik record baru yang dibuat kolaborator: diturunkan dari induknya (task & agenda di project/kegiatan, kegiatan di
+ * sub area/area, project di area). Mengembalikan pasangan [type, id] induk yang dirujuk payload.
  */
 export function parentRefsOf(type: string, payload: Payload): [string, string][] {
   const str = (value: unknown) => (typeof value === "string" && value ? value : null);
   const refs: [string, string][] = [];
-  if (type === "para_task") {
+  if (type === "para_task" || type === "schedule") {
+    // Task/action dan agenda milik project atau item area
     const id = str(payload.projectId);
     if (id) refs.push(["para_project", id], ["para_activity", id]);
   } else if (type === "para_activity") {

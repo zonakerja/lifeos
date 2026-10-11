@@ -195,8 +195,8 @@ berkas (`sourceType = "asset"`) — dengan embedding `gemini-embedding-2` 768 di
   `body`). `assets.uploaded_by_id` = kolaborator yang mengunggah ke ruang pemilik.
 - **Item induk yang bisa dibagikan**: `para_project`, `para_area`, `para_resource` (termasuk arsip File Control),
   `free_note`, `ai_note`, `list`, `schedule`. Akses dihitung saat request (logika murni `share-graph.ts` + test):
-  1. **Turunan** ikut dengan izin yang sama: project → action; area → sub area/kegiatan/sub kegiatan, project di area,
-     dan semua task-nya; agenda → Notes AI terhubung.
+  1. **Turunan** ikut dengan izin yang sama: project → action & agenda; area → sub area/kegiatan/sub kegiatan, project
+     di area, dan semua task & agenda-nya (`schedules.project_id`); agenda → Notes AI terhubung.
   2. **Rujukan** (catatan/resource yang dilampirkan, klasifikasi/JRA/wadah arsip beserta induk wadahnya, agenda dari
      Notes AI) ikut **baca-saja** dan tidak menurunkan turunannya.
   3. **Berkas**: semua `uploadId` (key berakhiran `uploadId`, termasuk gambar editor & berita acara) di payload item yang
@@ -245,7 +245,7 @@ dengan `ON DELETE CASCADE`, soft delete `deleted_at` pada tabel domain.
 | Record type (API) | Tabel | Kolom utama |
 |---|---|---|
 | `agenda_type` | `agenda_types` | name, order |
-| `schedule` | `schedules` | title, start_date, end_date, start_time, end_time, is_all_day, type, location, media (di `extra`: description, resources = dasar pelaksanaan, results + outcome = hasil agenda — format lampiran PARA) |
+| `schedule` | `schedules` | title, start_date, end_date, start_time, end_time, is_all_day, type, location, media, project_id (project / item area pemilik agenda) (di `extra`: description, resources = dasar pelaksanaan, results + outcome = hasil agenda — format lampiran PARA) |
 | `routine` | `routines` | title, frequency, days, interval, interval_type, month_dates, start_date, active, archived, freeze_periods |
 | `todo` | `todos` | title, completed, date, priority |
 | `completion` | `routine_completions` | routine_id, date, actual_date, note, completed_at |

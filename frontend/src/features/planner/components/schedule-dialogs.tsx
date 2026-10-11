@@ -10,6 +10,7 @@ import {
   PencilLine,
   Sparkles,
   Video,
+  Layers,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useNavigate } from "react-router";
@@ -25,7 +26,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { useAiNotes, useResources, useSchedules } from "@/data/collections";
+import { useActivities, useAiNotes, useProjects, useResources, useSchedules } from "@/data/collections";
+import { paraParentOf } from "@/features/productivity/lib/para";
 import { AddAttachmentButton, AttachmentForm } from "@/features/resources/attachment-form";
 import { AttachmentTable } from "@/features/resources/attachment-table";
 import { ResourceAiDialog } from "@/features/resources/resource-ai-dialog";
@@ -59,7 +61,7 @@ const GLOBAL_TAG = "Agenda";
  * Dialog agenda yang dikendalikan URL — pasang sekali di halaman yang menampilkan agenda (Overview, Planner Harian,
  * Jadwal):
  * - `?agenda=<id>` → tampilan **lihat** (link meeting bisa diklik, dasar pelaksanaan, hasil agenda)
- * - `?agenda=new`  → form agenda baru pada `defaultDate`
+ * - `?agenda=new`  → form agenda baru pada `defaultDate` (`&agendaParent=<id>` → agenda milik Project / item Area)
  * - `?edit=<id>`   → form ubah (tanpa izin ubah — agenda yang dibagikan dengan izin Lihat/Komentar — diarahkan ke tampilan lihat; `?edit=new` = agenda baru)
  */
 export function ScheduleDialogs({ defaultDate }: { defaultDate?: string }) {
@@ -69,7 +71,14 @@ export function ScheduleDialogs({ defaultDate }: { defaultDate?: string }) {
   const { canEdit } = usePermissions();
   const [agendaParam] = useSearchParam("agenda");
   const [editParam] = useSearchParam("edit");
+  const [parentParam] = useSearchParam("agendaParent");
   const setParams = useSetSearchParams();
+  const { items: projects } = useProjects();
+  const { items: activities } = useActivities();
+  // Agenda baru di Project/item Area milik user lain (berbagi, izin edit) dimiliki pemilik item itu
+  const parentItem = parentParam
+    ? (projects.find((p) => p.id === parentParam) ?? activities.find((a) => a.id === parentParam))
+    : undefined;
   const cleanup = useAttachmentCleanup();
 
   // Agenda milik user lain tanpa izin edit (berbagi) dibuka sebagai tampilan lihat
@@ -80,7 +89,11 @@ export function ScheduleDialogs({ defaultDate }: { defaultDate?: string }) {
   const editing: Schedule | null = !canEditTarget
     ? null
     : agendaParam === "new" || editParam === "new"
-      ? emptySchedule(agendaTypes[0] ?? "Meeting", defaultDate)
+      ? {
+          ...emptySchedule(agendaTypes[0] ?? "Meeting", defaultDate),
+          ...(parentParam ? { projectId: parentParam } : {}),
+          ...(parentItem?.share ? { userId: parentItem.userId } : {}),
+        }
       : editParam
         ? (schedules.find((s) => s.id === editParam) ?? null)
         : null;
@@ -107,14 +120,14 @@ export function ScheduleDialogs({ defaultDate }: { defaultDate?: string }) {
         <ScheduleFormDialog
           schedule={editing}
           agendaTypes={agendaTypes}
-          onOpenChange={(open) => !open && setParams({ agenda: null, edit: null })}
+          onOpenChange={(open) => !open && setParams({ agenda: null, edit: null, agendaParent: null })}
           onSave={(schedule, released: ReleasedFiles[]) => {
             save(schedule);
             // Berkas yang dilepas di form: hapus / jadikan Resource global sesuai pilihan user
             for (const r of released)
               cleanup.release(r.files, r.keepIds, { contextTag: GLOBAL_TAG, ownerId: schedule.userId });
             // Setelah disimpan tampilkan hasilnya
-            setParams({ agenda: schedule.id, edit: null });
+            setParams({ agenda: schedule.id, edit: null, agendaParent: null });
           }}
         />
       </AccessScope>
@@ -175,6 +188,17 @@ function ScheduleDetail({
   const { icon: TypeIcon, className: typeClass } = scheduleTypeStyle(schedule.type, types);
   const mediaHref = toExternalHref(schedule.media);
   const linkedNotes = aiNotes.filter((n) => n.linkedScheduleId === schedule.id);
+  // Agenda milik Project / item Area (Productivity)
+  const { items: projects } = useProjects();
+  const { items: activities } = useActivities();
+  const parent = paraParentOf(schedule.projectId, projects, activities);
+  const parentPath = parent
+    ? parent.kind === "project"
+      ? links.project(parent.project.id)
+      : parent.activity.areaId
+        ? links.area(parent.activity.areaId)
+        : null
+    : null;
 
   const update = (values: Partial<Schedule>) => onChange({ ...schedule, ...values });
   const goto = (path: string) => {
@@ -246,6 +270,17 @@ function ScheduleDetail({
               <span className="text-muted-foreground">-</span>
             )}
           </InfoRow>
+          {parent && (
+            <InfoRow icon={Layers} label={`Bagian dari ${parent.label}`}>
+              {parentPath ? (
+                <Button variant="link" className="h-auto p-0" onClick={() => goto(parentPath)}>
+                  {parent.title}
+                </Button>
+              ) : (
+                parent.title
+              )}
+            </InfoRow>
+          )}
           {schedule.description && (
             <div className="sm:col-span-2">
               <p className="text-xs font-semibold text-muted-foreground">Keterangan</p>

@@ -9,9 +9,11 @@ import { SearchInput } from "@/components/common/search-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -20,6 +22,7 @@ import { useAiNotes, useFreeNotes, useLists, useResources } from "@/data/collect
 import { ResourceAiDialog } from "@/features/resources/resource-ai-dialog";
 import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
 import { openAttachment } from "@/features/resources/resource-utils";
+import { readAiSummaryPreference, writeAiSummaryPreference } from "@/features/resources/ai-summary-preference";
 import { SummaryStatusBadge } from "@/features/resources/summary-status-badge";
 import { useFileSummarizer } from "@/features/resources/use-file-summarizer";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -28,6 +31,7 @@ import { useToday } from "@/hooks/use-today";
 import { errorMessage } from "@/lib/api/client";
 import { uploadsApi } from "@/lib/api/endpoints";
 import { DEFAULT_DATE_FILTER, matchesDateFilter } from "@/lib/date-filter";
+import { trackPendingUpload, untrackPendingUpload } from "@/lib/pending-uploads";
 import { formatNumericDate } from "@/lib/dates";
 import { generateId } from "@/lib/ids";
 import { cn } from "@/lib/utils";
@@ -313,13 +317,19 @@ function ResourceForm({
   const savedRef = useRef(false);
   useDiscardOnClose(() => {
     if (savedRef.current || sessionUploads.current.size === 0) return;
-    cleanup.discardUploads([...sessionUploads.current]);
+    const ids = [...sessionUploads.current];
+    ids.forEach(untrackPendingUpload);
+    cleanup.discardUploads(ids);
     sessionUploads.current.clear();
   });
   const { items: freeNotes } = useFreeNotes();
   const { items: aiNotes } = useAiNotes();
   const { items: lists } = useLists();
   const summarizer = useFileSummarizer();
+  // "Ringkas dengan AI" opsional (default mati, diingat per browser); hasil lama diabaikan bila berkas diganti
+  const [aiSummary, setAiSummary] = useState(readAiSummaryPreference);
+  const lastFileRef = useRef<File | null>(null);
+  const summaryRunRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const { uploadOwnerId } = usePermissions();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -352,17 +362,45 @@ function ResourceForm({
     try {
       const asset = await uploadsApi.upload(file, "resource", uploadOwnerId);
       // Upload sebelumnya di sesi ini (belum pernah tersimpan) langsung dibuang saat diganti
-      if (form.uploadId && sessionUploads.current.delete(form.uploadId)) cleanup.discardUploads([form.uploadId]);
+      if (form.uploadId && sessionUploads.current.delete(form.uploadId)) {
+        untrackPendingUpload(form.uploadId);
+        cleanup.discardUploads([form.uploadId]);
+      }
       sessionUploads.current.add(asset.id);
-      patch({ uploadId: asset.id, mimeType: asset.mimeType, url: undefined, title: form.title || asset.originalName });
+      trackPendingUpload(asset.id); // tetap dibersihkan bila tab di-reload/ditutup sebelum disimpan
+      lastFileRef.current = file;
+      patch({
+        uploadId: asset.id,
+        mimeType: asset.mimeType,
+        url: undefined,
+        title: form.title || asset.originalName,
+        aiSummary: undefined,
+      });
     } catch (error) {
       toast.error("Upload file gagal", { description: errorMessage(error) });
       setUploading(false);
       return;
     }
     setUploading(false);
+    if (aiSummary) void runSummary(file);
+    else summaryRunRef.current++;
+  };
+
+  const runSummary = async (file: File) => {
+    const run = ++summaryRunRef.current;
     const summary = await summarizer.summarize(file);
-    if (summary) patch({ aiSummary: summary });
+    if (summary && run === summaryRunRef.current) patch({ aiSummary: summary });
+  };
+
+  const toggleAiSummary = (enabled: boolean) => {
+    setAiSummary(enabled);
+    writeAiSummaryPreference(enabled);
+    if (!enabled) {
+      summaryRunRef.current++;
+      summarizer.setStatus("idle");
+    } else if (lastFileRef.current && !form.aiSummary && summarizer.status !== "processing") {
+      void runSummary(lastFileRef.current);
+    }
   };
 
   const save = () => {
@@ -390,6 +428,11 @@ function ResourceForm({
       ]);
     }
     savedRef.current = true;
+    sessionUploads.current.forEach(untrackPendingUpload); // kini tersimpan di data
+    if (summarizer.status === "processing") {
+      summaryRunRef.current++;
+      toast.info("Ringkasan AI dilewati", { description: "Buat nanti lewat tombol AI pada resource." });
+    }
     // Berkas lama yang diganti / tidak dipakai lagi dihapus dari storage (kecuali masih dipakai di tempat lain)
     const oldUploadId = replacedUploadId(resource, data);
     if (resource && oldUploadId) {
@@ -461,7 +504,17 @@ function ResourceForm({
             >
               {uploading ? <Spinner /> : <Upload />} {form.uploadId ? "Ganti File" : "Pilih File"}
             </Button>
-            <SummaryStatusBadge status={summarizer.status} />
+            <span className="flex items-center gap-2">
+              <Checkbox
+                id="res-ai-summary"
+                checked={aiSummary}
+                onCheckedChange={(checked) => toggleAiSummary(checked === true)}
+              />
+              <Label htmlFor="res-ai-summary" className="text-xs font-normal text-muted-foreground">
+                Ringkas dengan AI
+              </Label>
+              {aiSummary && <SummaryStatusBadge status={summarizer.status} />}
+            </span>
             {form.uploadId && (
               <span className="truncate text-xs text-muted-foreground">File saat ini: {form.title}</span>
             )}
@@ -506,7 +559,7 @@ function ResourceForm({
         <Button variant="outline" onClick={onCancel}>
           Batal
         </Button>
-        <Button onClick={save} disabled={uploading || summarizer.status === "processing"}>
+        <Button onClick={save} disabled={uploading}>
           Simpan
         </Button>
       </DialogFooter>

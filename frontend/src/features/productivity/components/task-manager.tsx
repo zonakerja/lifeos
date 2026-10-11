@@ -1,6 +1,7 @@
 import {
   BookOpen,
   CalendarDays,
+  CalendarRange,
   Check,
   CheckSquare,
   Clock,
@@ -26,7 +27,7 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { useProjectTasks, useResources } from "@/data/collections";
+import { useProjectTasks, useResources, useSchedules } from "@/data/collections";
 import { ownedFiles } from "@/features/resources/attachment-cleanup";
 import { AddAttachmentButton, AttachmentForm } from "@/features/resources/attachment-form";
 import { AttachmentTable } from "@/features/resources/attachment-table";
@@ -41,13 +42,17 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { useToday } from "@/hooks/use-today";
 import { completionPatch } from "@/lib/completion";
 import { DEFAULT_DATE_FILTER, matchesDateFilter } from "@/lib/date-filter";
-import { formatNumericDate } from "@/lib/dates";
+import { formatLocalYMD, formatNumericDate } from "@/lib/dates";
 import { generateId } from "@/lib/ids";
 import { cn } from "@/lib/utils";
-import type { Activity, AttachedResource, Priority, Project, ProjectTask } from "@/types/entities";
-import type { AreaLevel } from "../lib/para";
+import { scheduleDateRangeLabel, scheduleStart, scheduleTimeLabel } from "@/features/planner/lib/planner-logic";
+import { useSetSearchParams } from "@/hooks/use-search-param";
+import type { Activity, AttachedResource, Priority, Project, ProjectTask, Schedule } from "@/types/entities";
+import { type AreaLevel, completionDefaults } from "../lib/para";
 import { projectTimeProgress, taskProgress } from "../lib/progress";
 import { useAttachmentEdits } from "../use-attachment-edits";
+import { AgendaList } from "./agenda-list";
+import { CompleteTaskDialog } from "./complete-task-dialog";
 
 type TaskOwnerType = "Project" | AreaLevel;
 
@@ -67,7 +72,7 @@ const emptyTask = (): Omit<ProjectTask, "id" | "projectId"> => ({
   resources: [],
 });
 
-/** Pengelola Action (Project) / Task (Sub Area, Kegiatan, Sub Kegiatan). */
+/** Pengelola Action (Project) / Task (Sub Area, Kegiatan, Sub Kegiatan) + Agenda milik item. */
 export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps) {
   const { items: tasks, setItems: setTasks } = useProjectTasks();
   const { canEdit } = usePermissions();
@@ -77,6 +82,9 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
   const [dateFilter, setDateFilter] = useState(DEFAULT_DATE_FILTER);
   const [editing, setEditing] = useState<ProjectTask | "new" | null>(null);
   const [deleting, setDeleting] = useState<ProjectTask | null>(null);
+  const [completing, setCompleting] = useState<ProjectTask | null>(null);
+  const [section, setSection] = useState<"actions" | "agenda">("actions");
+  const { items: schedules } = useSchedules();
   const cleanup = useAttachmentCleanup();
 
   const isProject = ownerType === "Project";
@@ -84,6 +92,7 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
   const contextTag = isProject ? "Project Action" : "Area Task";
   const deletingFiles = ownedFiles(deleting?.resources);
   const ownerTasks = tasks.filter((t) => t.projectId === owner.id);
+  const ownerSchedules = schedules.filter((sc) => sc.projectId === owner.id);
 
   if (editing) {
     return (
@@ -172,147 +181,185 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
           </div>
         )}
 
-        <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            value={view}
-            onValueChange={(v) => v && setView(v as "list" | "timeline")}
-          >
-            <ToggleGroupItem value="list">
-              <List /> List
-            </ToggleGroupItem>
-            <ToggleGroupItem value="timeline">
-              <Clock /> Timeline
-            </ToggleGroupItem>
-          </ToggleGroup>
-          {view === "list" && (
-            <div className="flex flex-col gap-2 md:flex-row md:items-center">
-              <SearchInput value={search} onChange={setSearch} className="md:w-48" />
-              <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
-            </div>
-          )}
-        </div>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          className="w-full md:w-auto"
+          value={section}
+          onValueChange={(v) => v && setSection(v as "actions" | "agenda")}
+        >
+          <ToggleGroupItem value="actions">
+            <CheckSquare /> {label} ({ownerTasks.length})
+          </ToggleGroupItem>
+          <ToggleGroupItem value="agenda">
+            <CalendarRange /> Agenda ({ownerSchedules.length})
+          </ToggleGroupItem>
+        </ToggleGroup>
+
+        {section === "actions" && (
+          <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              value={view}
+              onValueChange={(v) => v && setView(v as "list" | "timeline")}
+            >
+              <ToggleGroupItem value="list">
+                <List /> List
+              </ToggleGroupItem>
+              <ToggleGroupItem value="timeline">
+                <Clock /> Timeline
+              </ToggleGroupItem>
+            </ToggleGroup>
+            {view === "list" && (
+              <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                <SearchInput value={search} onChange={setSearch} className="md:w-48" />
+                <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Konten */}
-      <div className="flex-1 overflow-y-auto p-5 md:p-7">
-        {view === "timeline" ? (
-          <TimelineView owner={owner} tasks={ownerTasks} />
-        ) : filtered.length === 0 ? (
-          <Empty className="border border-dashed">
-            <EmptyHeader>
-              <EmptyMedia variant="icon" className="bg-module-soft text-module">
-                <CheckSquare />
-              </EmptyMedia>
-              <EmptyDescription>Belum ada {label.toLowerCase()} yang sesuai filter.</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <ul className="flex flex-col gap-2.5">
-            {filtered.map((task) => (
-              <li
-                key={task.id}
-                className={cn(
-                  "group flex flex-col rounded-2xl border p-4 transition-shadow hover:shadow-md",
-                  task.completed ? "bg-muted/50 opacity-70" : "bg-card",
-                )}
-              >
-                <div className="flex items-start gap-3">
-                  <button
-                    type="button"
-                    disabled={!canEdit}
-                    aria-label={task.completed ? "Tandai belum selesai" : "Tandai selesai"}
-                    onClick={() => updateTask(task.id, completionPatch(!task.completed))}
+      {section === "agenda" ? (
+        <AgendaList owner={owner} />
+      ) : (
+        <>
+          {/* Konten */}
+          <div className="flex-1 overflow-y-auto p-5 md:p-7">
+            {view === "timeline" ? (
+              <TimelineView owner={owner} tasks={ownerTasks} schedules={ownerSchedules} taskLabel={label} />
+            ) : filtered.length === 0 ? (
+              <Empty className="border border-dashed">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon" className="bg-module-soft text-module">
+                    <CheckSquare />
+                  </EmptyMedia>
+                  <EmptyDescription>Belum ada {label.toLowerCase()} yang sesuai filter.</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <ul className="flex flex-col gap-2.5">
+                {filtered.map((task) => (
+                  <li
+                    key={task.id}
                     className={cn(
-                      "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors",
-                      task.completed
-                        ? "border-success bg-success text-white"
-                        : "border-muted-foreground/40 hover:border-success",
+                      "group flex flex-col rounded-2xl border p-4 transition-shadow hover:shadow-md",
+                      task.completed ? "bg-muted/50 opacity-70" : "bg-card",
                     )}
                   >
-                    {task.completed && <Check className="size-3.5" strokeWidth={4} />}
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <h4 className={cn("text-sm font-bold", task.completed && "text-muted-foreground line-through")}>
-                      {task.title}
-                    </h4>
-                    {task.description && (
-                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.description}</p>
-                    )}
-                    <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                      {task.dueDate && (
-                        <span className="flex items-center gap-1">
-                          <CalendarDays className="size-3" /> {formatNumericDate(task.dueDate)}
-                        </span>
-                      )}
-                      <span className={cn("capitalize", task.priority === "high" && "font-bold text-destructive")}>
-                        {task.priority ?? "medium"} Priority
-                      </span>
-                      {!!task.resources?.length && (
-                        <span className="flex items-center gap-1 text-module">
-                          <Paperclip className="size-3" /> {task.resources.length} Lampiran
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {isProject && (
-                    <label className="flex flex-col items-end gap-1">
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase">Bobot</span>
-                      <Input
-                        type="number"
+                    <div className="flex items-start gap-3">
+                      <button
+                        type="button"
                         disabled={!canEdit}
-                        className="h-7 w-14 px-1 text-center text-xs font-bold"
-                        value={task.weight ?? 0}
-                        onChange={(e) => updateTask(task.id, { weight: parseFloat(e.target.value) || 0 })}
-                      />
-                    </label>
-                  )}
-                  {canEdit && (
-                    <div className="flex gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
-                      <Button variant="ghost" size="icon-sm" title="Ubah" onClick={() => setEditing(task)}>
-                        <PencilLine />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title="Hapus"
-                        className="hover:text-destructive"
-                        onClick={() => setDeleting(task)}
+                        aria-label={task.completed ? "Tandai belum selesai" : "Tandai selesai"}
+                        // Centang → dialog isian (tanggal, prioritas, bobot); batal centang langsung
+                        onClick={() =>
+                          task.completed ? updateTask(task.id, completionPatch(false)) : setCompleting(task)
+                        }
+                        className={cn(
+                          "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors",
+                          task.completed
+                            ? "border-success bg-success text-white"
+                            : "border-muted-foreground/40 hover:border-success",
+                        )}
                       >
-                        <Trash2 />
-                      </Button>
+                        {task.completed && <Check className="size-3.5" strokeWidth={4} />}
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <h4 className={cn("text-sm font-bold", task.completed && "text-muted-foreground line-through")}>
+                          {task.title}
+                        </h4>
+                        {task.description && (
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.description}</p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                          {task.dueDate && (
+                            <span className="flex items-center gap-1">
+                              <CalendarDays className="size-3" /> {formatNumericDate(task.dueDate)}
+                            </span>
+                          )}
+                          <span className={cn("capitalize", task.priority === "high" && "font-bold text-destructive")}>
+                            {task.priority ?? "medium"} Priority
+                          </span>
+                          {!!task.resources?.length && (
+                            <span className="flex items-center gap-1 text-module">
+                              <Paperclip className="size-3" /> {task.resources.length} Lampiran
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {isProject && (
+                        <label className="flex flex-col items-end gap-1">
+                          <span className="text-[10px] font-bold text-muted-foreground uppercase">Bobot</span>
+                          <Input
+                            type="number"
+                            disabled={!canEdit}
+                            className="h-7 w-14 px-1 text-center text-xs font-bold"
+                            value={task.weight ?? 0}
+                            onChange={(e) => updateTask(task.id, { weight: parseFloat(e.target.value) || 0 })}
+                          />
+                        </label>
+                      )}
+                      {canEdit && (
+                        <div className="flex gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+                          <Button variant="ghost" size="icon-sm" title="Ubah" onClick={() => setEditing(task)}>
+                            <PencilLine />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title="Hapus"
+                            className="hover:text-destructive"
+                            onClick={() => setDeleting(task)}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-                {!!task.resources?.length && (
-                  <div className="mt-3 border-t pt-3">
-                    <p className="mb-2 text-[10px] font-bold text-muted-foreground uppercase">Lampiran:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {task.resources.map((res, i) => (
-                        <AttachmentChip key={`${res.id}-${i}`} res={res} prefix={res.number || `#${i + 1}`} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        <CommentsPanel recordType={isProject ? "para_project" : "para_activity"} item={owner} className="mt-5" />
-      </div>
+                    {!!task.resources?.length && (
+                      <div className="mt-3 border-t pt-3">
+                        <p className="mb-2 text-[10px] font-bold text-muted-foreground uppercase">Lampiran:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {task.resources.map((res, i) => (
+                            <AttachmentChip key={`${res.id}-${i}`} res={res} prefix={res.number || `#${i + 1}`} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <CommentsPanel recordType={isProject ? "para_project" : "para_activity"} item={owner} className="mt-5" />
+          </div>
 
-      {view === "list" && canEdit && (
-        <div className="border-t p-4">
-          <Button
-            variant="secondary"
-            className="h-12 w-full bg-module-soft text-module hover:bg-module/15"
-            onClick={() => setEditing("new")}
-          >
-            <Plus /> Tambah {label} Baru
-          </Button>
-        </div>
+          {view === "list" && canEdit && (
+            <div className="border-t p-4">
+              <Button
+                variant="secondary"
+                className="h-12 w-full bg-module-soft text-module hover:bg-module/15"
+                onClick={() => setEditing("new")}
+              >
+                <Plus /> Tambah {label} Baru
+              </Button>
+            </div>
+          )}
+        </>
       )}
+
+      <CompleteTaskDialog
+        task={completing}
+        label={label}
+        withWeight={isProject}
+        defaults={completing ? completionDefaults(completing, tasks, formatLocalYMD(today)) : null}
+        onOpenChange={(open) => !open && setCompleting(null)}
+        onConfirm={(values) => {
+          if (completing) updateTask(completing.id, { ...values, ...completionPatch(true) });
+          setCompleting(null);
+        }}
+      />
 
       <DeleteWithFilesDialog
         open={!!deleting}
@@ -365,29 +412,59 @@ function AttachmentChip({ res, prefix }: { res: AttachedResource; prefix?: strin
   );
 }
 
-/** Timeline gabungan dasar pelaksanaan (resources) + action, urut tanggal. */
-function TimelineView({ owner, tasks }: { owner: Project | Activity; tasks: ProjectTask[] }) {
-  const fallbackDate = (owner as Project).startDate || owner.createdAt || "";
+/**
+ * Timeline gabungan dasar pelaksanaan (resources), action/task, dan agenda — urut tanggal. Agenda multi-hari tampil
+ * sekali dengan rentang tanggalnya (di Planner tampil di setiap harinya); klik → tampilan lihat agenda (Hasil Agenda).
+ */
+function TimelineView({
+  owner,
+  tasks,
+  schedules,
+  taskLabel,
+}: {
+  owner: Project | Activity;
+  tasks: ProjectTask[];
+  schedules: Schedule[];
+  taskLabel: string;
+}) {
+  const setParams = useSetSearchParams();
+  const fallbackDate = (owner as Project).startDate || owner.createdAt?.slice(0, 10) || "";
   const events = [
     ...((owner as Project).resources ?? []).map((r) => ({
       key: `r-${r.id}`,
       kind: "resource" as const,
       date: r.date || fallbackDate,
+      dateLabel: r.date || fallbackDate ? formatNumericDate(r.date || fallbackDate) : "-",
       title: attachmentLabel(r),
       description: r.description || "Dasar Pelaksanaan",
-      resource: r,
+      resource: r as AttachedResource | null,
       attachments: [] as AttachedResource[],
+      scheduleId: null as string | null,
     })),
     ...tasks.map((t) => ({
       key: `t-${t.id}`,
       kind: "task" as const,
       date: t.dueDate || "",
+      dateLabel: t.dueDate ? formatNumericDate(t.dueDate) : "-",
       title: t.title,
       description: t.description,
       resource: null,
       attachments: t.resources ?? [],
+      scheduleId: null,
     })),
-  ].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+    ...schedules.map((sc) => ({
+      key: `s-${sc.id}`,
+      kind: "agenda" as const,
+      date: scheduleStart(sc),
+      dateLabel: `${scheduleDateRangeLabel(sc)} · ${scheduleTimeLabel(sc)}`,
+      title: sc.title,
+      description: [sc.location, sc.outcome && `Hasil: ${sc.outcome}`].filter(Boolean).join(" — "),
+      resource: null,
+      attachments: [...(sc.resources ?? []), ...(sc.results ?? [])],
+      scheduleId: sc.id,
+    })),
+    // Tanggal YMD dibandingkan sebagai string (aman zona waktu); tanpa tanggal di akhir
+  ].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
 
   if (events.length === 0) {
     return (
@@ -402,6 +479,12 @@ function TimelineView({ owner, tasks }: { owner: Project | Activity; tasks: Proj
     );
   }
 
+  const style = {
+    resource: { dot: "border-module text-module", badge: "bg-module-soft text-module", label: "Dasar" },
+    task: { dot: "border-success text-success", badge: "bg-success/15 text-success", label: taskLabel },
+    agenda: { dot: "border-info text-info", badge: "bg-info/15 text-info", label: "Agenda" },
+  } as const;
+
   return (
     <ol className="relative flex flex-col gap-6 border-l-2 border-border pl-6">
       {events.map((event) => (
@@ -409,23 +492,33 @@ function TimelineView({ owner, tasks }: { owner: Project | Activity; tasks: Proj
           <span
             className={cn(
               "absolute top-1 -left-[35px] flex size-6 items-center justify-center rounded-full border-[3px] bg-card",
-              event.kind === "resource" ? "border-module text-module" : "border-success text-success",
+              style[event.kind].dot,
             )}
           >
-            {event.kind === "resource" ? <BookOpen className="size-3" /> : <Check className="size-3" strokeWidth={3} />}
+            {event.kind === "resource" ? (
+              <BookOpen className="size-3" />
+            ) : event.kind === "agenda" ? (
+              <CalendarRange className="size-3" />
+            ) : (
+              <Check className="size-3" strokeWidth={3} />
+            )}
           </span>
           <div className="rounded-2xl border bg-card p-4 transition-shadow hover:shadow-md">
             <div className="mb-1 flex flex-wrap items-center gap-2">
-              <Badge
-                className={event.kind === "resource" ? "bg-module-soft text-module" : "bg-success/15 text-success"}
-              >
-                {event.kind === "resource" ? "Dasar" : "Action"}
-              </Badge>
-              <span className="font-mono text-xs text-muted-foreground">
-                {event.date ? formatNumericDate(event.date) : "-"}
-              </span>
+              <Badge className={style[event.kind].badge}>{style[event.kind].label}</Badge>
+              <span className="font-mono text-xs text-muted-foreground">{event.dateLabel}</span>
             </div>
-            <h4 className="text-base font-bold">{event.title}</h4>
+            {event.scheduleId ? (
+              <button
+                type="button"
+                className="text-left text-base font-bold hover:underline"
+                onClick={() => setParams({ agenda: event.scheduleId }, { replace: false })}
+              >
+                {event.title}
+              </button>
+            ) : (
+              <h4 className="text-base font-bold">{event.title}</h4>
+            )}
             {event.description && <p className="mt-1 text-sm text-muted-foreground">{event.description}</p>}
             {(event.resource || event.attachments.length > 0) && (
               <div className="mt-3 flex flex-wrap gap-2 border-t border-dashed pt-3">
@@ -578,7 +671,7 @@ function TaskForm({
             <AttachmentForm
               defaultDate={form.dueDate}
               uploadContext="task"
-              autoSummarize
+              offerAiSummary
               idPrefix="tr"
               onCancel={() => setAdding(false)}
               onAdd={(att) => {

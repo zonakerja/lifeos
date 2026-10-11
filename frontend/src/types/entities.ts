@@ -59,6 +59,11 @@ export interface Schedule extends Owned {
   results?: AttachedResource[];
   /** Ringkasan hasil agenda (teks bebas) */
   outcome?: string;
+  /**
+   * Project atau item Area (Sub Area/Kegiatan/Sub Kegiatan) pemilik agenda — sama seperti `ProjectTask.projectId`.
+   * Agenda ikut diarsipkan/dihapus bersama induknya.
+   */
+  projectId?: string;
 }
 
 export interface FreezePeriod {
@@ -236,6 +241,8 @@ export interface ParaArchiveRelated {
   activities?: Activity[];
   /** Action milik project & task milik kegiatan */
   tasks?: ProjectTask[];
+  /** Agenda milik project / item area */
+  schedules?: Schedule[];
 }
 
 export interface ParaArchive extends Owned {

@@ -125,7 +125,7 @@ export class ShareAccessService {
     const types = new Set(roots.map((r) => r.type));
     const needPara = types.has("para_project") || types.has("para_area");
     const where = { userId: ownerId, deletedAt: null };
-    const [projects, activities, tasks, aiNotes] = await Promise.all([
+    const [projects, activities, tasks, schedules, aiNotes] = await Promise.all([
       types.has("para_area")
         ? this.prisma.project.findMany({ where, select: { clientId: true, areaId: true } })
         : Promise.resolve([]),
@@ -135,7 +135,14 @@ export class ShareAccessService {
       needPara
         ? this.prisma.task.findMany({ where, select: { clientId: true, projectId: true } })
         : Promise.resolve([]),
-      types.has("schedule")
+      needPara
+        ? this.prisma.schedule.findMany({
+            where: { ...where, projectId: { not: null } },
+            select: { clientId: true, projectId: true },
+          })
+        : Promise.resolve([]),
+      // Notes AI terhubung ke agenda (agenda bisa dibagikan langsung atau sebagai turunan project/area)
+      types.has("schedule") || needPara
         ? this.prisma.aiNote.findMany({ where, select: { clientId: true, linkedScheduleId: true } })
         : Promise.resolve([]),
     ]);
@@ -143,6 +150,7 @@ export class ShareAccessService {
       projects: projects.map((p) => ({ id: p.clientId, areaId: p.areaId })),
       activities: activities.map((a) => ({ id: a.clientId, areaId: a.areaId, parentId: a.parentId })),
       tasks: tasks.map((t) => ({ id: t.clientId, projectId: t.projectId })),
+      schedules: schedules.map((s) => ({ id: s.clientId, projectId: s.projectId })),
       aiNotes: aiNotes.map((n) => ({ id: n.clientId, linkedScheduleId: n.linkedScheduleId })),
     };
   }

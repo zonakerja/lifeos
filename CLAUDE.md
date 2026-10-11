@@ -242,7 +242,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   - Migrasi: baseline `20261009120000_init` + `20261011120000_activity_parent` +
     `20261011130000_para_archive_log` + `20261011140000_ai_credentials` +
     `20261011150000_ai_fallback` + `20261011160000_ai_chunks` + `20261011170000_sharing` (viewer → member, `shares`,
-    `record_comments`, `assets.uploaded_by_id`). Migrasi baru → lihat docs/SETUP.md §10
+    `record_comments`, `assets.uploaded_by_id`) + `20261011180000_schedule_project` (`schedules.project_id`, data lama dari
+    `extra` dipindah). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
@@ -345,6 +346,19 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   konteks. Opsi tambahan (default tidak mengubah perilaku lama): `AttachmentForm types={[...]}` membatasi jenis (jenis
   pertama = pilihan awal), `AddAttachmentButton label`. `AttachmentTable` membuka lampiran **catatan** di dalam aplikasi
   (Notes Space), bukan tab baru.
+  - **Ringkasan AI saat upload = opsional** (keputusan user): `AttachmentForm offerAiSummary` (form Project/Action/Task) dan
+    form Resource menampilkan centang **"Ringkas dengan AI"** — default mati, pilihan terakhir diingat per browser
+    (`resources/ai-summary-preference.ts`). AI hanya dipanggil bila dicentang (centang setelah upload → langsung diringkas);
+    "Tambahkan"/"Simpan" tidak menunggu AI (bila masih berjalan, ringkasan dilewati → buat nanti lewat ikon robot); hasil
+    untuk berkas yang sudah diganti diabaikan.
+  - **Upload yang belum tersimpan** dicatat di `lib/pending-uploads.ts` (localStorage per user: `uploadId`, instans
+    halaman, detak) lewat `trackPendingUpload` / `untrackPendingUpload`: `AttachmentForm` (sebelum "Tambahkan"; diserahkan
+    ke form pemakai saat ditambahkan), `useAttachmentEdits` (sampai form disimpan) dan form Resource. `usePendingUploadsJanitor`
+    (di `AppShell`): saat tab di-reload/ditutup (`pagehide`) berkas dihapus dengan fetch `keepalive`; sapuan tiap menit di
+    tab mana pun menghapus catatan halaman lain yang ditinggalkan atau tidak berdetak > 24 jam. Hanya berkas yang belum
+    pernah tersimpan yang dicatat → sapuan tidak menyentuh berkas yang dipakai. Form lain yang menampung lampiran dari
+    `AttachmentForm` (mis. agenda Planner) belum mencatat berkas sesi-nya → bila ingin ikut, panggil track saat
+    ditambahkan dan untrack saat disimpan/dibuang.
   - **Hapus item / lampiran berkas (aturan seragam Planner & Productivity)**: berkas milik item (punya `uploadId`, bukan
     rujukan Resource Global) **ikut dihapus dari storage** agar tidak jadi sampah/duplikat. Konfirmasi lewat
     `<DeleteWithFilesDialog files shared onConfirm={(keepIds) => …}>` (default semua berkas dihapus; user bisa
@@ -397,6 +411,17 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   tanpa izin edit → tampilan lihat). Link dari modul lain: `links.schedule(id)` (lihat), `links.scheduleEdit(id)` (ubah),
   `links.newAiNoteForSchedule(id)` → `/notes/ai?note=new&schedule=<id>` (Notes AI baru terisi judul/tanggal/agenda).
   Form agenda: `schedule-form.tsx` (`ScheduleFormDialog`, `emptySchedule`, `MediaLink`).
+  - **Agenda milik Project / item Area**: `Schedule.projectId` (Project atau Sub Area/Kegiatan/Sub Kegiatan, sama seperti
+    `ProjectTask.projectId`; kolom `schedules.project_id`). `?agenda=new&agendaParent=<id>` membuat agenda baru milik item
+    itu (di item bersama izin edit → `userId` pemilik item);
+    tampilan lihat menampilkan "Bagian dari <Project/tingkat>" (`paraParentOf`, tautan ke project/area).
+    `ScheduleDialogs` juga dipasang di halaman Productivity; daftar per item = tab **Agenda** di `TaskManager`
+    (`features/productivity/components/agenda-list.tsx`: status, dasar pelaksanaan, penanda Hasil, hapus + berkas).
+    Agenda ikut diarsipkan (`related.schedules`) / dipulihkan / dihapus berantai bersama induknya, dan **ikut dibagikan**
+    sebagai turunan project/item area (`share-graph.ts`; Notes AI terhubung ikut). Di Productivity agenda multi-hari tampil
+    **sekali** dengan rentang tanggal (`scheduleDateRangeLabel`: "14 Okt – 16 Okt 2026"), juga di tampilan **Timeline**
+    (`TimelineView`: dasar + action/task + agenda, klik agenda → tampilan lihat); di Planner tetap tampil per hari.
+  - `scheduleTimeLabel`: jam kosong → "Tanpa jam" (bukan "??:??"); hanya jam selesai → "s.d. HH:mm".
 - **Komponen umum**: `ConfirmDialog`, `SectionCard`, `RenameDialog`, `SearchableSelect`, `PaginationControl`+`paginate()`,
   `Markdown`, `PriorityBadge`, `PageLoader`, `DateRangeFilter`, `SearchInput`.
 - **Paginasi daftar**: `usePagination(items, ukuranAwal)` (`hooks/use-pagination.ts`) → `{ pageItems, setPage,
@@ -421,7 +446,11 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   **Area → Sub Area → Kegiatan → Sub Kegiatan → Task**; ketiga tingkat = `para_activity` (tanpa `parentId` = Sub Area,
   tingkat dari rantai `parentId`, maks. 3, semuanya menyimpan `areaId`); task boleh melekat di tingkat mana pun;
   helper di `features/productivity/lib/para.ts` (`AREA_LEVELS`, `activityLevel`, `activityTreeIds`, …); area juga
-  memuat project — Free Project = project tanpa area yang valid, bisa diambil ke area dari dialog Area atau dilepas),
+  memuat project — Free Project = project tanpa area yang valid, bisa diambil ke area dari dialog Area atau dilepas;
+  Project & item Area punya **Action/Task** dan **Agenda** (tab di detail item). Centang Action/Task membuka dialog
+  **Tandai Selesai** (`complete-task-dialog.tsx`): Tanggal (hari ini bila kosong), Prioritas (medium bila kosong), Bobot
+  action project (bila kosong: sisa 100 − bobot action lain) terisi otomatis — `completionDefaults`; batal centang
+  langsung),
   Resources (link/file/note, tag konteks, ringkasan AI), Archives (snapshot `originalType` project/area/resource,
   `data`, `archivedAt` → bisa dipulihkan). Turunan ikut diarsipkan dalam **satu entri** di `related`
   (project → action-nya; area → project, sub area/kegiatan/sub kegiatan, dan semua task-nya) dan ikut dipulihkan —
@@ -470,7 +499,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Perbaikan Planner (terlambat, filter & urutan agenda, gaya tipe agenda, hapus berantai, layar sentuh, agenda bisa diklik, paginasi) | ✅ 2026-10-11 — lint, typecheck, unit test, build, dan UI diuji di browser (desktop + mode HP) |
 | Agenda: tampilan lihat (link meeting bisa diklik), dasar pelaksanaan (upload opsional), hasil agenda (ringkasan, Notes Space, upload, web link, Notes AI terhubung) | ✅ 2026-10-11 — lint, typecheck, unit test, build, UI diuji di browser (Overview, Harian, Jadwal, Notes AI); **integrasi ke Action Productivity: dikerjakan user/thread Productivity berikutnya** |
 | Todo selesai terlambat (tetap tercoret di Terlambat, tanggal asal "Selesai <tgl>") + paket ikon bersama (±140 ikon, pemilih + saran AI) | ✅ 2026-10-11 — unit test, typecheck, lint, UI diuji di browser; saran AI diuji dengan provider sungguhan akun admin dev |
-| Hapus agenda/lampiran → berkas ikut dihapus (pilih pertahankan → Resource Global), upload batal dibersihkan, kalender Harian ringkas + hover | ✅ 2026-10-11 — unit test, typecheck, lint, UI + storage diuji (404 setelah dihapus, Resource Global terbentuk); Productivity menerapkan aturan yang sama + `completedAt` (2026-10-11, diuji UI + storage) |
+| Hapus agenda/lampiran → berkas ikut dihapus (pilih pertahankan → Resource Global), upload batal dibersihkan, kalender Harian ringkas + hover | ✅ 2026-10-11 — unit test, typecheck, lint, UI + storage diuji (404 setelah dihapus, Resource Global terbentuk); Productivity menerapkan aturan yang sama + `completedAt` (2026-10-11, diuji UI + storage); upload yang belum tersimpan dibersihkan juga saat reload/tutup tab + ringkasan AI opsional (diuji: reload → 404, sapuan cadangan, berkas tersimpan aman, AI tidak dipanggil tanpa centang); Action → dialog Tandai Selesai + Agenda (dengan Hasil) di Project/Area, ikut arsip/hapus/berbagi (diuji UI + skrip API berbagi + smoke) |
 | Catatan Bebas: editor teks kaya (Tiptap) + tulisan tangan stylus (halaman penuh & blok Coretan) + ubah ke teks (AI) | ✅ 2026-10-11 — unit test, build, smoke, UI diuji di browser (mouse + event pena sintetis + mode HP), pengenalan AI diuji dengan Gemini sungguhan; **uji S Pen di perangkat Android user belum** |
 | Perbaikan Notes Space (simpan otomatis Catatan, cegah perubahan hilang di Notes AI, cari/sematkan/paginasi, dokumen dibaca backend, prompt AI, List urut ulang & progres) | ✅ 2026-10-11 — lint, typecheck, unit test, build, dan UI diuji di browser (desktop + mode HP); ringkasan/transkrip AI sungguhan belum diuji (butuh API key) |
 | Isolasi data per user (admin tanpa akses data user lain, role viewer dihapus, statistik admin) + **berbagi** item (Project, Area, Resource/arsip, Catatan, Notes AI, List, Agenda; izin Lihat/Komentar/Edit; turunan & berkas ikut; komentar; Pengaturan → Berbagi; File Control tab Dibagikan) | ✅ 2026-10-11 — unit (backend share-graph + frontend sharing), smoke ±45 skenario baru, lint, typecheck, build, UI diuji di browser (bagikan Edit → kolaborator menambah action & komentar; bagikan Lihat → baca-saja; statistik admin). **Belum**: RAG/chatbot mencari item bersama, notifikasi berbagi, tautan publik |
@@ -673,6 +702,19 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   (+ `completionChangePatch`); centang task/action di Productivity mengisi `completedAt`. Ditemukan & diperbaiki: form
   dialog yang dibuka ulang sebelum unmount memakai state lama → `useOpenSession` sebagai `key`. Hook bersama
   `useAttachmentCleanup` mendapat opsi kompatibel `excludeResourceIds` (perilaku Planner tidak berubah).
+- 2026-10-11 — **Upload yatim & ringkasan AI opsional** (thread Productivity): berkas yang diunggah tetapi belum tersimpan
+  kini dibersihkan juga saat tab di-reload/ditutup (`lib/pending-uploads.ts` + `usePendingUploadsJanitor`, keepalive +
+  sapuan cadangan). Keputusan user: ringkasan AI saat upload menjadi **centang opsional** (default mati, diingat per
+  browser) agar tidak ada panggilan penyedia AI tanpa disadari; tombol tidak lagi terkunci menunggu AI. Prop
+  `AttachmentForm autoSummarize` diganti `offerAiSummary`.
+- 2026-10-11 — **Action & Agenda di Project/Area** (keputusan user): centang Action/Task di Productivity membuka dialog
+  isian (Tanggal, Prioritas, Bobot project — terisi otomatis, bisa diubah) sebelum ditandai selesai. Project & item Area
+  kini bisa memiliki **Agenda** (memakai agenda Planner apa adanya, termasuk Dasar Pelaksanaan & **Hasil Agenda**;
+  tetap tampil di Planner). Agenda **ikut dihapus / diarsipkan** bersama induknya (berkas ikut aturan pembersihan).
+  Lanjutan: `projectId` agenda menjadi kolom (`20261011180000_schedule_project`) agar graf berbagi backend menyertakan
+  agenda sebagai turunan project/item area (penerima melihat agenda + berkas + Notes AI terhubung; agenda baru dari
+  kolaborator izin edit menjadi milik pemilik). Agenda multi-hari tampil sekali dengan rentang tanggal di daftar &
+  Timeline Productivity; "??:??" diganti "Tanpa jam" (juga di Planner).
 - 2026-10-11 — **Kalender Harian**: tinggi dikurangi (sel 56–64 px, bukan persegi), hover tanggal → ringkasan agenda/
   rutinitas/to-do. Ketidaksesuaian penanda diperbaiki: sebelumnya todo/task yang sudah selesai tidak ditandai sama sekali
   (tanggal berisi to-do selesai tampak kosong) dan penanda dihitung terpisah dari daftar; kini satu sumber
@@ -877,10 +919,10 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Vite dev server bisa menyajikan modul **kosong** bila file terbaca saat sedang ditulis (mis. `prettier --write` pada
   banyak file sementara halaman terbuka) → error "does not provide an export named …" yang bertahan setelah reload.
   Cek `curl http://localhost:5173/src/<path>`; perbaiki dengan menyentuh file (`touch`) atau restart dev server.
-- `AttachmentForm` membuang upload yang belum "Tambahkan" hanya saat unmount; reload/tutup tab browser tidak
-  menjalankan cleanup React → berkas itu tertinggal di storage (keterbatasan yang diketahui).
-- Uji upload lewat panel browser Claude: berkas `.txt`/PDF/gambar memicu ringkasan AI sungguhan (`autoSummarize`) dan
-  tombol "Tambahkan" menunggu AI selesai → pakai berkas `.csv` (tidak diringkas) untuk uji alur berkas.
+- Cleanup React (unmount) **tidak berjalan** saat tab di-reload/ditutup → berkas yang belum tersimpan wajib dicatat
+  `trackPendingUpload` (lihat §8b Lampiran) agar dibersihkan `usePendingUploadsJanitor`.
+- Uji upload lewat panel browser Claude: jangan mencentang "Ringkas dengan AI" kecuali memang menguji AI — centang itu
+  memanggil penyedia AI sungguhan (biaya/kuota). Uji pencatat upload: `localStorage` `lifeos.pendingUploads.<userId>`.
 
 - Bash tool: `node -e "..."` berisi template literal (backtick) / `${...}` dijalankan sebagai command substitution oleh
   shell → teks rusak diam-diam. Tulis skrip ke scratchpad dengan tool Write (atau heredoc `<<'EOF'`) lalu `node skrip.js`.
@@ -888,6 +930,9 @@ utama tetap < 500 kB (cek output `npm run build`).
   menganggapnya milik sendiri → duplikat). `useCollection` sudah meneruskan `item.userId`.
 - ID record buatan client (timestamp) unik per user, bukan global: item bersama dan item sendiri bisa (sangat jarang)
   ber-ID sama dan bentrok di cache koleksi — risiko diterima.
+- WSL/Docker bisa **macet** (bukan berhenti): `wsl -e …`/`docker ps` menggantung, port 5432 tetap terbuka tetapi
+  backend `/health` timeout & sesi browser ter-logout. Pulihkan (dengan izin user): `wsl --shutdown` → `wsl -e sh -c
+  "sleep infinity"` (latar) → `docker compose up -d --wait`; data volume aman.
 
 ## 16. Memori & Kesinambungan Antar-Chat
 

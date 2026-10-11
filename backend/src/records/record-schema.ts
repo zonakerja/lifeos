@@ -83,8 +83,10 @@ export const RECORD_TABLES = {
       s("type"),
       s("location"),
       s("media"),
+      // Project / item Area pemilik agenda (agenda ikut dibagikan, diarsipkan, dan dihapus bersama induknya)
+      s("projectId"),
     ],
-    indexes: [["startDate"]],
+    indexes: [["startDate"], ["projectId"]],
   },
   routine: {
     model: "Routine",

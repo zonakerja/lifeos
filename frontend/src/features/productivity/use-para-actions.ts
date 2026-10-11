@@ -6,6 +6,7 @@ import {
   useProjects,
   useProjectTasks,
   useResources,
+  useSchedules,
 } from "@/data/collections";
 import { ownedFiles } from "@/features/resources/attachment-cleanup";
 import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
@@ -34,13 +35,19 @@ export function useParaActions() {
   const activities = useActivities();
   const tasks = useProjectTasks();
   const resources = useResources();
+  const schedules = useSchedules();
   const archives = useParaArchives();
   const logs = useParaArchiveLogs();
   const actorName = useAuthStore((s) => s.user?.name);
   const cleanup = useAttachmentCleanup();
 
   const meta = () => ({ id: generateId("arch"), archivedAt: new Date().toISOString() });
-  const active = () => ({ projects: projects.items, activities: activities.items, tasks: tasks.items });
+  const active = () => ({
+    projects: projects.items,
+    activities: activities.items,
+    tasks: tasks.items,
+    schedules: schedules.items,
+  });
 
   const without = <T extends { id: string }>(removeIds: string[]) => {
     const set = new Set(removeIds);
@@ -57,6 +64,7 @@ export function useParaActions() {
     archives.setItems((prev) => [...prev, archive]);
     log("archived", archive);
     if (removal.taskIds.length) tasks.setItems(without(removal.taskIds));
+    if (removal.scheduleIds.length) schedules.setItems(without(removal.scheduleIds));
     if (removal.activityIds.length) activities.setItems(without(removal.activityIds));
     if (removal.projectIds.length) projects.setItems(without(removal.projectIds));
     if (removal.areaIds.length) areas.setItems(without(removal.areaIds));
@@ -64,11 +72,11 @@ export function useParaActions() {
   };
 
   return {
-    /** Area beserta project, sub area/kegiatan/sub kegiatan, dan semua task-nya dipindahkan ke arsip (satu entri). */
+    /** Area beserta project, sub area/kegiatan/sub kegiatan, semua task & agenda-nya dipindahkan ke arsip (satu entri). */
     archiveArea(area: Area) {
       apply(archiveAreaPlan(area, active(), meta()));
     },
-    /** Project beserta action-nya dipindahkan ke arsip. */
+    /** Project beserta action & agenda-nya dipindahkan ke arsip. */
     archiveProject(project: Project) {
       apply(archiveProjectPlan(project, active(), meta()));
     },
@@ -82,21 +90,23 @@ export function useParaActions() {
       return {
         children: levelCounts(activities.items, descendants),
         taskCount: tasks.items.filter((t) => ids.has(t.projectId)).length,
+        scheduleCount: schedules.items.filter((sc) => !!sc.projectId && ids.has(sc.projectId)).length,
       };
     },
     /** Semua lampiran yang ikut terhapus bila project / item area dihapus (untuk dialog konfirmasi berkas). */
     deleteAttachments(kind: "project" | "activity", item: Project | Activity) {
       return kind === "project"
-        ? projectAttachments(item as Project, tasks.items)
-        : activityTreeAttachments(activities.items, tasks.items, item.id);
+        ? projectAttachments(item as Project, tasks.items, schedules.items)
+        : activityTreeAttachments(activities.items, tasks.items, item.id, schedules.items);
     },
     /**
-     * Hapus project beserta action-nya (tidak meninggalkan task yatim). Berkas lampiran project & action ikut dihapus
-     * dari storage kecuali `keepIds` (→ Resource Global "Project") atau masih dipakai di tempat lain.
+     * Hapus project beserta action & agenda-nya (tidak meninggalkan item yatim). Berkas lampiran project, action, dan
+     * agenda ikut dihapus dari storage kecuali `keepIds` (→ Resource Global "Project") atau masih dipakai di tempat lain.
      */
     deleteProject(project: Project, keepIds: string[] = []) {
-      const attachments = projectAttachments(project, tasks.items);
+      const attachments = projectAttachments(project, tasks.items, schedules.items);
       tasks.setItems((prev) => prev.filter((t) => t.projectId !== project.id));
+      schedules.setItems((prev) => prev.filter((sc) => sc.projectId !== project.id));
       projects.setItems(without([project.id]));
       cleanup.release(ownedFiles(attachments), keepIds, {
         contextTag: "Project",
@@ -104,12 +114,13 @@ export function useParaActions() {
         ownerId: project.userId,
       });
     },
-    /** Hapus item area (Sub Area / Kegiatan / Sub Kegiatan) beserta semua turunan, task, dan berkas lampirannya. */
+    /** Hapus item area (Sub Area / Kegiatan / Sub Kegiatan) beserta semua turunan, task, agenda, dan berkasnya. */
     deleteActivity(activity: Activity, keepIds: string[] = []) {
-      const attachments = activityTreeAttachments(activities.items, tasks.items, activity.id);
+      const attachments = activityTreeAttachments(activities.items, tasks.items, activity.id, schedules.items);
       const ids = activityTreeIds(activities.items, activity.id);
       const idSet = new Set(ids);
       tasks.setItems((prev) => prev.filter((t) => !idSet.has(t.projectId)));
+      schedules.setItems((prev) => prev.filter((sc) => !sc.projectId || !idSet.has(sc.projectId)));
       activities.setItems(without(ids));
       cleanup.release(ownedFiles(attachments), keepIds, {
         contextTag: "Area",
@@ -128,6 +139,7 @@ export function useParaActions() {
       if (r.projects.length) projects.setItems((prev) => mergeById(prev, r.projects));
       if (r.activities.length) activities.setItems((prev) => mergeById(prev, r.activities));
       if (r.tasks.length) tasks.setItems((prev) => mergeById(prev, r.tasks));
+      if (r.schedules.length) schedules.setItems((prev) => mergeById(prev, r.schedules));
       if (r.resources.length) resources.setItems((prev) => mergeById(prev, r.resources));
       archives.setItems((prev) => prev.filter((a) => a.id !== item.id));
       log("restored", item);

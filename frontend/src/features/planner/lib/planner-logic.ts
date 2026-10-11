@@ -1,4 +1,4 @@
-import { formatLocalYMD, parseLocalYMD, startOfDay } from "@/lib/dates";
+import { formatDayMonth, formatLocalYMD, formatShortDate, parseLocalYMD, startOfDay } from "@/lib/dates";
 import type { FreezePeriod, ProjectTask, Routine, Schedule, Todo } from "@/types/entities";
 
 /** Tanggal mulai/selesai agenda (juga mendukung agenda yang hanya punya `date`). */
@@ -6,9 +6,29 @@ export const scheduleStart = (s: Schedule) => s.startDate || s.date || "";
 export const scheduleEnd = (s: Schedule) => s.endDate || s.date || scheduleStart(s);
 export const scheduleTime = (s: Schedule) => s.startTime || s.time || "";
 
-/** "All Day" atau "09:00 - 10:00". */
-export const scheduleTimeLabel = (s: Schedule) =>
-  s.isAllDay ? "All Day" : `${scheduleTime(s) || "??:??"}${s.endTime ? ` - ${s.endTime}` : ""}`;
+/** "All Day", "09:00 - 10:00", "09:00", "s.d. 10:00", atau "Tanpa jam" (jam belum diisi). */
+export const scheduleTimeLabel = (s: Schedule) => {
+  if (s.isAllDay) return "All Day";
+  const start = scheduleTime(s);
+  if (start) return s.endTime ? `${start} - ${s.endTime}` : start;
+  return s.endTime ? `s.d. ${s.endTime}` : "Tanpa jam";
+};
+
+/**
+ * Tanggal agenda sebagai satu label (agenda multi-hari tampil sekali dengan rentangnya):
+ * "11 Okt 2026", "11 Okt – 13 Okt 2026", atau "30 Des 2026 – 2 Jan 2027".
+ */
+export const scheduleDateRangeLabel = (s: Schedule) => {
+  const start = scheduleStart(s);
+  const end = scheduleEnd(s);
+  if (!start) return "-";
+  const startDate = parseLocalYMD(start);
+  if (!end || end === start) return formatShortDate(startDate);
+  const endDate = parseLocalYMD(end);
+  return startDate.getFullYear() === endDate.getFullYear()
+    ? `${formatDayMonth(startDate)} – ${formatShortDate(endDate)}`
+    : `${formatShortDate(startDate)} – ${formatShortDate(endDate)}`;
+};
 
 export const isScheduleOnDate = (s: Schedule, ymd: string) => ymd >= scheduleStart(s) && ymd <= scheduleEnd(s);
 

@@ -1,4 +1,4 @@
-import type { Activity, Area, AttachedResource, Project, ProjectTask, Resource } from "@/types/entities";
+import type { Activity, Area, AttachedResource, Project, ProjectTask, Resource, Schedule } from "@/types/entities";
 
 /** Palet warna proyek (token desain) — dipilih stabil berdasarkan hash ID. */
 const PROJECT_COLORS = [
@@ -154,11 +154,12 @@ const joinParts = (parts: string[]) =>
 /** Teks konfirmasi hapus project / item area beserta jumlah turunan yang ikut terhapus. */
 export const deleteDescription = (
   label: "Project" | AreaLevel,
-  impact: { taskCount: number; children?: { label: string; count: number }[] },
+  impact: { taskCount: number; scheduleCount?: number; children?: { label: string; count: number }[] },
 ) => {
   const parts = [
     ...(impact.children ?? []).map((c) => `${c.count} ${c.label.toLowerCase()}`),
     impact.taskCount ? `${impact.taskCount} ${label === "Project" ? "action" : "task"}` : "",
+    impact.scheduleCount ? `${impact.scheduleCount} agenda` : "",
   ].filter(Boolean);
   return parts.length > 0
     ? `${label} ini beserta ${joinParts(parts)} di dalamnya akan dihapus permanen. Gunakan Arsipkan bila ingin menyimpannya.`
@@ -169,23 +170,49 @@ export const deleteDescription = (
 // Lampiran yang ikut terhapus (untuk pembersihan berkas, lihat features/resources/attachment-cleanup.ts)
 // ============================================================================
 
-/** Semua lampiran project beserta action-nya. */
-export const projectAttachments = (project: Project, tasks: ProjectTask[]): AttachedResource[] => [
+/** Lampiran agenda (dasar pelaksanaan + hasil). */
+const scheduleAttachments = (schedules: Schedule[]) =>
+  schedules.flatMap((s) => [...(s.resources ?? []), ...(s.results ?? [])]);
+
+/** Semua lampiran project beserta action & agenda-nya. */
+export const projectAttachments = (
+  project: Project,
+  tasks: ProjectTask[],
+  schedules: Schedule[] = [],
+): AttachedResource[] => [
   ...(project.resources ?? []),
   ...tasks.filter((t) => t.projectId === project.id).flatMap((t) => t.resources ?? []),
+  ...scheduleAttachments(schedules.filter((s) => s.projectId === project.id)),
 ];
 
-/** Semua lampiran item area (Sub Area/Kegiatan/Sub Kegiatan) beserta seluruh turunan dan task-nya. */
+/** Semua lampiran item area (Sub Area/Kegiatan/Sub Kegiatan) beserta seluruh turunan, task, dan agenda-nya. */
 export const activityTreeAttachments = (
   activities: Activity[],
   tasks: ProjectTask[],
   id: string,
+  schedules: Schedule[] = [],
 ): AttachedResource[] => {
   const ids = new Set(activityTreeIds(activities, id));
   return [
     ...activities.filter((a) => ids.has(a.id)).flatMap((a) => a.resources ?? []),
     ...tasks.filter((t) => ids.has(t.projectId)).flatMap((t) => t.resources ?? []),
+    ...scheduleAttachments(schedules.filter((s) => !!s.projectId && ids.has(s.projectId))),
   ];
+};
+
+/**
+ * Nilai awal dialog "Tandai Selesai": tanggal (hari ini bila kosong), prioritas (medium bila kosong), dan bobot action
+ * project — bila belum berbobot, disarankan sisa bobot (100 − bobot action lain, minimal 0).
+ */
+export const completionDefaults = (task: ProjectTask, siblings: ProjectTask[], todayYmd: string) => {
+  const otherWeight = siblings
+    .filter((t) => t.id !== task.id && t.projectId === task.projectId)
+    .reduce((sum, t) => sum + (Number(t.weight) || 0), 0);
+  return {
+    dueDate: task.dueDate || todayYmd,
+    priority: task.priority ?? "medium",
+    weight: Number(task.weight) || Math.max(0, 100 - otherWeight),
+  };
 };
 
 /** Berkas milik Resource global dalam format lampiran (untuk pembersihan berkas), atau null bila bukan berkas. */
@@ -212,4 +239,15 @@ export const replacedUploadId = (
 ) => {
   const kept = after.type === "file" ? after.uploadId : undefined;
   return before?.uploadId && before.uploadId !== kept ? before.uploadId : null;
+};
+
+/** Induk agenda/task (`projectId`): Project atau item Area, untuk label "Bagian dari" dan tautan. */
+export const paraParentOf = (id: string | undefined, projects: Project[], activities: Activity[]) => {
+  if (!id) return null;
+  const project = projects.find((p) => p.id === id);
+  if (project) return { kind: "project" as const, label: "Project", title: project.title, project };
+  const activity = activities.find((a) => a.id === id);
+  if (activity)
+    return { kind: "activity" as const, label: activityLevel(activities, activity), title: activity.title, activity };
+  return null;
 };

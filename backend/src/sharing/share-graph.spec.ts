@@ -141,3 +141,42 @@ describe("rujukan & berkas", () => {
     expect(accessKey("para_task", "1")).toBe("para_task:1");
   });
 });
+
+describe("agenda milik project / item area", () => {
+  const withSchedules: ShareStructure = {
+    projects: [{ id: "p1", areaId: "a1" }],
+    activities: [
+      { id: "sub1", areaId: "a1", parentId: null },
+      { id: "keg1", areaId: "a1", parentId: "sub1" },
+    ],
+    tasks: [],
+    schedules: [
+      { id: "s-p1", projectId: "p1" },
+      { id: "s-keg1", projectId: "keg1" },
+      { id: "s-bebas", projectId: null },
+    ],
+    aiNotes: [{ id: "n1", linkedScheduleId: "s-p1" }],
+  };
+  const keys = (m: Map<string, { type: string; id: string }>) => [...m.keys()].sort();
+
+  it("project yang dibagikan menyertakan agenda-nya beserta Notes AI terhubung", () => {
+    const access = expandDescendants([{ type: "para_project", id: "p1", permission: "edit" }], withSchedules);
+    expect(keys(access)).toEqual(["ai_note:n1", "para_project:p1", "schedule:s-p1"]);
+    expect(access.get("schedule:s-p1")?.permission).toBe("edit");
+  });
+
+  it("area yang dibagikan menyertakan agenda project & item area-nya", () => {
+    const access = expandDescendants([{ type: "para_area", id: "a1", permission: "view" }], withSchedules);
+    expect(keys(access)).toContain("schedule:s-p1");
+    expect(keys(access)).toContain("schedule:s-keg1");
+    expect(keys(access)).not.toContain("schedule:s-bebas");
+  });
+
+  it("agenda baru dari kolaborator mengikuti pemilik induknya", () => {
+    expect(parentRefsOf("schedule", { projectId: "p1" })).toEqual([
+      ["para_project", "p1"],
+      ["para_activity", "p1"],
+    ]);
+    expect(parentRefsOf("schedule", {})).toEqual([]);
+  });
+});

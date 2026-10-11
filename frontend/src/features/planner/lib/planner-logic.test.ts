@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { formatDayMonth, formatShortDate } from "@/lib/dates";
 import type { ProjectTask, Routine, Schedule, Todo } from "@/types/entities";
 import {
   doneOn,
+  scheduleDateRangeLabel,
+  scheduleTimeLabel,
   filterSchedules,
   indicatorState,
   summarizeDay,
@@ -236,5 +239,29 @@ describe("ringkasan tanggal kalender", () => {
     expect(indicatorState(s.tasks)).toBe("open");
     expect(indicatorState(s.routines)).toBe("done");
     expect(indicatorState([])).toBe("none");
+  });
+});
+
+describe("label waktu & tanggal agenda", () => {
+  const base: Schedule = { id: "s", title: "Rapat" };
+  it("scheduleTimeLabel tidak menampilkan ??:?? saat jam kosong", () => {
+    expect(scheduleTimeLabel({ ...base, isAllDay: true })).toBe("All Day");
+    expect(scheduleTimeLabel({ ...base, startTime: "09:00", endTime: "10:00" })).toBe("09:00 - 10:00");
+    expect(scheduleTimeLabel({ ...base, startTime: "09:00" })).toBe("09:00");
+    expect(scheduleTimeLabel({ ...base, endTime: "10:00" })).toBe("s.d. 10:00");
+    expect(scheduleTimeLabel(base)).toBe("Tanpa jam");
+  });
+
+  it("scheduleDateRangeLabel menampilkan agenda multi-hari sekali dengan rentangnya", () => {
+    expect(scheduleDateRangeLabel({ ...base, startDate: "2026-10-11", endDate: "2026-10-11" })).toBe(
+      formatShortDate(new Date(2026, 9, 11)),
+    );
+    expect(scheduleDateRangeLabel({ ...base, startDate: "2026-10-11", endDate: "2026-10-13" })).toBe(
+      `${formatDayMonth(new Date(2026, 9, 11))} – ${formatShortDate(new Date(2026, 9, 13))}`,
+    );
+    expect(scheduleDateRangeLabel({ ...base, startDate: "2026-12-30", endDate: "2027-01-02" })).toBe(
+      `${formatShortDate(new Date(2026, 11, 30))} – ${formatShortDate(new Date(2027, 0, 2))}`,
+    );
+    expect(scheduleDateRangeLabel(base)).toBe("-");
   });
 });

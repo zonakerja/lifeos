@@ -204,7 +204,7 @@ function ProjectForm({
             <AttachmentForm
               defaultDate={form.deadline}
               uploadContext="project"
-              autoSummarize
+              offerAiSummary
               idPrefix="pr"
               onCancel={() => setAdding(false)}
               onAdd={(att) => {

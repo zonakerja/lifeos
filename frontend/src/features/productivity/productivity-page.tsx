@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { HeroStat, ModulePage } from "@/components/layout/module-page";
 import { useActivities, useAreas, useProjects, useProjectTasks, useResources } from "@/data/collections";
+import { ScheduleDialogs } from "@/features/planner/components/schedule-dialogs";
 import { useSearchParam, useSetSearchParams } from "@/hooks/use-search-param";
 import type { Area } from "@/types/entities";
 import { AreaDetailDialog } from "./components/area-dialogs";
@@ -74,6 +75,8 @@ export function Component() {
               setParams({ project: null, task: null });
             }}
           />
+          {/* Agenda milik Project / item Area: tampilan lihat (Hasil Agenda) & form (?agenda=, ?edit=) */}
+          <ScheduleDialogs />
           <AreaDetailDialog
             area={openArea}
             onArchive={setArchivingArea}

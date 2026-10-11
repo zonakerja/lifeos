@@ -390,7 +390,7 @@ export function DailyTab() {
                   className="flex min-w-0 flex-1 items-center gap-4 text-left"
                 >
                   <span className="min-w-12 text-xs font-bold text-mod-planner">
-                    {sch.isAllDay ? "All Day" : scheduleTime(sch) || "??:??"}
+                    {sch.isAllDay ? "All Day" : scheduleTime(sch) || "Tanpa jam"}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{sch.title}</span>

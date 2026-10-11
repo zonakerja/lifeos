@@ -2,6 +2,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useR
 import { ownedFiles } from "@/features/resources/attachment-cleanup";
 import { DeleteWithFilesDialog } from "@/features/resources/delete-with-files-dialog";
 import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
+import { trackPendingUpload, untrackPendingUpload } from "@/lib/pending-uploads";
 import type { AttachedResource } from "@/types/entities";
 
 /**
@@ -69,14 +70,19 @@ export function useAttachmentEdits({ contextTag, ownerId }: { contextTag: string
 
   const discard = useCallback(() => {
     if (savedRef.current || sessionUploads.current.size === 0) return;
-    cleanup.discardUploads([...sessionUploads.current]);
+    const ids = [...sessionUploads.current];
+    ids.forEach(untrackPendingUpload);
+    cleanup.discardUploads(ids);
     sessionUploads.current.clear();
   }, [cleanup]);
   useDiscardOnClose(discard);
 
   /** Catat lampiran baru (berkas yang diunggah di sesi ini dibuang bila form tidak disimpan). */
   const trackAdded = (att: AttachedResource) => {
-    if (att.uploadId && !att.existingId && att.type !== "existing") sessionUploads.current.add(att.uploadId);
+    if (att.uploadId && !att.existingId && att.type !== "existing") {
+      sessionUploads.current.add(att.uploadId);
+      trackPendingUpload(att.uploadId); // tetap dibersihkan bila tab di-reload/ditutup sebelum form disimpan
+    }
   };
 
   /** Lepas lampiran: `drop` = hapus lampiran dari state form. */
@@ -84,6 +90,7 @@ export function useAttachmentEdits({ contextTag, ownerId }: { contextTag: string
     if (att.uploadId && sessionUploads.current.has(att.uploadId)) {
       // Baru diunggah di form ini (belum pernah tersimpan) → langsung dibuang
       sessionUploads.current.delete(att.uploadId);
+      untrackPendingUpload(att.uploadId);
       cleanup.discardUploads([att.uploadId]);
       drop();
     } else if (ownedFiles([att]).length) {
@@ -96,6 +103,9 @@ export function useAttachmentEdits({ contextTag, ownerId }: { contextTag: string
   /** Panggil tepat setelah form disimpan: eksekusi keputusan lepas lampiran. */
   const commit = () => {
     savedRef.current = true;
+    // Berkas sesi kini tersimpan di data → bukan lagi kandidat pembersihan
+    sessionUploads.current.forEach(untrackPendingUpload);
+    sessionUploads.current.clear();
     for (const r of released) cleanup.release(r.files, r.keepIds, { contextTag, exclude: r.files, ownerId });
     setReleased([]);
   };

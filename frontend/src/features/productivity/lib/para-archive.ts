@@ -1,10 +1,19 @@
-import type { Activity, Area, ParaArchive, ParaArchiveLog, Project, ProjectTask, Resource } from "@/types/entities";
+import type {
+  Activity,
+  Area,
+  ParaArchive,
+  ParaArchiveLog,
+  Project,
+  ProjectTask,
+  Resource,
+  Schedule,
+} from "@/types/entities";
 import { levelCounts } from "./para";
 
 /**
  * Logika murni arsip PARA.
  * Item yang diarsipkan dikeluarkan dari koleksi aktif beserta turunannya (project → action;
- * area → project, sub area/kegiatan/sub kegiatan, dan semua task-nya) sehingga tidak ada task "yatim" yang masih muncul
+ * area → project, sub area/kegiatan/sub kegiatan, semua task & agenda-nya) sehingga tidak ada task "yatim" yang masih muncul
  * di Planner, kalender, notifikasi, atau chatbot. Turunan disimpan di `related` dan ikut dipulihkan.
  */
 
@@ -12,6 +21,8 @@ export interface ParaActiveData {
   projects: Project[];
   activities: Activity[];
   tasks: ProjectTask[];
+  /** Agenda yang punya `projectId` (project / item area) */
+  schedules?: Schedule[];
 }
 
 /** ID yang harus dikeluarkan dari koleksi aktif setelah pengarsipan. */
@@ -20,6 +31,7 @@ export interface ParaRemoval {
   projectIds: string[];
   activityIds: string[];
   taskIds: string[];
+  scheduleIds: string[];
   resourceIds: string[];
 }
 
@@ -29,10 +41,18 @@ export interface ParaRestoration {
   projects: Project[];
   activities: Activity[];
   tasks: ProjectTask[];
+  schedules: Schedule[];
   resources: Resource[];
 }
 
-const EMPTY_REMOVAL: ParaRemoval = { areaIds: [], projectIds: [], activityIds: [], taskIds: [], resourceIds: [] };
+const EMPTY_REMOVAL: ParaRemoval = {
+  areaIds: [],
+  projectIds: [],
+  activityIds: [],
+  taskIds: [],
+  scheduleIds: [],
+  resourceIds: [],
+};
 
 const ids = (items: { id: string }[]) => items.map((i) => i.id);
 
@@ -46,15 +66,21 @@ interface SnapshotMeta {
 
 export function archiveProjectPlan(project: Project, data: ParaActiveData, meta: SnapshotMeta) {
   const tasks = data.tasks.filter((t) => t.projectId === project.id);
+  const schedules = (data.schedules ?? []).filter((s) => s.projectId === project.id);
   const archive: ParaArchive = {
     ...meta,
     ...owner(project),
     originalType: "project",
     originalId: project.id,
     data: { ...project },
-    related: { tasks },
+    related: { tasks, ...(schedules.length ? { schedules } : {}) },
   };
-  const removal: ParaRemoval = { ...EMPTY_REMOVAL, projectIds: [project.id], taskIds: ids(tasks) };
+  const removal: ParaRemoval = {
+    ...EMPTY_REMOVAL,
+    projectIds: [project.id],
+    taskIds: ids(tasks),
+    scheduleIds: ids(schedules),
+  };
   return { archive, removal };
 }
 
@@ -63,13 +89,14 @@ export function archiveAreaPlan(area: Area, data: ParaActiveData, meta: Snapshot
   const activities = data.activities.filter((a) => a.areaId === area.id);
   const parentIds = new Set([...ids(projects), ...ids(activities)]);
   const tasks = data.tasks.filter((t) => parentIds.has(t.projectId));
+  const schedules = (data.schedules ?? []).filter((s) => !!s.projectId && parentIds.has(s.projectId));
   const archive: ParaArchive = {
     ...meta,
     ...owner(area),
     originalType: "area",
     originalId: area.id,
     data: { ...area },
-    related: { projects, activities, tasks },
+    related: { projects, activities, tasks, ...(schedules.length ? { schedules } : {}) },
   };
   const removal: ParaRemoval = {
     ...EMPTY_REMOVAL,
@@ -77,6 +104,7 @@ export function archiveAreaPlan(area: Area, data: ParaActiveData, meta: Snapshot
     projectIds: ids(projects),
     activityIds: ids(activities),
     taskIds: ids(tasks),
+    scheduleIds: ids(schedules),
   };
   return { archive, removal };
 }
@@ -101,6 +129,7 @@ export function restorePlan(item: ParaArchive): ParaRestoration {
     projects: [...(item.originalType === "project" ? [data as Project] : []), ...(related.projects ?? [])],
     activities: [...(item.originalType === "activity" ? [data as Activity] : []), ...(related.activities ?? [])],
     tasks: related.tasks ?? [],
+    schedules: related.schedules ?? [],
     resources: item.originalType === "resource" ? [data as Resource] : [],
   };
 }
@@ -119,6 +148,7 @@ export function relatedSummary(item: ParaArchive) {
     r.projects?.length ? `${r.projects.length} project` : "",
     ...levelCounts(r.activities ?? [], r.activities ?? []).map((c) => `${c.count} ${c.label.toLowerCase()}`),
     r.tasks?.length ? `${r.tasks.length} ${item.originalType === "project" ? "action" : "task"}` : "",
+    r.schedules?.length ? `${r.schedules.length} agenda` : "",
   ]
     .filter(Boolean)
     .join(" · ");

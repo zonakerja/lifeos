@@ -51,6 +51,7 @@ describe("archiveAreaPlan", () => {
       projectIds: ["proj-1"],
       activityIds: ["act-1"],
       taskIds: ["t-1", "t-2"],
+      scheduleIds: [],
       resourceIds: [],
     });
   });

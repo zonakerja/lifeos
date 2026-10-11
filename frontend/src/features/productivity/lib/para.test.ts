@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { Activity, Area, Project, ProjectTask } from "@/types/entities";
+import type { Activity, Area, Project, ProjectTask, Schedule } from "@/types/entities";
 import {
   activityAncestors,
   activityTreeAttachments,
   activityLevel,
   activityTreeIds,
   childrenOf,
+  completionDefaults,
   deleteDescription,
   freeProjectsOf,
   levelCounts,
+  paraParentOf,
   projectAttachments,
   replacedUploadId,
   resourceFileAttachment,
@@ -144,5 +146,81 @@ describe("berkas Resource Global", () => {
     expect(replacedUploadId({ uploadId: "u1" }, { type: "link", uploadId: "u1" })).toBe("u1");
     expect(replacedUploadId(null, { type: "file", uploadId: "u2" })).toBeNull();
     expect(replacedUploadId({}, { type: "file", uploadId: "u2" })).toBeNull();
+  });
+});
+
+describe("agenda milik project / item area", () => {
+  const schedules: Schedule[] = [
+    { id: "s1", title: "Rapat seleksi", projectId: "k1", resources: [{ id: "sr", type: "file", uploadId: "u-sr" }] },
+    { id: "s2", title: "Kickoff", projectId: "p1", results: [{ id: "hs", type: "file", uploadId: "u-hs" }] },
+    { id: "s3", title: "Agenda bebas" },
+  ];
+
+  it("lampiran agenda ikut dikumpulkan saat induknya dihapus", () => {
+    const project: Project = { id: "p1", title: "P" };
+    expect(projectAttachments(project, [], schedules).map((a) => a.id)).toEqual(["hs"]);
+    expect(activityTreeAttachments(activities, [], "sa1", schedules).map((a) => a.id)).toEqual(["sr"]);
+  });
+
+  it("archiveAreaPlan membawa agenda kegiatan & project area", () => {
+    const area: Area = { id: "a1", title: "Area" };
+    const projects: Project[] = [{ id: "p1", title: "P", areaId: "a1" }];
+    const { archive, removal } = archiveAreaPlan(
+      area,
+      { projects, activities, tasks: [], schedules },
+      { id: "x", archivedAt: "" },
+    );
+    expect(removal.scheduleIds).toEqual(["s1", "s2"]);
+    expect(relatedSummary(archive)).toContain("2 agenda");
+  });
+
+  it("paraParentOf menemukan project atau item area", () => {
+    const projects: Project[] = [{ id: "p1", title: "Renovasi" }];
+    expect(paraParentOf("p1", projects, activities)).toMatchObject({ kind: "project", title: "Renovasi" });
+    expect(paraParentOf("sk1", projects, activities)).toMatchObject({ kind: "activity", label: "Sub Kegiatan" });
+    expect(paraParentOf("tidak-ada", projects, activities)).toBeNull();
+    expect(paraParentOf(undefined, projects, activities)).toBeNull();
+  });
+
+  it("deleteDescription menyebut agenda", () => {
+    expect(deleteDescription("Project", { taskCount: 2, scheduleCount: 1 })).toContain("2 action dan 1 agenda");
+  });
+});
+
+describe("completionDefaults (dialog Tandai Selesai)", () => {
+  const siblings: ProjectTask[] = [
+    { id: "a", projectId: "p", title: "A", weight: 30 },
+    { id: "b", projectId: "p", title: "B", weight: 50 },
+    { id: "c", projectId: "p", title: "C" },
+    { id: "x", projectId: "lain", title: "X", weight: 90 },
+  ];
+  it("mengisi tanggal hari ini, prioritas medium, dan sisa bobot", () => {
+    expect(completionDefaults(siblings[2], siblings, "2026-10-11")).toEqual({
+      dueDate: "2026-10-11",
+      priority: "medium",
+      weight: 20,
+    });
+  });
+  it("mempertahankan nilai yang sudah ada", () => {
+    const task: ProjectTask = {
+      id: "a",
+      projectId: "p",
+      title: "A",
+      weight: 30,
+      dueDate: "2026-10-01",
+      priority: "high",
+    };
+    expect(completionDefaults(task, siblings, "2026-10-11")).toEqual({
+      dueDate: "2026-10-01",
+      priority: "high",
+      weight: 30,
+    });
+  });
+  it("sisa bobot tidak negatif", () => {
+    const full: ProjectTask[] = [
+      { id: "a", projectId: "p", title: "A", weight: 120 },
+      { id: "c", projectId: "p", title: "C" },
+    ];
+    expect(completionDefaults(full[1], full, "2026-10-11").weight).toBe(0);
   });
 });
