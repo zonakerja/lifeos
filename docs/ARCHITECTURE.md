@@ -53,6 +53,7 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 | | react-hook-form / zod | 7.89 / 4.6 | Form & validasi skema |
 | | Tailwind CSS / shadcn CLI (Radix, lucide) | 4.3 / 4.21 | Design system berbasis token |
 | | react-markdown / KaTeX | 10.1 / **0.18.9** | Render Markdown & matematika (dimuat malas) |
+| | Tiptap (`@tiptap/*`, MIT) / perfect-freehand | **3.31** / 1.2 | Editor teks kaya + tulisan tangan stylus di Catatan Bebas (dimuat malas) |
 | | oxlint / Vitest | 1.87 / 5.0 | Lint (0 warning) & unit test |
 | Data | PostgreSQL + pgvector | **18** (18.6) + 0.8.7 (`pgvector/pgvector:0.8.7-pg18`, Debian 12; volume `postgres18-data` di `/var/lib/postgresql`) | Data relasional + vector search (RAG) |
 | | Redis | **8.10** (`redis:8.10-alpine`) | Antrian BullMQ; cache/rate-limit/sesi chat (rencana) |
@@ -292,14 +293,16 @@ rollback + toast bila gagal). Komponen memakai hook bertipe di `data/collections
 - Setiap halaman modul memakai `<ModulePage module="...">` (hero gradient + tab URL `/modul/:tab`).
 - Dialog edit/detail yang perlu deep link dikendalikan query string (`?edit=`, `?project=`, `?archive=`, ...).
 - Form dialog: state di komponen dalam yang di-mount saat terbuka (tanpa sinkronisasi `useEffect`).
-- Konten berat dimuat malas: rute, halaman login, renderer Markdown/KaTeX, pemindai kamera `html5-qrcode`.
+- Konten berat dimuat malas: rute, halaman login, renderer Markdown/KaTeX, pemindai kamera `html5-qrcode`, editor
+  Catatan Bebas (Tiptap + kanvas stylus, chunk `free-note-editor`).
 - Cetak dokumen (label/A4/berita acara) lewat `printElement` (jendela baru + stylesheet aplikasi); QR dibuat lokal.
 
 ### Design system
 Token warna OKLCH di `src/index.css` (terang & gelap via class `.dark`). Warna modul lewat atribut
 `data-module` → utility `bg-module`, `text-module`, `bg-module-soft`, `bg-module-gradient`; status
 `success | warning | info | destructive`. Dilarang warna hardcoded atau ternary dark mode per elemen
-(pengecualian: lembar cetak hitam-putih). Styling KaTeX hanya menarget class publik (`.katex`, `.katex-display`).
+(pengecualian: lembar cetak hitam-putih dan gambar tulisan tangan yang dikirim ke AI). Isi editor Tiptap distyle lewat
+kelas `.rich-text` di `index.css`; warna tinta disimpan sebagai ID dan dipetakan ke token. Styling KaTeX hanya menarget class publik (`.katex`, `.katex-display`).
 
 ## 6. Deployment & kualitas
 

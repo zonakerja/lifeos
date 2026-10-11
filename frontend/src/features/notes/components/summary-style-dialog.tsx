@@ -2,27 +2,11 @@ import { Bot, CheckCircle2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { SUMMARY_STYLES, type SummaryStyle } from "../lib/notes-logic";
 
-export type SummaryStyle = "default" | "academic" | "meeting" | "simple" | "custom";
-
-const STYLES: { id: SummaryStyle; label: string; desc: string }[] = [
-  { id: "default", label: "Default", desc: "Ringkasan standar, seimbang." },
-  { id: "academic", label: "Akademis", desc: "Formal, detail, dan terstruktur rapi." },
-  { id: "meeting", label: "Risalah Rapat", desc: "Fokus pada poin keputusan & action items." },
-  { id: "simple", label: "Catatan Mudah", desc: "Bahasa santai dan poin-poin singkat." },
-  { id: "custom", label: "Lainnya", desc: "Gaya bebas sesuai konteks." },
-];
-
-export const STYLE_PROMPTS: Record<SummaryStyle, string> = {
-  academic: "Akademis/Formal",
-  meeting: "Risalah Rapat (Action Items & Decisions)",
-  simple: "Sederhana & Mudah Dimengerti",
-  default: "Standar",
-  custom: "Standar",
-};
-
-/** Pilih gaya ringkasan AI. */
+/** Pilih gaya ringkasan AI (gaya Kustom memakai instruksi yang ditulis user). */
 export function SummaryStyleDialog({
   open,
   onOpenChange,
@@ -30,20 +14,23 @@ export function SummaryStyleDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (style: SummaryStyle) => void;
+  onConfirm: (style: SummaryStyle, customInstruction: string) => void;
 }) {
+  // State tetap ada selama editor terbuka, sehingga pilihan & instruksi terakhir diingat
   const [selected, setSelected] = useState<SummaryStyle>("default");
+  const [instruction, setInstruction] = useState("");
+  const needsInstruction = selected === "custom" && !instruction.trim();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Bot className="size-5 text-module" /> Gaya Ringkasan AI
           </DialogTitle>
         </DialogHeader>
         <div role="radiogroup" className="flex flex-col gap-2">
-          {STYLES.map((style) => (
+          {SUMMARY_STYLES.map((style) => (
             <button
               key={style.id}
               type="button"
@@ -63,8 +50,18 @@ export function SummaryStyleDialog({
             </button>
           ))}
         </div>
+        {selected === "custom" && (
+          <Textarea
+            autoFocus
+            rows={3}
+            aria-label="Instruksi gaya ringkasan"
+            placeholder="Contoh: Buat daftar pertanyaan ujian beserta jawabannya, atau ringkas dalam 5 poin untuk dibagikan ke tim."
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+          />
+        )}
         <DialogFooter>
-          <Button className="w-full" onClick={() => onConfirm(selected)}>
+          <Button className="w-full" disabled={needsInstruction} onClick={() => onConfirm(selected, instruction)}>
             Proses Ringkasan
           </Button>
         </DialogFooter>

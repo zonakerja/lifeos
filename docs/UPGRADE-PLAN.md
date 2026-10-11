@@ -4,7 +4,7 @@ Dokumen ini berisi **komponen yang belum di-upgrade, kajiannya, dan rekomendasin
 batasan platform, kebijakan dependensi, dan overrides aktif **tidak diulang di sini** — sumbernya
 [ARCHITECTURE.md §2](ARCHITECTURE.md#2-tech-stack--kebijakan-dependensi).
 
-Kajian per 2026-10-10. Perbarui setiap kali ada rilis/keputusan baru; ringkasan keputusan juga dicatat di CLAUDE.md §12.
+Kajian per 2026-10-10 (temuan audit §3 diperbarui 2026-10-11). Perbarui setiap kali ada rilis/keputusan baru; ringkasan keputusan juga dicatat di CLAUDE.md §12.
 
 ## 1. Ringkasan rekomendasi
 
@@ -81,7 +81,7 @@ Prisma, build image Docker; untuk perubahan infra juga stack produksi lokal + ce
 | Lokasi | Paket | Severity | Masuk produksi? | Tindak lanjut |
 |---|---|---|---|---|
 | Backend | `deepmerge-ts` 7.x (via `@prisma/config`) | high (stack exhaustion objek rekursif) | Ya, hanya membaca `prisma.config.ts` milik kita | Fix hanya di major 8 (API berbeda) → tunggu patch Prisma 7.x |
-| Frontend | `braces`/`micromatch`/`fast-glob` (via CLI `shadcn`) | high | Tidak (dev tool) | Ikut update `shadcn` |
+| Frontend | `braces` ≤ 3.0.3 → `micromatch` → `fast-glob` (via CLI `shadcn`: `@shadcn/registry`, `ts-morph`) — [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) | high (stack exhaustion lewat pola brace bersarang yang dikirim penyerang) | Tidak: devDependency; image produksi hanya berisi `dist/` statis di nginx; CLI hanya dijalankan developer dengan argumen sendiri. Paket `shadcn` tetap perlu karena `index.css` mengimpor `shadcn/tailwind.css` | **Belum ada versi perbaikan** (per 2026-10-11 versi terbaru braces 3.0.3) → override tidak bisa. `npm audit fix --force` (turun ke shadcn 1.0) **jangan** dijalankan. Saat braces ≥ 3.0.4 rilis: `npm update braces --before=<tanggal>` di `frontend/` (atau PR Dependabot security update), lalu hapus baris ini. Risiko diterima (keputusan user 2026-10-11) |
 | Backend | `sprintf-js` (via `argparse` 1.x milik `mammoth`) | moderate (DoS lewat format string) | Terpasang, tetapi hanya dipakai CLI `mammoth`; aplikasi memanggil `extractRawText` saja | Belum ada versi perbaikan; hapus bila `mammoth` pindah ke `argparse` 2 |
 
 ## 4. Sumber kajian

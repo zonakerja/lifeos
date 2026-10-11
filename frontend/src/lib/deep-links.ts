@@ -12,6 +12,8 @@ export const links = {
   areas: () => "/productivity/areas",
   resource: (id: string) => `/productivity/resources?resource=${encodeURIComponent(id)}`,
   notes: (tab: "free" | "ai" | "lists" = "free") => `/notes/${tab}`,
+  /** Buka langsung satu catatan (tab Catatan / Notes AI). */
+  note: (tab: "free" | "ai", id: string | number) => `/notes/${tab}?note=${encodeURIComponent(String(id))}`,
 };
 
 /** `app:<type>:<id>` → path aplikasi, atau null bila tidak dikenal. */
@@ -37,9 +39,9 @@ export const resolveAppLink = (href: string): string | null => {
     case "resource":
       return links.resource(id);
     case "ainote":
-      return links.notes("ai");
+      return links.note("ai", id);
     case "freenote":
-      return links.notes("free");
+      return links.note("free", id);
     default:
       return null;
   }

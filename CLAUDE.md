@@ -265,8 +265,9 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   via `data-module` → `bg-module`, `text-module`, `bg-module-soft`, `bg-module-gradient`, `text-module-foreground`;
   status `success | warning | info | destructive`. Font Figtree. Setiap halaman memakai `<ModulePage module="...">`.
   Pakai komponen shadcn; jangan membuat modal/tombol custom.
-- **Bundle**: rute, halaman login, `Markdown` (react-markdown + KaTeX, `markdown-renderer.tsx`), dan `html5-qrcode`
-  dimuat malas. Chunk utama ±440 kB (total JS awal ±645 kB); tanpa peringatan ukuran chunk.
+- **Bundle**: rute, halaman login, `Markdown` (react-markdown + KaTeX, `markdown-renderer.tsx`), `html5-qrcode`, dan
+  editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±395 kB; tanpa
+  peringatan ukuran chunk.
 - **CSP produksi** (`nginx.conf`): `script-src 'self'`, `connect-src 'self'` (AI lewat backend), `style-src 'self'
   'unsafe-inline'`, `img/media blob: data:`. Domain eksternal baru → tambahkan di sini (lebih baik lewat backend).
 
@@ -275,13 +276,36 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 - **Dialog form**: state di komponen *dalam* yang di-mount saat dialog terbuka (`useState(() => dariProps)`), atau
   `key` pada inner. **Jangan** sinkronisasi props→state dengan `useEffect`.
 - **Deep link via URL** (`useSearchParam`): `?edit=`, `?todo=`, `?date=`, `?agenda=<id>|new` (agenda di Planner Harian),
-  `?project=`, `?area=`, `?task=`, `?resource=`, `?note=`, `?archive=`, sub-tab/filter `?sub=`/`?ref=`. Peta di `src/lib/deep-links.ts`. Mengubah **lebih dari satu** param
+  `?project=`, `?area=`, `?task=`, `?resource=`, `?note=<id>|new` (Catatan & Notes AI, `links.note(tab, id)`; Catatan juga `new-ink` = tulis tangan), `?archive=`,
+  sub-tab/filter `?sub=`/`?ref=`. Peta di `src/lib/deep-links.ts`. Mengubah **lebih dari satu** param
   sekaligus → `useSetSearchParams()({ a: null, b: null })`, jangan dua setter `useSearchParam` berturut-turut.
 - **Waktu di render**: `useToday()`. **Hak akses**: `usePermissions()` (viewer read-only).
 - **AI**: hanya via `useAi()` (`src/lib/ai/use-ai.ts`) → `aiApi.generate(prompt, files)` (`POST /ai/generate`);
   `isConfigured` dari `user.aiProvider`; bila backend memakai provider cadangan, `useAi` menampilkan toast (fitur tidak
   perlu menangani). Pesan belum diatur: `AI_NOT_CONFIGURED`; kuota habis = `ApiError` status 429.
   Pengaturan: `features/settings/ai-settings-tab.tsx` + hook `src/data/use-ai-settings.ts` (tab URL tetap `/settings/api`).
+- **Editor dengan simpan eksplisit** (mis. Notes AI): cegah perubahan hilang dengan `useBlocker` (React Router; abaikan
+  navigasi yang disengaja lewat ref `leavingRef`) + listener `beforeunload` selama ada perubahan/proses berjalan, dan
+  dialog Simpan / Buang / Batal. Editor tanpa proses berat (Catatan) cukup **simpan otomatis** lewat `setItems` — antrian
+  tulis `useCollection` tetap terkirim walau komponen sudah unmount.
+- **Notes** (`features/notes/`): logika murni + test di `lib/notes-logic.ts` (urutan, pencarian, prompt ringkasan,
+  progres list, berkas yang aman dihapus); baca isi dokumen lewat `lib/read-file-text.ts` (ekstraksi backend
+  `GET /uploads/:id/metadata`, cadangan AI). Berkas audio/dokumen Notes AI dihapus dari storage saat diganti, perubahan
+  dibuang, atau catatan dihapus (`removeUploads`).
+- **Catatan Bebas: editor kaya & tulisan tangan** (chunk malas `components/free-note-editor.tsx`):
+  - `kind`: `text` (default) = Tiptap 3 (`editor/rich-text-editor.tsx`: StarterKit, Highlight, TaskList, TableKit,
+    Placeholder + node sendiri `inkBlock` & `image`), `handwriting` = halaman tulis tangan penuh (`ink/ink-canvas.tsx`).
+  - Data: `doc` (JSON Tiptap) / `ink` (goresan) di kolom `extra`; `content` **selalu teks biasa** (isi editor tanpa
+    format, atau teks hasil "Ubah ke teks") — dipakai pencarian, pratinjau, chatbot, RAG (backend melewati `doc`/`ink`).
+    Catatan lama tanpa `doc` dibuka lewat `plainTextToDoc(content)`.
+  - Tinta: koordinat logis lebar 1000 (`ink/ink-logic.ts`, logika murni + test), render SVG + perfect-freehand,
+    warna = ID → token (`INK_COLOR_VAR`). Mode pena (otomatis saat stylus pertama dipakai): hanya stylus menulis, jari
+    menggulir (`touch-action: none` + gulir manual). Tombol samping S Pen / ujung penghapus = penghapus.
+  - Gambar di editor: hanya `uploadId` disimpan (link bertanda tangan dibuat saat tampil, `useAssetUrl`); gambar yang
+    dihapus dari dokumen dibersihkan dari storage saat editor ditutup.
+  - Pengenalan tulisan tangan: `useHandwritingRecognition` → PNG per halaman (`ink-to-image.ts`, maks. 10) →
+    `useAi().generate(HANDWRITING_PROMPT, gambar)`.
+  - Node view Tiptap interaktif: `ReactNodeViewRenderer(View, { stopEvent: () => true, ignoreMutation: () => true })`.
 - **Lampiran**: `features/resources/` (`AttachmentForm`, `AttachmentTable`, `ResourceAiDialog`, `openAttachment()`,
   `mergeIntoGlobalResources()`, `useFileSummarizer()`).
 - **Komponen umum**: `ConfirmDialog`, `SectionCard`, `RenameDialog`, `SearchableSelect`, `PaginationControl`+`paginate()`,
@@ -348,11 +372,13 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Deployment VPS (compose prod, Caddy HTTPS, batas memori, backup luar server terenkripsi + pemantauan) — diuji end-to-end lokal, termasuk pemulihan dari luar server | ✅ |
 | Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot npm/docker/docker-compose/actions) | ✅ |
 | Tech stack terbaru yang stabil (versi: `docs/ARCHITECTURE.md` §2.1) | ✅ |
-| `npm audit` | ✅ via overrides; sisa `deepmerge-ts` (tunggu Prisma) — `docs/UPGRADE-PLAN.md` §3 |
+| `npm audit` | ✅ via overrides; sisa yang dipantau (belum ada patch / tidak masuk produksi): backend `deepmerge-ts` (tunggu Prisma) & `sprintf-js` (via `mammoth`), frontend `braces` (via CLI `shadcn`, risiko diterima) — `docs/UPGRADE-PLAN.md` §3 |
 | Panduan setup awal / menyalakan / mematikan + aturan port (`docs/SETUP.md` §1–§6) | ✅ ditulis & diverifikasi 2026-10-11 dengan menjalankan §3 langkah 0–6 di laptop user (Node 24.21.0 arm64; login, unit test, smoke test lulus; `strictPort` terbukti menolak instance kedua) — laptop sudah ter-setup |
 | AI multi-provider di backend (Gemini/Claude/OpenAI, key terenkripsi, model bisa diganti user) | ✅ 2026-10-11 — unit + smoke + UI diuji; panggilan ke provider sungguhan menunggu API key user |
 | RAG tahap 1: ekstraksi PDF/DOCX/XLSX/OCR + indeks pgvector (Gemini embedding) + pencarian gabungan | ✅ 2026-10-11 — unit + smoke (record → indeks → cari → hapus) + embedding Gemini sungguhan di akun admin dev |
 | Perbaikan Planner (terlambat, filter & urutan agenda, gaya tipe agenda, hapus berantai, layar sentuh, agenda bisa diklik, paginasi) | ✅ 2026-10-11 — lint, typecheck, unit test, build, dan UI diuji di browser (desktop + mode HP) |
+| Catatan Bebas: editor teks kaya (Tiptap) + tulisan tangan stylus (halaman penuh & blok Coretan) + ubah ke teks (AI) | ✅ 2026-10-11 — unit test, build, smoke, UI diuji di browser (mouse + event pena sintetis + mode HP), pengenalan AI diuji dengan Gemini sungguhan; **uji S Pen di perangkat Android user belum** |
+| Perbaikan Notes Space (simpan otomatis Catatan, cegah perubahan hilang di Notes AI, cari/sematkan/paginasi, dokumen dibaca backend, prompt AI, List urut ulang & progres) | ✅ 2026-10-11 — lint, typecheck, unit test, build, dan UI diuji di browser (desktop + mode HP); ringkasan/transkrip AI sungguhan belum diuji (butuh API key) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -476,6 +502,42 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   bisa dicentang/di-log untuk tanggal mendatang dan "Dilakukan Pada" tidak boleh di masa depan; dialog todo punya field
   **tanggal** (todo bisa dipindah hari); freeze yang beririsan diberi **peringatan** (tetap boleh disimpan,
   `overlappingFreezes`); tab Harian punya tombol **Tambah agenda** untuk tanggal yang dilihat (`?agenda=new`).
+- 2026-10-11 — Thread perbaikan **Notes Space** (tanpa perubahan backend/migrasi; field baru `pinned` tersimpan di `extra`):
+  1. Tombol aksi kartu/item (hapus, sematkan, ubah, urutkan) selalu terlihat di layar sentuh (`pointer-fine:`).
+  2. **Catatan disimpan otomatis** setiap perubahan (tetap tersimpan walau pindah menu/tab); catatan baru baru tersimpan
+     setelah ada isinya; catatan yang dikosongkan dibuang saat ditutup. **Notes AI** tetap simpan eksplisit, tetapi keluar
+     (tombol Kembali, pindah tab/menu, back browser, tutup tab) saat ada perubahan / upload / proses / rekaman berjalan
+     memunculkan dialog Simpan / Buang / Batal (`useBlocker` + `beforeunload`).
+  3. Mikrofon dimatikan saat editor ditutup ketika masih merekam.
+  4. Gaya ringkasan "Lainnya" diganti **Kustom** dengan instruksi yang ditulis user.
+  5. Hasil pencarian global & link chatbot `app:ainote|freenote:<id>` membuka catatannya langsung (`?note=<id>`).
+  6. Viewer tidak bisa mengetik judul/tanggal/agenda Notes AI.
+  7. Catatan & Notes AI: pencarian, **sematkan** (pin), urutan terbaru (Catatan: terakhir diubah; Notes AI: tanggal),
+     paginasi (12 / 10); List: pencarian & paginasi (9).
+  8. Notes AI: tanggal diformat, badge menampilkan nama + tanggal agenda (atau "Agenda sudah dihapus"), pilihan agenda
+     dengan pencarian (terbaru dulu) + tombol Buka agenda, label UI berbahasa Indonesia.
+  9. Dokumen Notes AI dibaca **ekstraksi backend** (PDF, DOCX, XLSX, teks; gambar/PDF scan lewat OCR Gemini) — tanpa kuota
+     AI; bila tidak menghasilkan teks dan formatnya bisa dibaca model, AI user menyalin isinya (cadangan). Teks dibatasi
+     200.000 karakter. Berkas yang diganti / perubahan yang dibuang / catatan yang dihapus ikut dihapus dari storage.
+  10. Prompt ringkasan disusun ulang (instruksi per gaya, info judul/tanggal/agenda, sumber dalam tag, larangan
+      mengarang, Bahasa Indonesia); prompt transkrip memberi label pembicara.
+  11. List: urutkan item (naik/turun), progres `selesai/total` + bar, tombol "Hapus yang selesai" (dengan konfirmasi).
+  Ditambah status memuat (tidak lagi menampilkan "Belum ada" sebelum data datang).
+- 2026-10-11 — **Enhancement Catatan Bebas** (riset → keputusan user): editor **Tiptap 3** (MIT; dipilih atas Lexical yang
+  butuh UI dibuat sendiri dan BlockNote yang kaku / MPL) + tulisan tangan **perfect-freehand** + Pointer Events (bukan
+  tldraw: lisensi produksi berbayar/watermark; bukan Excalidraw: berat & gaya berbeda). Pengenalan tulisan tangan lewat
+  AI backend (Web Handwriting Recognition API tidak lintas browser). Perangkat user: **Android + S Pen** (uji perangkat
+  setelah aplikasi siap). Saat membuat catatan user memilih **Ketik** atau **Tulis tangan** (halaman penuh, kertas
+  bergaris/kotak/titik/polos, tambah halaman); catatan ketik juga bisa menyisipkan **blok Coretan**. Tanpa migrasi
+  (`kind`/`doc`/`ink` di `extra`); backend hanya mengabaikan `doc`/`ink`/`kind`/`pinned` di indeks RAG. Fitur editor:
+  judul 1–3, tebal/miring/garis bawah/coret/stabilo/kode, link (http/https), daftar, checklist, tabel, kutipan, blok
+  kode, garis, gambar (upload), pintasan Markdown, undo/redo. Tinta: pena bertekanan, stabilo, penghapus goresan,
+  6 warna pena / 4 stabilo, 3 ketebalan, undo/redo, hapus semua, tinggi bertambah otomatis (maks. 50 halaman), peringatan
+  bila data > 3,5 MB. Belum: menu "/" (slash command), zoom kanvas, seleksi/pindah goresan.
+- 2026-10-11 — Advisory baru `braces` ≤ 3.0.3 (GHSA-vfj7-8cjw-p6xm, high) di frontend lewat CLI `shadcn`: belum ada versi
+  perbaikan sehingga override tidak mungkin. Keputusan user: **dokumentasikan & pantau** (tidak masuk produksi; tidak
+  melepas paket `shadcn` karena `index.css` memakai `shadcn/tailwind.css`). Jangan `npm audit fix --force`
+  (menurunkan shadcn ke 1.0). Saran: aktifkan Dependabot security updates di pengaturan repo GitHub.
 
 ## 13. Konvensi Kode
 
@@ -649,6 +711,18 @@ utama tetap < 500 kB (cek output `npm run build`).
   berturut-turut saling menimpa (perubahan pertama hilang, mis. dialog tidak bisa ditutup) → `useSetSearchParams`.
 - Uji dialog Radix saat panel browser tersembunyi: animasi tutup tidak berjalan, elemen tetap ada dengan
   `data-state="closed"` → cari dialog dengan `[role=dialog][data-state=open]`.
+- React StrictMode (dev) menjalankan cleanup `useEffect` sekali setelah mount pertama → ref penanda "sudah unmount"
+  harus di-set ulang ke `false` di badan effect, kalau tidak komponen mengira sudah ditutup (mis. upload dianggap
+  dibuang lalu dihapus). Di build produksi tidak terjadi, jadi bug ini hanya terlihat di dev.
+- Panel browser Claude tersembunyi → elemen ber-layout lebar 0, koordinat pointer jadi `Infinity`. Loop yang bergantung
+  koordinat bisa membuat tab hang → validasi `Number.isFinite` (sudah di `pushPoint`/`grownHeight`). Uji kanvas: ambil
+  screenshot dulu agar panel terlihat; event pointer sintetis dalam satu task tidak melihat render React berikutnya
+  (pisahkan per panggilan / `await` timeout).
+- Tiptap: HMR tidak membangun ulang editor yang sedang terbuka (extension lama tetap dipakai) → reload halaman setelah
+  mengubah extension. Alat uji `computer type/key` dan `execCommand` tidak memicu input rule (pintasan Markdown) →
+  uji lewat `view.someProp("handleTextInput", …)`; instance editor ada di `document.querySelector(".ProseMirror").editor`.
+- oxlint `react(purity)` menandai `Date.now()`/`new Date()` di fungsi bernama dalam komponen walau hanya dipanggil
+  dari event handler → pindahkan ke helper level modul (`const nowIso = () => new Date().toISOString()`).
 
 ## 16. Memori & Kesinambungan Antar-Chat
 

@@ -153,3 +153,20 @@ export interface UploadedAsset {
   createdAt: string;
   url: string;
 }
+
+/** Hasil ekstraksi teks berkas di backend (`GET /uploads/:id/metadata`). */
+export interface AssetExtractionInfo {
+  status: "pending" | "extracting" | "completed" | "unsupported" | "failed";
+  extractedText: string | null;
+  /** `reason` diisi bila tidak ada teks: unsupported_type | too_large | needs_gemini_key | empty */
+  metadata: { reason?: string; method?: string; pages?: number } | null;
+  error: string | null;
+}
+
+export interface AssetMetadata {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  extraction: AssetExtractionInfo | null;
+}

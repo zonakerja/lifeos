@@ -253,11 +253,37 @@ export interface ParaArchiveLog extends Owned {
 // Notes — dilengkapi saat porting modul Notes
 // ============================================================================
 
+/** Tulisan tangan (lihat features/notes/ink/ink-logic.ts). */
+export interface NoteInk {
+  version: 1;
+  height: number;
+  paper: "plain" | "lined" | "grid" | "dots";
+  strokes: {
+    tool: "pen" | "highlighter";
+    color: string;
+    size: number;
+    points: number[];
+    pressure: boolean;
+  }[];
+}
+
 export interface FreeNote extends Owned {
   id: string | number;
   title: string;
+  /** "text" (default) = diketik dengan editor; "handwriting" = halaman tulis tangan penuh */
+  kind?: "text" | "handwriting";
+  /**
+   * Teks biasa untuk pencarian, pratinjau, chatbot, dan indeks AI: isi editor tanpa format (catatan ketik) atau teks
+   * hasil pengenalan tulisan tangan.
+   */
   content?: string;
+  /** Isi editor berformat (JSON Tiptap). Catatan lama tanpa `doc` dibaca dari `content`. */
+  doc?: unknown;
+  /** Halaman tulis tangan (kind = handwriting) */
+  ink?: NoteInk;
   color?: string;
+  /** Disematkan di urutan teratas */
+  pinned?: boolean;
   updatedAt?: string;
 }
 
@@ -285,6 +311,8 @@ export interface AiNote extends Owned {
   audioUploadId?: string;
   /** Bisa berupa objek kosong bila lampiran tidak tersedia */
   fileAttachment?: NoteFileAttachment | Record<string, never> | null;
+  /** Disematkan di urutan teratas */
+  pinned?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }

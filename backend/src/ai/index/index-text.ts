@@ -31,8 +31,24 @@ export const INDEXED_TYPES: Partial<Record<RecordType, string>> = {
 
 export const isIndexedType = (type: string): type is RecordType => Object.hasOwn(INDEXED_TYPES, type);
 
-/** Key payload yang tidak bermakna sebagai teks (ID, warna, urutan, data biner). */
-const SKIP_KEYS = new Set(["id", "userId", "clientId", "color", "order", "createdAt", "updatedAt", "deletedAt"]);
+/**
+ * Key payload yang tidak bermakna sebagai teks (ID, warna, urutan, data biner). `doc` (JSON editor berformat) dan `ink`
+ * (koordinat tulisan tangan) di catatan bebas dilewati — teksnya sudah ada di `content`.
+ */
+const SKIP_KEYS = new Set([
+  "id",
+  "userId",
+  "clientId",
+  "color",
+  "order",
+  "createdAt",
+  "updatedAt",
+  "deletedAt",
+  "doc",
+  "ink",
+  "kind",
+  "pinned",
+]);
 /** Field berakhiran Id yang justru bermakna bagi user (nomor registrasi arsip). */
 const KEEP_KEYS = new Set(["archiveRegId"]);
 const isSkippedKey = (key: string) => !KEEP_KEYS.has(key) && (SKIP_KEYS.has(key) || /Ids?$/.test(key));

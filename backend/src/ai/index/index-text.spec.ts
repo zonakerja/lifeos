@@ -33,6 +33,22 @@ describe("renderRecord", () => {
     expect(text).not.toMatch(/cls-9|#fff|base64|SK Pengangkatan/);
   });
 
+  it("catatan bebas: isi berformat & tulisan tangan diwakili teks content", () => {
+    const { text } = renderRecord(
+      "free_note",
+      {
+        title: "Rapat",
+        kind: "handwriting",
+        content: "Keputusan: anggaran naik",
+        doc: { type: "doc", content: [{ type: "paragraph" }] },
+        ink: { version: 1, height: 1414, paper: "lined", strokes: [{ points: [1, 2, 0.5] }] },
+        pinned: true,
+      },
+      "title",
+    );
+    expect(text).toBe("content: Keputusan: anggaran naik");
+  });
+
   it("judul arsip PARA diambil dari snapshot data", () => {
     const payload = { originalType: "project", data: { title: "Renovasi Gedung", status: "done" } };
     expect(renderRecord("para_archive", payload).title).toBe("Arsip PARA: Renovasi Gedung");

@@ -111,7 +111,7 @@ const searchAll = (data: LifeosData, query: string): SearchResult[] => {
         desc: `${n.content?.substring(0, 50) ?? ""}...`,
         icon: StickyNote,
         color: "text-warning",
-        path: links.notes("free"),
+        path: links.note("free", n.id),
       });
   });
   data.aiNotes.forEach((n) => {
@@ -123,7 +123,7 @@ const searchAll = (data: LifeosData, query: string): SearchResult[] => {
         desc: "Catatan Pintar",
         icon: Bot,
         color: "text-mod-overview",
-        path: links.notes("ai"),
+        path: links.note("ai", n.id),
       });
   });
   data.resources.forEach((r) => {

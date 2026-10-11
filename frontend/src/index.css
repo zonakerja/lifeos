@@ -273,3 +273,100 @@
     scrollbar-color: color-mix(in oklch, var(--muted-foreground) 35%, transparent) transparent;
   }
 }
+
+/* Isi editor teks kaya (Catatan Bebas, Tiptap). Warna dari token desain agar benar di mode terang & gelap. */
+@layer components {
+  .rich-text {
+    @apply text-base leading-relaxed break-words;
+  }
+  .rich-text > * + * {
+    @apply mt-3;
+  }
+  .rich-text h1 {
+    @apply mt-6 border-b pb-2 text-2xl font-extrabold;
+  }
+  .rich-text h2 {
+    @apply mt-5 text-xl font-bold;
+  }
+  .rich-text h3 {
+    @apply mt-4 text-lg font-bold text-module;
+  }
+  .rich-text ul {
+    @apply list-disc pl-6;
+  }
+  .rich-text ol {
+    @apply list-decimal pl-6;
+  }
+  .rich-text li > p {
+    @apply my-0.5;
+  }
+  .rich-text li::marker {
+    color: var(--module);
+  }
+  .rich-text ul[data-type="taskList"] {
+    @apply list-none pl-1;
+  }
+  .rich-text ul[data-type="taskList"] li {
+    @apply flex items-start gap-2;
+  }
+  .rich-text ul[data-type="taskList"] li > label {
+    @apply mt-1 shrink-0 select-none;
+  }
+  .rich-text ul[data-type="taskList"] li > label input {
+    @apply size-4 cursor-pointer;
+    accent-color: var(--success);
+  }
+  .rich-text ul[data-type="taskList"] li > div {
+    @apply min-w-0 flex-1;
+  }
+  .rich-text ul[data-type="taskList"] li[data-checked="true"] > div {
+    @apply text-muted-foreground line-through;
+  }
+  .rich-text blockquote {
+    @apply border-l-4 border-module/40 pl-4 text-muted-foreground italic;
+  }
+  .rich-text code {
+    @apply rounded bg-muted px-1.5 py-0.5 font-mono text-sm;
+  }
+  .rich-text pre {
+    @apply overflow-x-auto rounded-xl bg-muted p-3 font-mono text-sm;
+  }
+  .rich-text pre code {
+    @apply bg-transparent p-0;
+  }
+  .rich-text mark {
+    @apply rounded-sm px-0.5 text-foreground;
+    background-color: color-mix(in oklch, var(--warning) 45%, transparent);
+  }
+  .rich-text a {
+    @apply font-medium text-module underline underline-offset-2;
+  }
+  .rich-text hr {
+    @apply my-6 border-t-2;
+  }
+  .rich-text hr.ProseMirror-selectednode {
+    @apply border-module;
+  }
+  .rich-text table {
+    @apply my-3 w-full table-fixed border-collapse overflow-hidden rounded-lg text-sm;
+  }
+  .rich-text th,
+  .rich-text td {
+    @apply relative border p-2 align-top;
+  }
+  .rich-text th {
+    @apply bg-muted text-left font-bold;
+  }
+  .rich-text .tableWrapper {
+    @apply overflow-x-auto;
+  }
+  .rich-text .selectedCell::after {
+    @apply pointer-events-none absolute inset-0 bg-module/15 content-[''];
+  }
+  .rich-text p.is-editor-empty:first-child::before {
+    @apply pointer-events-none float-left h-0 text-muted-foreground/60 content-[attr(data-placeholder)];
+  }
+  .rich-text .ink-block.ProseMirror-selectednode {
+    @apply ring-2 ring-ring;
+  }
+}

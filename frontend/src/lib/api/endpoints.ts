@@ -8,6 +8,7 @@ import type {
   ApiRecord,
   AppSettings,
   AppSettingsInput,
+  AssetMetadata,
   AuthSession,
   PublicUser,
   RecordType,
@@ -81,6 +82,8 @@ export const uploadsApi = {
   },
   list: (take = 50) => request<UploadedAsset[]>("/uploads", { query: { take } }),
   remove: (id: string) => request<{ success: boolean }>(`/uploads/${id}`, { method: "DELETE" }),
+  /** Metadata + hasil ekstraksi teks (PDF/DOCX/XLSX/teks; gambar lewat OCR Gemini) yang dikerjakan backend. */
+  metadata: (id: string) => request<AssetMetadata>(`/uploads/${id}/metadata`),
   /** Link sementara (10 menit) yang bisa dibuka di tab baru / <img>. */
   createLink: async (id: string) => {
     const { url } = await request<{ url: string; expiresIn: number }>(`/uploads/${id}/link`, {
