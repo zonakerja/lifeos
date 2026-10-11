@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectTask, Routine, Schedule, Todo } from "@/types/entities";
 import {
+  completionPatch,
+  doneOn,
   filterSchedules,
+  indicatorState,
+  summarizeDay,
+  isDoneLate,
   isRoutineActiveOnDate,
   isSchedulePast,
   overdueTasks,
@@ -155,5 +160,90 @@ describe("freeze beririsan", () => {
     expect(overlappingFreezes(periods, { startDate: "2026-10-06", endDate: "2026-10-19", reason: "" })).toHaveLength(0);
     expect(overlappingFreezes(periods, periods[0], 0)).toHaveLength(0);
     expect(overlappingFreezes(periods, { startDate: "", endDate: "", reason: "" })).toHaveLength(0);
+  });
+});
+
+describe("todo diselesaikan terlambat", () => {
+  const at = (ymd: string) => new Date(`${ymd}T14:00:00`).toISOString();
+  const todo = (id: string, ymd: string, completedAt?: string): Todo => ({
+    id,
+    title: id,
+    priority: "medium",
+    date: new Date(`${ymd}T00:00:00`).toDateString(),
+    completed: !!completedAt,
+    completedAt,
+  });
+  const todos = [
+    todo("belum", "2026-10-08"),
+    todo("selesai-hari-ini", "2026-10-09", at(TODAY)),
+    todo("selesai-kemarin", "2026-10-08", at("2026-10-10")),
+    todo("tepat-waktu", "2026-10-09", at("2026-10-09")),
+    todo("data-lama", "2026-10-07", undefined),
+  ];
+  todos[4].completed = true; // selesai tanpa completedAt (data lama)
+
+  it("hari ini: belum selesai + yang diselesaikan terlambat hari ini (belum selesai dulu)", () => {
+    expect(overdueTodos(todos, TODAY).map((t) => t.id)).toEqual(["belum", "selesai-hari-ini"]);
+  });
+
+  it("tanggal lampau hanya menampilkan yang diselesaikan terlambat pada tanggal itu", () => {
+    expect(overdueTodos(todos, "2026-10-10", TODAY).map((t) => t.id)).toEqual(["selesai-kemarin"]);
+    expect(overdueTodos(todos, "2026-10-09", TODAY)).toHaveLength(0);
+  });
+
+  it("doneOn & isDoneLate: data lama dianggap selesai di tanggalnya", () => {
+    expect(isDoneLate(todos[1], "2026-10-09")).toBe(true);
+    expect(doneOn(todos[1], "2026-10-09")).toBe(TODAY);
+    expect(isDoneLate(todos[3], "2026-10-09")).toBe(false);
+    expect(doneOn(todos[4], "2026-10-07")).toBe("2026-10-07");
+    expect(isDoneLate(todos[0], "2026-10-08")).toBe(false);
+  });
+
+  it("completionPatch mencatat dan menghapus waktu selesai", () => {
+    expect(completionPatch(true, new Date("2026-10-11T03:00:00Z"))).toEqual({
+      completed: true,
+      completedAt: "2026-10-11T03:00:00.000Z",
+    });
+    expect(completionPatch(false)).toEqual({ completed: false, completedAt: undefined });
+  });
+});
+
+describe("ringkasan tanggal kalender", () => {
+  // Data dibuat saat test berjalan (bukan saat koleksi) agar zona waktunya sama dengan pengecekan
+  const fixture = () => {
+    const day = new Date(2026, 9, 11);
+    const routines: Routine[] = [
+      { id: "r1", title: "Olahraga", frequency: "daily", startDate: "2026-10-01", active: true },
+      { id: "r2", title: "Lari", frequency: "weekly", days: [1], startDate: "2026-10-01", active: true },
+    ];
+    const data = {
+      schedules: [sch("s1", "2026-10-10", "2026-10-12"), sch("s2", "2026-10-12")],
+      routines,
+      todos: [
+        { id: "t1", title: "a", completed: true, priority: "low" as const, date: day.toDateString() },
+        { id: "t2", title: "b", completed: true, priority: "low" as const, date: day.toDateString() },
+      ],
+      tasks: [{ id: "k1", projectId: "p", title: "c", dueDate: "2026-10-11" }],
+      completions: [{ routineId: "r1", date: day.toDateString() }],
+    };
+    return { day, data };
+  };
+
+  it("mengumpulkan agenda, rutinitas terjadwal + status, todo & task bertanggal itu", () => {
+    const { day, data } = fixture();
+    const s = summarizeDay(day, data);
+    expect(s.agendas.map((a) => a.id)).toEqual(["s1"]);
+    expect(s.routines.map((r) => [r.routine.id, r.done])).toEqual([["r1", true]]);
+    expect(s.todos.map((t) => t.done)).toEqual([true, true]);
+    expect(s.tasks.map((t) => [t.id, t.done])).toEqual([["k1", false]]);
+  });
+
+  it("penanda: kosong / belum selesai / semua selesai (todo selesai tetap ditandai)", () => {
+    const { day, data } = fixture();
+    const s = summarizeDay(day, data);
+    expect(indicatorState(s.todos)).toBe("done");
+    expect(indicatorState(s.tasks)).toBe("open");
+    expect(indicatorState(s.routines)).toBe("done");
+    expect(indicatorState([])).toBe("none");
   });
 });

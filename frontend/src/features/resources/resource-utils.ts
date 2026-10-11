@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import { uploadsApi } from "@/lib/api/endpoints";
 import { errorMessage } from "@/lib/api/client";
+import { links } from "@/lib/deep-links";
 import { generateId } from "@/lib/ids";
 import type { AttachedResource, Resource } from "@/types/entities";
 
@@ -101,5 +102,20 @@ export function mergeIntoGlobalResources(
   }
   return next;
 }
+
+/**
+ * Path aplikasi untuk lampiran bertipe catatan (`noteId` = "free-<id>" | "ai-<id>" | "list-<id>"), atau null.
+ * Catatan dibuka di dalam aplikasi, bukan tab baru.
+ */
+export const noteAttachmentPath = (noteId?: string) => {
+  if (!noteId) return null;
+  const [kind, ...rest] = noteId.split("-");
+  const id = rest.join("-");
+  if (!id) return null;
+  if (kind === "free") return links.note("free", id);
+  if (kind === "ai") return links.note("ai", id);
+  if (kind === "list") return links.notes("lists");
+  return null;
+};
 
 export const attachmentLabel = (res: AttachedResource) => String(res.name || res.title || "Untitled");

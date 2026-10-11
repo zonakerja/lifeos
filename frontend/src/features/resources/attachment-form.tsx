@@ -1,5 +1,5 @@
 import { CheckCircle2, Paperclip, Plus, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type OptionGroup, SearchableSelect } from "@/components/common/searchable-select";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,8 @@ const TYPE_LABELS: Record<AttachmentType, string> = {
   existing: "Resource Global",
 };
 
+const ALL_TYPES = Object.keys(TYPE_LABELS) as AttachmentType[];
+
 interface AttachmentFormProps {
   /** Tanggal default lampiran (mis. due date task) */
   defaultDate?: string;
@@ -34,6 +36,8 @@ interface AttachmentFormProps {
   autoSummarize?: boolean;
   /** Prefix ID lampiran (mis. "tr" task, "pr" project) */
   idPrefix?: string;
+  /** Jenis lampiran yang boleh dipilih (default semua); jenis pertama menjadi pilihan awal */
+  types?: AttachmentType[];
   onAdd: (attachment: AttachedResource) => void;
   onCancel: () => void;
 }
@@ -44,13 +48,24 @@ export function AttachmentForm({
   uploadContext,
   autoSummarize = false,
   idPrefix = "tr",
+  types = ALL_TYPES,
   onAdd,
   onCancel,
 }: AttachmentFormProps) {
-  const [draft, setDraft] = useState<AttachedResource>(() => emptyAttachment(defaultDate));
+  const initialDraft = () => ({ ...emptyAttachment(defaultDate), type: types[0] ?? "link" });
+  const [draft, setDraft] = useState<AttachedResource>(initialDraft);
   const [uploading, setUploading] = useState(false);
   const summarizer = useFileSummarizer();
   const fileRef = useRef<HTMLInputElement>(null);
+  // Berkas yang sudah diunggah tetapi belum "Tambahkan" — dihapus dari storage bila diganti, dibatalkan, atau form
+  // ditutup, agar tidak menjadi berkas sampah
+  const pendingUploadRef = useRef<string | null>(null);
+  const discardPending = () => {
+    const id = pendingUploadRef.current;
+    pendingUploadRef.current = null;
+    if (id) void uploadsApi.remove(id).catch(() => undefined);
+  };
+  useEffect(() => () => discardPending(), []);
   const { items: freeNotes } = useFreeNotes();
   const { items: aiNotes } = useAiNotes();
   const { items: lists } = useLists();
@@ -96,6 +111,8 @@ export function AttachmentForm({
     setUploading(true);
     try {
       const asset = await uploadsApi.upload(file, uploadContext);
+      discardPending(); // berkas sebelumnya (Ganti File)
+      pendingUploadRef.current = asset.id;
       patch({
         uploadId: asset.id,
         url: undefined,
@@ -124,12 +141,17 @@ export function AttachmentForm({
       toast.error("Pilih file terlebih dahulu.");
       return;
     }
+    // Berkas yang diunggah lalu jenisnya diganti (mis. ke Web Link) tidak ikut dilampirkan
+    const keepsUpload = draft.type === "file" || !!draft.existingId;
+    if (keepsUpload) pendingUploadRef.current = null;
+    else discardPending();
     onAdd({
       ...draft,
+      ...(keepsUpload ? {} : { uploadId: undefined, mimeType: undefined, size: undefined }),
       id: generateId(idPrefix),
       date: draft.date || defaultDate || new Date().toISOString().slice(0, 10),
     });
-    setDraft(emptyAttachment(defaultDate));
+    setDraft(initialDraft());
   };
 
   return (
@@ -151,7 +173,7 @@ export function AttachmentForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {(Object.keys(TYPE_LABELS) as AttachmentType[]).map((t) => (
+              {types.map((t) => (
                 <SelectItem key={t} value={t}>
                   {TYPE_LABELS[t]}
                 </SelectItem>
@@ -254,7 +276,15 @@ export function AttachmentForm({
           </Label>
         </div>
         <div className="flex gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              discardPending();
+              onCancel();
+            }}
+          >
             Batal
           </Button>
           <Button type="button" size="sm" onClick={submit} disabled={uploading || summarizer.status === "processing"}>
@@ -267,10 +297,10 @@ export function AttachmentForm({
 }
 
 /** Tombol pemicu kecil untuk membuka form lampiran. */
-export function AddAttachmentButton({ onClick }: { onClick: () => void }) {
+export function AddAttachmentButton({ onClick, label = "Tambah Resource" }: { onClick: () => void; label?: string }) {
   return (
     <Button type="button" variant="outline" size="sm" onClick={onClick}>
-      <Paperclip /> Tambah Resource
+      <Paperclip /> {label}
     </Button>
   );
 }

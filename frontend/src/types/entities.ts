@@ -14,8 +14,8 @@ interface Owned {
 // ============================================================================
 
 export type AgendaColor = "planner" | "notes" | "overview" | "productivity" | "files" | "settings";
-export type AgendaIcon =
-  "briefcase" | "graduation" | "users" | "video" | "plane" | "book" | "heart" | "coffee" | "star" | "clock";
+/** Key ikon dari paket ikon aplikasi (`lib/icons/icon-registry.ts`), mis. "briefcase". */
+export type AgendaIcon = string;
 
 /** Tipe agenda (Meeting, Kuliah, ...). */
 export interface AgendaType extends Owned {
@@ -45,7 +45,16 @@ export interface Schedule extends Owned {
   isAllDay?: boolean;
   type?: string;
   location?: string;
+  /** Link meeting / media online */
   media?: string;
+  /** Keterangan / susunan acara */
+  description?: string;
+  /** Dasar pelaksanaan (undangan, surat tugas, ...) — opsional, format sama dengan lampiran Action/Task PARA */
+  resources?: AttachedResource[];
+  /** Hasil agenda: catatan Notes Space, upload, atau web link (format lampiran PARA) */
+  results?: AttachedResource[];
+  /** Ringkasan hasil agenda (teks bebas) */
+  outcome?: string;
 }
 
 export interface FreezePeriod {
@@ -84,6 +93,8 @@ export interface Todo extends Owned {
   /** Date.toDateString(), mis. "Thu Oct 08 2026" */
   date: string;
   priority: Priority;
+  /** Waktu diselesaikan (ISO); dipakai untuk menandai todo yang diselesaikan terlambat */
+  completedAt?: string;
 }
 
 /** Penyelesaian rutinitas per tanggal. Tidak punya `id`; kunci = routineId + date. */

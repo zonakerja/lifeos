@@ -209,7 +209,7 @@ dengan `ON DELETE CASCADE`, soft delete `deleted_at` pada tabel domain.
 | Record type (API) | Tabel | Kolom utama |
 |---|---|---|
 | `agenda_type` | `agenda_types` | name, order |
-| `schedule` | `schedules` | title, start_date, end_date, start_time, end_time, is_all_day, type, location, media |
+| `schedule` | `schedules` | title, start_date, end_date, start_time, end_time, is_all_day, type, location, media (di `extra`: description, resources = dasar pelaksanaan, results + outcome = hasil agenda — format lampiran PARA) |
 | `routine` | `routines` | title, frequency, days, interval, interval_type, month_dates, start_date, active, archived, freeze_periods |
 | `todo` | `todos` | title, completed, date, priority |
 | `completion` | `routine_completions` | routine_id, date, actual_date, note, completed_at |
@@ -276,7 +276,7 @@ src/
   app/          router (rute lazy), providers, query client
   config/       navigation.ts — sumber tunggal modul, path, tab, ikon, role
   types/        tipe API & entitas domain
-  lib/          api client (refresh token otomatis), tanggal, deep link, AI (useAi → POST /ai/generate)
+  lib/          api client (refresh token otomatis), tanggal, deep link, AI (useAi → POST /ai/generate), paket ikon (icons/)
   data/         useCollection + hook koleksi bertipe (collections.ts)
   stores/       auth-store, ui-store
   hooks/        useSearchParam, useToday, usePermissions, useRetained

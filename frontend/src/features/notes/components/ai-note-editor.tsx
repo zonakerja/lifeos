@@ -452,7 +452,7 @@ export function AiNoteEditor({
                   type="button"
                   variant="outline"
                   title="Buka agenda di Planner"
-                  onClick={() => void navigate(links.scheduleEdit(linkedSchedule.id))}
+                  onClick={() => void navigate(links.schedule(linkedSchedule.id))}
                 >
                   <ExternalLink /> <span className="hidden sm:inline">Buka</span>
                 </Button>

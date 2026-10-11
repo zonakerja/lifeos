@@ -1,17 +1,5 @@
-import {
-  BookOpen,
-  Briefcase,
-  Clock,
-  Coffee,
-  GraduationCap,
-  HeartPulse,
-  type LucideIcon,
-  Plane,
-  Star,
-  Users,
-  Video,
-} from "lucide-react";
-import type { AgendaColor, AgendaIcon, AgendaType } from "@/types/entities";
+import { getAppIcon, resolveIconKey } from "@/lib/icons/icon-registry";
+import type { AgendaColor, AgendaType } from "@/types/entities";
 
 /** Pilihan warna tipe agenda (token warna modul; kelas statis agar terbaca Tailwind). */
 export const AGENDA_COLORS: Record<AgendaColor, { label: string; swatch: string; badge: string }> = {
@@ -27,24 +15,10 @@ export const AGENDA_COLORS: Record<AgendaColor, { label: string; swatch: string;
   settings: { label: "Magenta", swatch: "bg-mod-settings", badge: "bg-mod-settings text-white shadow-mod-settings/30" },
 };
 
-/** Pilihan ikon tipe agenda. */
-export const AGENDA_ICONS: Record<AgendaIcon, { label: string; icon: LucideIcon }> = {
-  briefcase: { label: "Kerja", icon: Briefcase },
-  graduation: { label: "Belajar", icon: GraduationCap },
-  users: { label: "Pertemuan", icon: Users },
-  video: { label: "Online", icon: Video },
-  plane: { label: "Perjalanan", icon: Plane },
-  book: { label: "Bacaan", icon: BookOpen },
-  heart: { label: "Kesehatan", icon: HeartPulse },
-  coffee: { label: "Santai", icon: Coffee },
-  star: { label: "Penting", icon: Star },
-  clock: { label: "Umum", icon: Clock },
-};
-
 /** Gaya bawaan untuk tipe agenda default (dipakai bila tipe belum diberi warna/ikon). */
-const BUILTIN_STYLE: Record<string, { color: AgendaColor; icon: AgendaIcon }> = {
+const BUILTIN_STYLE: Record<string, { color: AgendaColor; icon: string }> = {
   Meeting: { color: "planner", icon: "briefcase" },
-  Kuliah: { color: "notes", icon: "graduation" },
+  Kuliah: { color: "notes", icon: "graduation-cap" },
   "Janji Temu": { color: "overview", icon: "users" },
   Lainnya: { color: "settings", icon: "clock" },
 };
@@ -59,12 +33,13 @@ export const defaultAgendaColor = (name: string): AgendaColor => {
   return COLOR_KEYS[hash % COLOR_KEYS.length];
 };
 
-export const defaultAgendaIcon = (name: string): AgendaIcon => BUILTIN_STYLE[name]?.icon ?? "clock";
+/** Ikon default (key paket ikon `lib/icons`) untuk nama tipe tanpa pengaturan ikon. */
+export const defaultAgendaIcon = (name: string): string => BUILTIN_STYLE[name]?.icon ?? "clock";
 
 /** Warna & ikon efektif sebuah tipe agenda. */
 export const resolveAgendaStyle = (name: string, type?: Pick<AgendaType, "color" | "icon">) => {
   const color = type?.color && AGENDA_COLORS[type.color] ? type.color : defaultAgendaColor(name);
-  const icon = type?.icon && AGENDA_ICONS[type.icon] ? type.icon : defaultAgendaIcon(name);
+  const icon = resolveIconKey(type?.icon) ?? defaultAgendaIcon(name);
   return { color, icon };
 };
 
@@ -75,5 +50,5 @@ export const scheduleTypeStyle = (type: string | undefined, types: AgendaType[])
     name,
     types.find((t) => t.name === name),
   );
-  return { icon: AGENDA_ICONS[icon].icon, className: AGENDA_COLORS[color].badge };
+  return { icon: getAppIcon(icon).icon, className: AGENDA_COLORS[color].badge };
 };

@@ -59,7 +59,7 @@ export function NotificationsPopover() {
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => go(links.scheduleEdit(s.id))}
+                  onClick={() => go(links.schedule(s.id))}
                   className="rounded-xl border bg-muted/40 p-3 text-left transition-colors hover:bg-muted"
                 >
                   <span className="mb-1 flex justify-between text-xs">

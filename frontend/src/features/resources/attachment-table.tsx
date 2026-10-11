@@ -1,10 +1,11 @@
-import { Bot, ExternalLink, FileText, Trash2 } from "lucide-react";
+import { Bot, ExternalLink, FileText, NotebookPen, Trash2 } from "lucide-react";
+import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumericDate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { AttachedResource } from "@/types/entities";
-import { attachmentLabel, openAttachment } from "./resource-utils";
+import { attachmentLabel, noteAttachmentPath, openAttachment } from "./resource-utils";
 
 interface AttachmentTableProps {
   resources?: AttachedResource[];
@@ -20,6 +21,14 @@ export function AttachmentTable({
   onOpenAi,
   emptyText = "Belum ada resource/dasar pelaksanaan dilampirkan.",
 }: AttachmentTableProps) {
+  const navigate = useNavigate();
+  // Lampiran catatan (tanpa file/link) dibuka di Notes Space; lainnya lewat openAttachment (tab baru)
+  const open = (res: AttachedResource) => {
+    const notePath = !res.uploadId && !res.url ? noteAttachmentPath(res.noteId) : null;
+    if (notePath) void navigate(notePath);
+    else void openAttachment(res);
+  };
+
   if (resources.length === 0) {
     return <p className="py-4 text-center text-sm text-muted-foreground italic">{emptyText}</p>;
   }
@@ -43,11 +52,13 @@ export function AttachmentTable({
               <TableCell>
                 <button
                   type="button"
-                  onClick={() => void openAttachment(res)}
+                  onClick={() => open(res)}
                   className="flex max-w-64 items-center gap-2 text-left font-semibold text-module hover:underline"
                 >
                   {res.type === "file" ? (
                     <FileText className="size-3.5 shrink-0" />
+                  ) : res.type === "note" ? (
+                    <NotebookPen className="size-3.5 shrink-0" />
                   ) : (
                     <ExternalLink className="size-3.5 shrink-0" />
                   )}

@@ -6,7 +6,7 @@ import {
   Clock,
   Layers,
   MapPin,
-  PencilLine,
+  Eye,
   RefreshCw,
 } from "lucide-react";
 import { Link } from "react-router";
@@ -31,6 +31,7 @@ import {
   isScheduleOnDate,
   scheduleTimeLabel,
 } from "@/features/planner/lib/planner-logic";
+import { ScheduleDialogs } from "@/features/planner/components/schedule-dialogs";
 import { projectTaskProgress, projectTimeProgress } from "@/features/productivity/lib/progress";
 import { useToday } from "@/hooks/use-today";
 import { formatDayMonth, formatFullDate, formatLocalYMD, toDateKey } from "@/lib/dates";
@@ -217,8 +218,8 @@ export function Component() {
                         )}
                       </div>
                       <Button variant="outline" size="sm" asChild>
-                        <Link to={links.scheduleEdit(item.id)}>
-                          <PencilLine /> Detail / Edit
+                        <Link to={{ search: `?agenda=${encodeURIComponent(item.id)}` }}>
+                          <Eye /> Lihat Detail
                         </Link>
                       </Button>
                     </div>
@@ -282,6 +283,8 @@ export function Component() {
           </SectionCard>
         </div>
       </div>
+      {/* Dialog lihat agenda (?agenda=<id>) */}
+      <ScheduleDialogs />
     </ModulePage>
   );
 }

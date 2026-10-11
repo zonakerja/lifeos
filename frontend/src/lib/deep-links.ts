@@ -4,7 +4,11 @@
  * Halaman tujuan membaca query param (?edit=, ?project=, ...) untuk membuka item.
  */
 export const links = {
+  /** Tampilan lihat agenda (link meeting, dasar pelaksanaan, hasil agenda) */
+  schedule: (id: string) => `/planner/schedule?agenda=${encodeURIComponent(id)}`,
   scheduleEdit: (id: string) => `/planner/schedule?edit=${encodeURIComponent(id)}`,
+  /** Notes AI baru yang langsung terhubung ke agenda */
+  newAiNoteForSchedule: (id: string) => `/notes/ai?note=new&schedule=${encodeURIComponent(id)}`,
   routineEdit: (id: string) => `/planner/routines?edit=${encodeURIComponent(id)}`,
   todo: (id: string) => `/planner/daily?todo=${encodeURIComponent(id)}`,
   project: (id: string) => `/productivity/projects?project=${encodeURIComponent(id)}`,
@@ -31,7 +35,7 @@ export const resolveAppLink = (href: string): string | null => {
     case "activity":
       return links.areas();
     case "schedule":
-      return links.scheduleEdit(id);
+      return links.schedule(id);
     case "todo":
       return links.todo(id);
     case "routine":

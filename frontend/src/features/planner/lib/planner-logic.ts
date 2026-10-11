@@ -43,17 +43,50 @@ export const filterSchedules = (schedules: Schedule[], filter: ScheduleFilter, t
   return [...upcoming, ...past];
 };
 
-/** Todo belum selesai dari tanggal sebelum `todayYmd` (tertua dulu). */
-export const overdueTodos = (todos: Todo[], todayYmd: string) =>
-  todos
-    .filter((t) => !t.completed && !!formatLocalYMD(t.date) && formatLocalYMD(t.date) < todayYmd)
-    .sort((a, b) => formatLocalYMD(a.date).localeCompare(formatLocalYMD(b.date)));
+/** Item to-do yang punya tanggal jatuh tempo (todo atau task/action). */
+interface DueItem {
+  completed?: boolean;
+  /** Waktu diselesaikan (ISO) */
+  completedAt?: string;
+}
 
-/** Task/action produktivitas belum selesai yang tenggatnya sebelum `todayYmd` (tertua dulu). */
-export const overdueTasks = (tasks: ProjectTask[], todayYmd: string) =>
-  tasks
-    .filter((t) => !t.completed && !!t.dueDate && t.dueDate < todayYmd)
-    .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""));
+/** Tanggal jatuh tempo todo (YYYY-MM-DD). */
+export const todoYMD = (t: Todo) => formatLocalYMD(t.date);
+const taskYMD = (t: ProjectTask) => t.dueDate ?? "";
+
+/** Tanggal (YYYY-MM-DD) item diselesaikan; data lama tanpa `completedAt` dianggap selesai pada tanggal jatuh temponya. */
+export const doneOn = (item: DueItem, dueYmd: string) =>
+  item.completed ? formatLocalYMD(item.completedAt) || dueYmd : "";
+
+/** Diselesaikan setelah tanggal jatuh temponya (terlambat). */
+export const isDoneLate = (item: DueItem, dueYmd: string) => !!item.completed && doneOn(item, dueYmd) > dueYmd;
+
+/**
+ * Item terlambat yang tampil pada tanggal `viewYmd` (jatuh tempo sebelum `viewYmd`):
+ * - belum selesai → hanya saat melihat hari ini;
+ * - diselesaikan terlambat tepat pada `viewYmd` → tetap tampil (tercentang) sebagai item terlambat hari itu.
+ * Urutan: belum selesai dulu, lalu yang tertua.
+ */
+const lateItemsOn = <T extends DueItem>(items: T[], dueOf: (t: T) => string, viewYmd: string, todayYmd: string) =>
+  items
+    .filter((t) => {
+      const due = dueOf(t);
+      if (!due || due >= viewYmd) return false;
+      return t.completed ? doneOn(t, due) === viewYmd : viewYmd === todayYmd;
+    })
+    .sort((a, b) => Number(!!a.completed) - Number(!!b.completed) || dueOf(a).localeCompare(dueOf(b)));
+
+/** Todo terlambat pada `viewYmd` (lihat `lateItemsOn`); `todayYmd` default = `viewYmd`. */
+export const overdueTodos = (todos: Todo[], viewYmd: string, todayYmd = viewYmd) =>
+  lateItemsOn(todos, todoYMD, viewYmd, todayYmd);
+
+/** Task/action produktivitas terlambat pada `viewYmd` (lihat `lateItemsOn`). */
+export const overdueTasks = (tasks: ProjectTask[], viewYmd: string, todayYmd = viewYmd) =>
+  lateItemsOn(tasks, taskYMD, viewYmd, todayYmd);
+
+/** Patch status selesai: catat `completedAt` saat dicentang, hapus saat dibatalkan. */
+export const completionPatch = (completed: boolean, now = new Date()) =>
+  completed ? { completed: true, completedAt: now.toISOString() } : { completed: false, completedAt: undefined };
 
 /**
  * Tanggal `day` pada bulan milik `date`; bila bulan itu lebih pendek, jatuh ke hari terakhirnya
@@ -149,3 +182,44 @@ export const yesterdayYMD = () => {
   d.setDate(d.getDate() - 1);
   return formatLocalYMD(d);
 };
+
+export type IndicatorState = "none" | "open" | "done";
+
+export interface DaySummary {
+  agendas: Schedule[];
+  routines: { routine: Routine; done: boolean }[];
+  todos: { id: string; title: string; done: boolean }[];
+  tasks: { id: string; title: string; done: boolean }[];
+}
+
+/**
+ * Isi satu tanggal untuk kalender Planner (penanda & ringkasan saat hover) — sumber datanya sama dengan daftar Harian:
+ * agenda yang mencakup tanggal itu, rutinitas terjadwal (+ status centang), todo bertanggal itu, dan task/action yang
+ * jatuh tempo hari itu. Item yang sudah selesai tetap dihitung (ditandai `done`).
+ */
+export const summarizeDay = (
+  date: Date,
+  data: {
+    schedules: Schedule[];
+    routines: Routine[];
+    todos: Todo[];
+    tasks: ProjectTask[];
+    completions: { routineId: string; date: string }[];
+  },
+): DaySummary => {
+  const ymd = formatLocalYMD(date);
+  const key = date.toDateString();
+  const doneRoutines = new Set(data.completions.filter((c) => c.date === key).map((c) => c.routineId));
+  return {
+    agendas: data.schedules.filter((s) => isScheduleOnDate(s, ymd)).sort(compareScheduleTime),
+    routines: data.routines
+      .filter((r) => isRoutineActiveOnDate(r, date))
+      .map((routine) => ({ routine, done: doneRoutines.has(routine.id) })),
+    todos: data.todos.filter((t) => todoYMD(t) === ymd).map((t) => ({ id: t.id, title: t.title, done: !!t.completed })),
+    tasks: data.tasks.filter((t) => t.dueDate === ymd).map((t) => ({ id: t.id, title: t.title, done: !!t.completed })),
+  };
+};
+
+/** Status penanda: tidak ada item / ada yang belum selesai / semua selesai. */
+export const indicatorState = (items: { done: boolean }[]): IndicatorState =>
+  items.length === 0 ? "none" : items.some((i) => !i.done) ? "open" : "done";

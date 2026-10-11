@@ -75,7 +75,7 @@ const searchAll = (data: LifeosData, query: string): SearchResult[] => {
         desc: `Tgl: ${scheduleStart(s)}`,
         icon: CalendarDays,
         color: "text-mod-planner",
-        path: links.scheduleEdit(s.id),
+        path: links.schedule(s.id),
       });
   });
   data.todos.forEach((t) => {

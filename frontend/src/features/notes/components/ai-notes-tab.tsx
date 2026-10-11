@@ -10,10 +10,11 @@ import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empt
 import { useAiNotes, useSchedules } from "@/data/collections";
 import { usePagination } from "@/hooks/use-pagination";
 import { usePermissions } from "@/hooks/use-permissions";
-import { useSearchParam } from "@/hooks/use-search-param";
+import { useSearchParam, useSetSearchParams } from "@/hooks/use-search-param";
+import { scheduleStart } from "@/features/planner/lib/planner-logic";
 import { formatShortDate, parseLocalYMD, todayYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
-import type { AiNote } from "@/types/entities";
+import type { AiNote, Schedule } from "@/types/entities";
 import { agendaLabel } from "../lib/agenda-options";
 import { fileOf, filterAiNotes, sortAiNotes, uploadIdsOf } from "../lib/notes-logic";
 import { removeUploads } from "../lib/remove-uploads";
@@ -23,11 +24,12 @@ import { AiNoteEditor } from "./ai-note-editor";
 const HOVER_ACTIONS =
   "transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100";
 
-const emptyNote = (): AiNote => ({
+/** Catatan baru; bila dibuat dari agenda (`?schedule=<id>`) langsung terhubung + judul & tanggal agenda. */
+const emptyNote = (schedule?: Schedule): AiNote => ({
   id: "",
-  title: "",
-  date: todayYMD(),
-  linkedScheduleId: "",
+  title: schedule?.title ?? "",
+  date: schedule ? scheduleStart(schedule) || todayYMD() : todayYMD(),
+  linkedScheduleId: schedule?.id ?? "",
   content: "",
   aiSummary: "",
   audioTranscript: "",
@@ -50,13 +52,17 @@ export function AiNotesTab() {
   const { items: schedules } = useSchedules();
   const { canEdit } = usePermissions();
   const [noteParam, setNoteParam] = useSearchParam("note");
+  const [scheduleParam] = useSearchParam("schedule");
+  const setParams = useSetSearchParams();
   const [deleting, setDeleting] = useState<AiNote | null>(null);
   const [query, setQuery] = useState("");
 
   const visible = sortAiNotes(filterAiNotes(notes, query));
   const { pageItems, setPage, controlProps } = usePagination(visible, 10);
 
-  const editing = noteParam === "new" ? emptyNote() : (notes.find((n) => String(n.id) === noteParam) ?? null);
+  const fromSchedule = noteParam === "new" && scheduleParam ? schedules.find((s) => s.id === scheduleParam) : undefined;
+  const editing =
+    noteParam === "new" ? emptyNote(fromSchedule) : (notes.find((n) => String(n.id) === noteParam) ?? null);
 
   const upsert = (note: AiNote) =>
     setItems((prev) =>
@@ -66,11 +72,12 @@ export function AiNotesTab() {
   if (editing) {
     return (
       <AiNoteEditor
-        key={noteParam}
+        // Remount saat agenda asal selesai dimuat agar catatan baru ikut terisi
+        key={`${noteParam}:${fromSchedule?.id ?? ""}`}
         note={editing}
         readOnly={!canEdit}
         onPersist={(note) => upsert({ ...note, id: note.id || Date.now(), updatedAt: new Date().toISOString() })}
-        onExit={() => setNoteParam(null)}
+        onExit={() => setParams({ note: null, schedule: null })}
       />
     );
   }

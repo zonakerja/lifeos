@@ -16,15 +16,20 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { AiIconButton, IconPicker } from "@/components/common/icon-picker";
 import { useSchedules } from "@/data/collections";
 import { usePagination } from "@/hooks/use-pagination";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useRetained } from "@/hooks/use-retained";
 import { generateId } from "@/lib/ids";
+import { getAppIcon } from "@/lib/icons/icon-registry";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
-import type { AgendaColor, AgendaIcon, AgendaType, Schedule } from "@/types/entities";
-import { AGENDA_COLORS, AGENDA_ICONS, defaultAgendaColor, resolveAgendaStyle } from "../lib/schedule-style";
+import type { AgendaColor, AgendaType, Schedule } from "@/types/entities";
+import { AGENDA_COLORS, defaultAgendaColor, defaultAgendaIcon, resolveAgendaStyle } from "../lib/schedule-style";
+
+/** Konteks yang dikirim ke AI saat memilih ikon tipe agenda. */
+const AI_CONTEXT = "tipe/kategori agenda (jadwal kegiatan) di Planner";
 import { useAgendaTypeList } from "../use-agenda-types";
 
 /** Agenda yang memakai tipe ini (milik user yang sama; super admin melihat tipe semua user). */
@@ -37,6 +42,8 @@ export function ReferencesTab() {
   const { canEdit } = usePermissions();
   const user = useAuthStore((s) => s.user);
   const [newType, setNewType] = useState("");
+  // null = ikon default dari nama
+  const [newIcon, setNewIcon] = useState<string | null>(null);
   const [editing, setEditing] = useState<AgendaType | null>(null);
   const [deleting, setDeleting] = useState<AgendaType | null>(null);
   const { pageItems, controlProps } = usePagination(types, 12);
@@ -59,8 +66,18 @@ export function ReferencesTab() {
       return;
     }
     const order = Math.max(-1, ...types.map((t) => t.order ?? 0)) + 1;
-    setItems((prev) => [...prev, { id: generateId("type"), name, order, color: defaultAgendaColor(name) }]);
+    setItems((prev) => [
+      ...prev,
+      {
+        id: generateId("type"),
+        name,
+        order,
+        color: defaultAgendaColor(name),
+        icon: newIcon ?? defaultAgendaIcon(name),
+      },
+    ]);
     setNewType("");
+    setNewIcon(null);
   };
 
   const saveEdit = (next: AgendaType) => {
@@ -90,8 +107,21 @@ export function ReferencesTab() {
         {canEdit && (
           <form onSubmit={add} className="flex flex-col gap-2 rounded-2xl border bg-muted/40 p-4">
             <span className="text-sm font-semibold">Tambah Tipe Agenda</span>
-            <div className="flex gap-2">
-              <Input placeholder="Contoh: Webinar..." value={newType} onChange={(e) => setNewType(e.target.value)} />
+            <div className="flex flex-wrap gap-2">
+              <Input
+                placeholder="Contoh: Webinar..."
+                value={newType}
+                onChange={(e) => setNewType(e.target.value)}
+                className="min-w-40 flex-1"
+              />
+              <IconPicker
+                value={newIcon ?? defaultAgendaIcon(newType.trim())}
+                onChange={setNewIcon}
+                aiSubject={newType}
+                aiContext={AI_CONTEXT}
+                iconClassName={AGENDA_COLORS[defaultAgendaColor(newType.trim())].badge}
+              />
+              <AiIconButton subject={newType} context={AI_CONTEXT} onPick={setNewIcon} />
               <Button type="submit">
                 <Plus /> Tambah
               </Button>
@@ -102,7 +132,7 @@ export function ReferencesTab() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
           {pageItems.map((type) => {
             const style = resolveAgendaStyle(type.name, type);
-            const Icon = AGENDA_ICONS[style.icon].icon;
+            const Icon = getAppIcon(style.icon).icon;
             const usage = schedules.filter((s) => usesType(s, type)).length;
             return (
               <div
@@ -205,7 +235,7 @@ function AgendaTypeForm({
   const initial = resolveAgendaStyle(type.name, type);
   const [name, setName] = useState(type.name);
   const [color, setColor] = useState<AgendaColor>(initial.color);
-  const [icon, setIcon] = useState<AgendaIcon>(initial.icon);
+  const [icon, setIcon] = useState<string>(initial.icon);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -244,29 +274,17 @@ function AgendaTypeForm({
         </Field>
         <Field>
           <FieldLabel>Ikon</FieldLabel>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            spacing={2}
-            value={icon}
-            onValueChange={(v) => v && setIcon(v as AgendaIcon)}
-            className="flex-wrap"
-          >
-            {(Object.keys(AGENDA_ICONS) as AgendaIcon[]).map((key) => {
-              const Icon = AGENDA_ICONS[key].icon;
-              return (
-                <ToggleGroupItem
-                  key={key}
-                  value={key}
-                  aria-label={AGENDA_ICONS[key].label}
-                  title={AGENDA_ICONS[key].label}
-                  className="size-9 data-[state=on]:bg-module data-[state=on]:text-module-foreground"
-                >
-                  <Icon />
-                </ToggleGroupItem>
-              );
-            })}
-          </ToggleGroup>
+          <div className="flex gap-2">
+            <IconPicker
+              value={icon}
+              onChange={setIcon}
+              aiSubject={name}
+              aiContext={AI_CONTEXT}
+              iconClassName={AGENDA_COLORS[color].badge}
+              className="flex-1 justify-start"
+            />
+            <AiIconButton subject={name} context={AI_CONTEXT} onPick={setIcon} />
+          </div>
         </Field>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onCancel}>
