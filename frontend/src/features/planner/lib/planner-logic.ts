@@ -1,5 +1,5 @@
 import { formatLocalYMD, parseLocalYMD, startOfDay } from "@/lib/dates";
-import type { FreezePeriod, Routine, Schedule } from "@/types/entities";
+import type { FreezePeriod, ProjectTask, Routine, Schedule, Todo } from "@/types/entities";
 
 /** Tanggal mulai/selesai agenda (juga mendukung agenda yang hanya punya `date`). */
 export const scheduleStart = (s: Schedule) => s.startDate || s.date || "";
@@ -15,6 +15,64 @@ export const isScheduleOnDate = (s: Schedule, ymd: string) => ymd >= scheduleSta
 /** Urutkan agenda berdasarkan jam (all-day paling atas). */
 export const compareScheduleTime = (a: Schedule, b: Schedule) =>
   (a.isAllDay ? "00:00" : scheduleTime(a) || "00:00").localeCompare(b.isAllDay ? "00:00" : scheduleTime(b) || "00:00");
+
+/** Urutan kronologis agenda: tanggal mulai, lalu jam (all-day lebih dulu). */
+export const compareSchedule = (a: Schedule, b: Schedule) =>
+  scheduleStart(a).localeCompare(scheduleStart(b)) || compareScheduleTime(a, b);
+
+/** Agenda sudah lewat bila tanggal selesainya sebelum hari ini (agenda yang sedang berjalan belum lewat). */
+export const isSchedulePast = (s: Schedule, todayYmd: string) => scheduleEnd(s) < todayYmd;
+
+export type ScheduleFilter = "upcoming" | "past" | "all";
+
+export const SCHEDULE_FILTER_LABELS: Record<ScheduleFilter, string> = {
+  upcoming: "Akan Datang",
+  past: "Sudah Lewat",
+  all: "Semua",
+};
+
+/**
+ * Agenda untuk tab Jadwal: akan datang diurutkan dari yang terdekat, sudah lewat dari yang terbaru.
+ * "Semua" = akan datang lalu sudah lewat.
+ */
+export const filterSchedules = (schedules: Schedule[], filter: ScheduleFilter, todayYmd: string) => {
+  const upcoming = schedules.filter((s) => !isSchedulePast(s, todayYmd)).sort(compareSchedule);
+  const past = schedules.filter((s) => isSchedulePast(s, todayYmd)).sort((a, b) => compareSchedule(b, a));
+  if (filter === "upcoming") return upcoming;
+  if (filter === "past") return past;
+  return [...upcoming, ...past];
+};
+
+/** Todo belum selesai dari tanggal sebelum `todayYmd` (tertua dulu). */
+export const overdueTodos = (todos: Todo[], todayYmd: string) =>
+  todos
+    .filter((t) => !t.completed && !!formatLocalYMD(t.date) && formatLocalYMD(t.date) < todayYmd)
+    .sort((a, b) => formatLocalYMD(a.date).localeCompare(formatLocalYMD(b.date)));
+
+/** Task/action produktivitas belum selesai yang tenggatnya sebelum `todayYmd` (tertua dulu). */
+export const overdueTasks = (tasks: ProjectTask[], todayYmd: string) =>
+  tasks
+    .filter((t) => !t.completed && !!t.dueDate && t.dueDate < todayYmd)
+    .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""));
+
+/**
+ * Tanggal `day` pada bulan milik `date`; bila bulan itu lebih pendek, jatuh ke hari terakhirnya
+ * (tanggal 31 → 30 Nov / 28 Feb; 29 Feb → 28 Feb di tahun biasa).
+ */
+export const dayInMonth = (day: number, date: Date) =>
+  Math.min(day, new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate());
+
+/** Periode freeze lain yang tanggalnya beririsan dengan `period` (kecuali indeks `exceptIndex`). */
+export const overlappingFreezes = (periods: FreezePeriod[], period: FreezePeriod, exceptIndex?: number) =>
+  !period.startDate || !period.endDate || period.endDate < period.startDate
+    ? []
+    : periods.filter(
+        (p, i) =>
+          i !== exceptIndex &&
+          p.startDate <= p.endDate &&
+          p.startDate <= period.endDate &&
+          period.startDate <= p.endDate,
+      );
 
 export const isPeriodActiveOn = (period: FreezePeriod, date: Date) => {
   const target = startOfDay(date);
@@ -33,7 +91,8 @@ export const isRoutineActiveOnDate = (routine: Routine, date: Date) => {
   if (routine.archived) return false;
 
   const target = startOfDay(date);
-  const start = startOfDay(new Date(routine.startDate || routine.createdAt || ""));
+  // startDate "YYYY-MM-DD" dibaca sebagai tanggal lokal (new Date() membacanya sebagai UTC → bergeser sehari di zona barat)
+  const start = routine.startDate ? parseLocalYMD(routine.startDate) : startOfDay(new Date(routine.createdAt || ""));
   if (Number.isNaN(start.getTime()) || target < start) return false;
   if (isRoutineFrozenOn(routine, target)) return false;
 
@@ -43,7 +102,7 @@ export const isRoutineActiveOnDate = (routine: Routine, date: Date) => {
     case "weekly":
       return routine.days?.includes(target.getDay()) ?? false;
     case "monthly":
-      return routine.monthDates?.includes(target.getDate().toString()) ?? false;
+      return (routine.monthDates ?? []).some((d) => dayInMonth(Number(d), target) === target.getDate());
     case "interval": {
       const diffDays = Math.ceil(Math.abs(target.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
       const interval = routine.interval || 1;
@@ -51,12 +110,13 @@ export const isRoutineActiveOnDate = (routine: Routine, date: Date) => {
       if (type === "days") return diffDays % interval === 0;
       if (type === "weeks") return diffDays % (interval * 7) === 0;
       if (type === "months") {
-        if (target.getDate() !== start.getDate()) return false;
+        if (dayInMonth(start.getDate(), target) !== target.getDate()) return false;
         const diffMonths = (target.getFullYear() - start.getFullYear()) * 12 + (target.getMonth() - start.getMonth());
         return diffMonths >= 0 && diffMonths % interval === 0;
       }
       if (type === "years") {
-        if (target.getDate() !== start.getDate() || target.getMonth() !== start.getMonth()) return false;
+        if (target.getMonth() !== start.getMonth() || dayInMonth(start.getDate(), target) !== target.getDate())
+          return false;
         const diffYears = target.getFullYear() - start.getFullYear();
         return diffYears >= 0 && diffYears % interval === 0;
       }

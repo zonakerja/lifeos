@@ -2,7 +2,9 @@ import { CalendarDays, CalendarRange, Clock, Link2, MapPin, PencilLine, Plus, Tr
 import { type FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { PaginationControl } from "@/components/common/pagination-control";
 import { SectionCard } from "@/components/common/section-card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -19,22 +21,36 @@ import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSchedules } from "@/data/collections";
+import { usePagination } from "@/hooks/use-pagination";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useRetained } from "@/hooks/use-retained";
 import { useSearchParam } from "@/hooks/use-search-param";
-import { formatDayMonth, todayYMD } from "@/lib/dates";
+import { useToday } from "@/hooks/use-today";
+import { formatDayMonth, formatLocalYMD, todayYMD } from "@/lib/dates";
+import { toExternalHref } from "@/lib/urls";
 import { cn } from "@/lib/utils";
 import type { Schedule } from "@/types/entities";
-import { scheduleEnd, scheduleStart, scheduleTime, scheduleTimeLabel } from "../lib/planner-logic";
+import {
+  filterSchedules,
+  isSchedulePast,
+  SCHEDULE_FILTER_LABELS,
+  type ScheduleFilter,
+  scheduleEnd,
+  scheduleStart,
+  scheduleTime,
+  scheduleTimeLabel,
+} from "../lib/planner-logic";
 import { scheduleTypeStyle } from "../lib/schedule-style";
 import { useAgendaTypeList } from "../use-agenda-types";
-import { useRetained } from "@/hooks/use-retained";
 
-const emptySchedule = (type: string): Schedule => ({
+/** Agenda baru kosong; `date` (YYYY-MM-DD) default hari ini. */
+export const emptySchedule = (type: string, date = todayYMD()): Schedule => ({
   id: "",
   title: "",
-  startDate: todayYMD(),
-  endDate: todayYMD(),
+  startDate: date,
+  endDate: date,
   startTime: "",
   endTime: "",
   isAllDay: false,
@@ -43,20 +59,29 @@ const emptySchedule = (type: string): Schedule => ({
   media: "",
 });
 
+const isScheduleFilter = (value: string | null): value is ScheduleFilter =>
+  value === "upcoming" || value === "past" || value === "all";
+
 export function ScheduleTab() {
   const { items: schedules, setItems, upsert } = useSchedules();
-  const { names: agendaTypes } = useAgendaTypeList();
+  const { items: types, names: agendaTypes } = useAgendaTypeList();
   const { canEdit } = usePermissions();
   const [deleting, setDeleting] = useState<Schedule | null>(null);
   // Dialog edit dikendalikan URL: ?edit=<id> | ?edit=new (mendukung deep link)
   const [editId, setEditId] = useSearchParam("edit");
   const editing: Schedule | null =
     editId === "new" ? emptySchedule(agendaTypes[0] ?? "Meeting") : (schedules.find((s) => s.id === editId) ?? null);
+  // Filter waktu di URL: ?sub=upcoming|past|all (default akan datang)
+  const [subParam, setSubParam] = useSearchParam("sub");
+  const filter: ScheduleFilter = isScheduleFilter(subParam) ? subParam : "upcoming";
 
-  const sorted = useMemo(
-    () => [...schedules].sort((a, b) => new Date(scheduleStart(a)).getTime() - new Date(scheduleStart(b)).getTime()),
-    [schedules],
-  );
+  const today = formatLocalYMD(useToday());
+  const counts = useMemo(() => {
+    const past = schedules.filter((s) => isSchedulePast(s, today)).length;
+    return { upcoming: schedules.length - past, past, all: schedules.length };
+  }, [schedules, today]);
+  const filtered = useMemo(() => filterSchedules(schedules, filter, today), [schedules, filter, today]);
+  const { pageItems, setPage, controlProps } = usePagination(filtered, 10);
 
   return (
     <SectionCard
@@ -71,44 +96,90 @@ export function ScheduleTab() {
         )
       }
     >
-      {sorted.length === 0 ? (
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        spacing={2}
+        value={filter}
+        onValueChange={(v) => {
+          if (!isScheduleFilter(v)) return;
+          setSubParam(v === "upcoming" ? null : v);
+          setPage(1);
+        }}
+        className="mb-4 flex-wrap"
+      >
+        {(Object.keys(SCHEDULE_FILTER_LABELS) as ScheduleFilter[]).map((key) => (
+          <ToggleGroupItem
+            key={key}
+            value={key}
+            className="gap-1.5 data-[state=on]:bg-module data-[state=on]:text-module-foreground"
+          >
+            {SCHEDULE_FILTER_LABELS[key]}
+            <span className="rounded-md bg-muted px-1.5 text-[10px] font-bold text-muted-foreground">
+              {counts[key]}
+            </span>
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+
+      {filtered.length === 0 ? (
         <Empty className="border border-dashed">
           <EmptyHeader>
             <EmptyMedia variant="icon" className="bg-module-soft text-module">
               <CalendarDays />
             </EmptyMedia>
-            <EmptyTitle>Belum ada agenda</EmptyTitle>
-            <EmptyDescription>Tambahkan agenda pertama Anda.</EmptyDescription>
+            <EmptyTitle>
+              {filter === "past"
+                ? "Belum ada agenda yang lewat"
+                : filter === "upcoming"
+                  ? "Tidak ada agenda mendatang"
+                  : "Belum ada agenda"}
+            </EmptyTitle>
+            {filter !== "past" && <EmptyDescription>Tambahkan agenda baru untuk mulai merencanakan.</EmptyDescription>}
           </EmptyHeader>
         </Empty>
       ) : (
         <ul className="flex flex-col gap-3">
-          {sorted.map((sch) => {
+          {pageItems.map((sch) => {
             const start = scheduleStart(sch);
             const end = scheduleEnd(sch);
-            const { icon: TypeIcon, className } = scheduleTypeStyle(sch.type);
+            const past = isSchedulePast(sch, today);
+            const ongoing = !past && start <= today;
+            const { icon: TypeIcon, className } = scheduleTypeStyle(sch.type, types);
             return (
               <li
                 key={sch.id}
-                className="group flex flex-col gap-4 rounded-2xl border bg-card p-4 transition-all hover:border-module/30 hover:shadow-md md:flex-row md:items-center md:justify-between"
+                className={cn(
+                  "group flex flex-col gap-4 rounded-2xl border bg-card p-4 transition-all hover:border-module/30 hover:shadow-md md:flex-row md:items-center md:justify-between",
+                  past && "bg-muted/40",
+                )}
               >
                 <div className="flex min-w-0 items-center gap-4">
                   <span
                     className={cn(
                       "flex size-12 shrink-0 rotate-3 items-center justify-center rounded-2xl shadow-lg transition-transform group-hover:rotate-0",
                       className,
+                      past && "opacity-60",
                     )}
                   >
                     <TypeIcon className="size-5" />
                   </span>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h4 className="truncate text-base font-bold">{sch.title}</h4>
+                      <h4 className={cn("truncate text-base font-bold", past && "text-muted-foreground")}>
+                        {sch.title}
+                      </h4>
                       {sch.type && (
                         <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-bold uppercase text-muted-foreground">
                           {sch.type}
                         </span>
                       )}
+                      {ongoing && (
+                        <Badge className="bg-success/15 text-success">
+                          {start === end ? "Hari ini" : "Berlangsung"}
+                        </Badge>
+                      )}
+                      {past && <Badge variant="secondary">Selesai</Badge>}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1.5">
@@ -125,20 +196,11 @@ export function ScheduleTab() {
                         </span>
                       )}
                     </div>
-                    {sch.media && (
-                      <a
-                        href={sch.media}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-2 inline-flex max-w-full items-center gap-1 truncate rounded-md bg-info/10 px-2 py-1 text-xs text-info hover:underline"
-                      >
-                        <Link2 className="size-3 shrink-0" /> {sch.media}
-                      </a>
-                    )}
+                    {sch.media && <MediaLink media={sch.media} />}
                   </div>
                 </div>
                 {canEdit && (
-                  <div className="flex justify-end gap-1 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+                  <div className="flex justify-end gap-1 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100">
                     <Button variant="ghost" size="icon" title="Ubah" onClick={() => setEditId(sch.id)}>
                       <PencilLine />
                     </Button>
@@ -158,6 +220,9 @@ export function ScheduleTab() {
           })}
         </ul>
       )}
+      <div className="mt-4">
+        <PaginationControl {...controlProps} />
+      </div>
 
       <ScheduleFormDialog
         schedule={editing}
@@ -184,7 +249,8 @@ export function ScheduleTab() {
   );
 }
 
-function ScheduleFormDialog({
+/** Dialog tambah/ubah agenda (dipakai tab Jadwal & Harian). `schedule` null = tertutup. */
+export function ScheduleFormDialog({
   schedule: scheduleProp,
   agendaTypes,
   onOpenChange,
@@ -246,6 +312,17 @@ function ScheduleForm({
       return;
     }
     const endDate = !form.endDate || form.endDate < form.startDate ? form.startDate : form.endDate;
+    // Agenda satu hari: jam selesai tidak boleh sebelum jam mulai
+    if (
+      !form.isAllDay &&
+      endDate === form.startDate &&
+      form.startTime &&
+      form.endTime &&
+      form.endTime < form.startTime
+    ) {
+      toast.error("Jam selesai tidak boleh sebelum jam mulai.");
+      return;
+    }
     onSave({ ...form, title: form.title.trim(), endDate, id: form.id || `sch-${Date.now()}` });
   };
 
@@ -376,5 +453,24 @@ function ScheduleForm({
         </DialogFooter>
       </FieldGroup>
     </form>
+  );
+}
+
+/** Link media agenda; link yang bukan http/https ditampilkan sebagai teks biasa. */
+function MediaLink({ media }: { media: string }) {
+  const href = toExternalHref(media);
+  const className =
+    "mt-2 inline-flex max-w-full items-center gap-1 truncate rounded-md bg-info/10 px-2 py-1 text-xs text-info";
+  if (!href) {
+    return (
+      <span className={className}>
+        <Link2 className="size-3 shrink-0" /> {media}
+      </span>
+    );
+  }
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className={cn(className, "hover:underline")}>
+      <Link2 className="size-3 shrink-0" /> {media}
+    </a>
   );
 }

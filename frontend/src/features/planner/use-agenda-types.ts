@@ -25,7 +25,11 @@ export function useAgendaTypeList() {
   }, [user, isLoading, collection.isError, items.length, setItems]);
 
   const sorted = useMemo(() => [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)), [items]);
-  const names = useMemo(() => (sorted.length > 0 ? sorted.map((t) => t.name) : DEFAULT_AGENDA_TYPES), [sorted]);
+  // Nama unik: super admin melihat tipe milik semua user (nama bisa sama)
+  const names = useMemo(
+    () => (sorted.length > 0 ? [...new Set(sorted.map((t) => t.name))] : DEFAULT_AGENDA_TYPES),
+    [sorted],
+  );
 
   return { ...collection, items: sorted, names };
 }

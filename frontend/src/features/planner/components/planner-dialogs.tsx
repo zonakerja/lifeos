@@ -7,7 +7,8 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { formatLocalYMD } from "@/lib/dates";
+import { toast } from "sonner";
+import { formatLocalYMD, todayYMD } from "@/lib/dates";
 import { useLatchedWhileOpen, useRetained } from "@/hooks/use-retained";
 import { cn } from "@/lib/utils";
 import type { Priority, Todo } from "@/types/entities";
@@ -23,13 +24,17 @@ const PRIORITY_ACTIVE: Record<Priority, string> = {
 export function TodoDialog({
   open,
   editing,
+  defaultDate,
   onOpenChange,
   onSave,
 }: {
   open: boolean;
   editing: Todo | null;
+  /** Tanggal awal (YYYY-MM-DD) untuk todo baru */
+  defaultDate: string;
   onOpenChange: (open: boolean) => void;
-  onSave: (title: string, priority: Priority) => void;
+  /** `date` = YYYY-MM-DD */
+  onSave: (title: string, priority: Priority, date: string) => void;
 }) {
   const shownEditing = useLatchedWhileOpen(open, editing);
   return (
@@ -40,7 +45,7 @@ export function TodoDialog({
             <CheckSquare className="size-5 text-success" /> {shownEditing ? "Ubah Tugas" : "Tambah Tugas"}
           </DialogTitle>
         </DialogHeader>
-        <TodoForm editing={shownEditing} onSave={onSave} onDone={() => onOpenChange(false)} />
+        <TodoForm editing={shownEditing} defaultDate={defaultDate} onSave={onSave} onDone={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
   );
@@ -48,22 +53,25 @@ export function TodoDialog({
 
 function TodoForm({
   editing,
+  defaultDate,
   onSave,
   onDone,
 }: {
   editing: Todo | null;
-  onSave: (title: string, priority: Priority) => void;
+  defaultDate: string;
+  onSave: (title: string, priority: Priority, date: string) => void;
   onDone: () => void;
 }) {
   const [title, setTitle] = useState(editing?.title ?? "");
+  const [date, setDate] = useState(() => (editing ? formatLocalYMD(editing.date) : "") || defaultDate);
   const [priority, setPriority] = useState<Priority>(editing?.priority ?? "medium");
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (!title.trim()) return;
-        onSave(title.trim(), priority);
+        if (!title.trim() || !date) return;
+        onSave(title.trim(), priority, date);
         onDone();
       }}
     >
@@ -77,6 +85,10 @@ function TodoForm({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="todo-date">Tanggal</FieldLabel>
+          <Input id="todo-date" type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
         <Field>
           <FieldLabel>Prioritas</FieldLabel>
@@ -148,7 +160,13 @@ function ActivityLogForm({
     <FieldGroup className="gap-4">
       <Field>
         <FieldLabel htmlFor="log-date">Dilakukan Pada</FieldLabel>
-        <Input id="log-date" type="date" value={actualDate} onChange={(e) => setActualDate(e.target.value)} />
+        <Input
+          id="log-date"
+          type="date"
+          max={todayYMD()}
+          value={actualDate}
+          onChange={(e) => setActualDate(e.target.value)}
+        />
       </Field>
       <Field>
         <FieldLabel htmlFor="log-note">Catatan</FieldLabel>
@@ -160,7 +178,16 @@ function ActivityLogForm({
           onChange={(e) => setNote(e.target.value)}
         />
       </Field>
-      <Button className="w-full" onClick={() => onSave(actualDate, note)}>
+      <Button
+        className="w-full"
+        onClick={() => {
+          if (!actualDate || actualDate > todayYMD()) {
+            toast.error("Tanggal dilakukan tidak boleh di masa depan.");
+            return;
+          }
+          onSave(actualDate, note);
+        }}
+      >
         Simpan Log
       </Button>
     </FieldGroup>

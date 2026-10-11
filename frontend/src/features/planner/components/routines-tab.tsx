@@ -1,11 +1,13 @@
 import { Archive, ArchiveRestore, History, PencilLine, Plus, RefreshCw, Snowflake, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { PaginationControl } from "@/components/common/pagination-control";
 import { SectionCard } from "@/components/common/section-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { useRoutines } from "@/data/collections";
+import { useCompletions, useRoutines } from "@/data/collections";
+import { usePagination } from "@/hooks/use-pagination";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSearchParam } from "@/hooks/use-search-param";
 import { useToday } from "@/hooks/use-today";
@@ -17,6 +19,7 @@ import { FreezeDialog, FreezeHistoryDialog, RoutineFormDialog } from "./routine-
 
 export function RoutinesTab() {
   const { items: routines, setItems } = useRoutines();
+  const { items: completions, setItems: setCompletions } = useCompletions();
   const { canEdit } = usePermissions();
   const [showArchived, setShowArchived] = useState(false);
   // Dialog edit dikendalikan URL: ?edit=<id> | ?edit=new (mendukung deep link)
@@ -33,6 +36,8 @@ export function RoutinesTab() {
 
   const today = useToday();
   const displayed = routines.filter((r) => (showArchived ? r.archived : !r.archived));
+  const { pageItems, setPage, controlProps } = usePagination(displayed, 10);
+  const deletingCompletions = deleting ? completions.filter((c) => c.routineId === deleting.id).length : 0;
   // Referensi live agar dialog riwayat langsung mencerminkan perubahan
   const historyRoutine = routines.find((r) => r.id === historyId) ?? null;
 
@@ -60,7 +65,10 @@ export function RoutinesTab() {
             variant={showArchived ? "secondary" : "outline"}
             size="sm"
             className={cn(showArchived && "bg-warning/20 text-warning-foreground dark:text-warning")}
-            onClick={() => setShowArchived((v) => !v)}
+            onClick={() => {
+              setShowArchived((v) => !v);
+              setPage(1);
+            }}
           >
             <Archive /> {showArchived ? "Sembunyikan Arsip" : "Lihat Arsip"}
           </Button>
@@ -84,7 +92,7 @@ export function RoutinesTab() {
         </Empty>
       ) : (
         <ul className="flex flex-col gap-3">
-          {displayed.map((r) => {
+          {pageItems.map((r) => {
             const frozen = isRoutineFrozenOn(r, today);
             return (
               <li
@@ -194,6 +202,9 @@ export function RoutinesTab() {
           })}
         </ul>
       )}
+      <div className="mt-4">
+        <PaginationControl {...controlProps} />
+      </div>
 
       <RoutineFormDialog
         routine={editing}
@@ -261,11 +272,19 @@ export function RoutinesTab() {
         open={!!deleting}
         onOpenChange={(open) => !open && setDeleting(null)}
         title="Hapus Rutinitas?"
-        description="Data historis mungkin terpengaruh."
+        description={
+          deletingCompletions > 0
+            ? `Rutinitas beserta ${deletingCompletions} riwayat penyelesaiannya akan dihapus. Pilih Arsipkan bila riwayat ingin disimpan.`
+            : "Rutinitas akan dihapus. Pilih Arsipkan bila hanya ingin menyembunyikannya."
+        }
         itemName={deleting?.title}
         confirmLabel="Hapus"
         onConfirm={() => {
-          if (deleting) setItems((prev) => prev.filter((r) => r.id !== deleting.id));
+          if (deleting) {
+            // Riwayat centang ikut dihapus agar tidak tertinggal tanpa rutinitas
+            setItems((prev) => prev.filter((r) => r.id !== deleting.id));
+            setCompletions((prev) => prev.filter((c) => c.routineId !== deleting.id));
+          }
           setDeleting(null);
         }}
       />

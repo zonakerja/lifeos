@@ -13,11 +13,19 @@ interface Owned {
 // Planner
 // ============================================================================
 
+export type AgendaColor = "planner" | "notes" | "overview" | "productivity" | "files" | "settings";
+export type AgendaIcon =
+  "briefcase" | "graduation" | "users" | "video" | "plane" | "book" | "heart" | "coffee" | "star" | "clock";
+
 /** Tipe agenda (Meeting, Kuliah, ...). */
 export interface AgendaType extends Owned {
   id: string;
   name: string;
   order?: number;
+  /** Warna penanda agenda; kosong = warna default dari nama */
+  color?: AgendaColor;
+  /** Ikon penanda agenda; kosong = ikon default dari nama */
+  icon?: AgendaIcon;
 }
 
 export interface Schedule extends Owned {

@@ -274,8 +274,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 - **Koleksi data**: pakai hook bertipe di `src/data/collections.ts`; tipe entitas di `src/types/entities.ts`.
 - **Dialog form**: state di komponen *dalam* yang di-mount saat dialog terbuka (`useState(() => dariProps)`), atau
   `key` pada inner. **Jangan** sinkronisasi props→state dengan `useEffect`.
-- **Deep link via URL** (`useSearchParam`): `?edit=`, `?todo=`, `?date=`, `?project=`, `?area=`, `?task=`, `?resource=`,
-  `?note=`, `?archive=`, sub-tab `?sub=`/`?ref=`. Peta di `src/lib/deep-links.ts`. Mengubah **lebih dari satu** param
+- **Deep link via URL** (`useSearchParam`): `?edit=`, `?todo=`, `?date=`, `?agenda=<id>|new` (agenda di Planner Harian),
+  `?project=`, `?area=`, `?task=`, `?resource=`, `?note=`, `?archive=`, sub-tab/filter `?sub=`/`?ref=`. Peta di `src/lib/deep-links.ts`. Mengubah **lebih dari satu** param
   sekaligus → `useSetSearchParams()({ a: null, b: null })`, jangan dua setter `useSearchParam` berturut-turut.
 - **Waktu di render**: `useToday()`. **Hak akses**: `usePermissions()` (viewer read-only).
 - **AI**: hanya via `useAi()` (`src/lib/ai/use-ai.ts`) → `aiApi.generate(prompt, files)` (`POST /ai/generate`);
@@ -286,9 +286,17 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   `mergeIntoGlobalResources()`, `useFileSummarizer()`).
 - **Komponen umum**: `ConfirmDialog`, `SectionCard`, `RenameDialog`, `SearchableSelect`, `PaginationControl`+`paginate()`,
   `Markdown`, `PriorityBadge`, `PageLoader`, `DateRangeFilter`, `SearchInput`.
+- **Paginasi daftar**: `usePagination(items, ukuranAwal)` (`hooks/use-pagination.ts`) → `{ pageItems, setPage,
+  controlProps }`, sebarkan `controlProps` ke `<PaginationControl>`; halaman otomatis dijepit, panggil `setPage(1)` saat
+  filter berubah.
+- **Tombol aksi yang muncul saat hover**: `pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100
+  pointer-fine:group-focus-within:opacity-100` — selalu terlihat di layar sentuh (HP/tablet), bukan `md:opacity-0`.
 - **Dialog & animasi tutup**: `useRetained(itemProp)` / `useLatchedWhileOpen(open, value)` (nilai harus stabil).
 - **Tanggal** (`src/lib/dates.ts`): YMD `"2026-10-08"` (schedule/routine/task.dueDate/ai_note) dan `toDateString()`
-  `"Thu Oct 08 2026"` (todo.date, completion.date).
+  `"Thu Oct 08 2026"` (todo.date, completion.date). YMD selalu dibaca dengan `parseLocalYMD`, **jangan**
+  `new Date("YYYY-MM-DD")` (dibaca UTC → bergeser sehari di zona waktu barat UTC).
+- **Link dari input user** (`href`): lewat `toExternalHref()` (`src/lib/urls.ts`) — menambah `https://` dan menolak
+  skema selain http/https.
 - **QR & scan**: QR lokal `qrcode.react` (`QrImage`), scan `CameraScanner`/`CameraScanDialog` (import dinamis).
 - **Cetak**: `printElement(ref.current, judul, "label" | "a4")` (`features/file-control/lib/print.ts`).
 - **Menu klik kanan**: shadcn `context-menu`, target dari `closest("[data-item-id]")`.
@@ -344,6 +352,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Panduan setup awal / menyalakan / mematikan + aturan port (`docs/SETUP.md` §1–§6) | ✅ ditulis & diverifikasi 2026-10-11 dengan menjalankan §3 langkah 0–6 di laptop user (Node 24.21.0 arm64; login, unit test, smoke test lulus; `strictPort` terbukti menolak instance kedua) — laptop sudah ter-setup |
 | AI multi-provider di backend (Gemini/Claude/OpenAI, key terenkripsi, model bisa diganti user) | ✅ 2026-10-11 — unit + smoke + UI diuji; panggilan ke provider sungguhan menunggu API key user |
 | RAG tahap 1: ekstraksi PDF/DOCX/XLSX/OCR + indeks pgvector (Gemini embedding) + pencarian gabungan | ✅ 2026-10-11 — unit + smoke (record → indeks → cari → hapus) + embedding Gemini sungguhan di akun admin dev |
+| Perbaikan Planner (terlambat, filter & urutan agenda, gaya tipe agenda, hapus berantai, layar sentuh, agenda bisa diklik, paginasi) | ✅ 2026-10-11 — lint, typecheck, unit test, build, dan UI diuji di browser (desktop + mode HP) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -443,6 +452,30 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   lokal (berat untuk VPS). HNSW = indeks parsial di migrasi SQL agar cek drift Prisma tetap bersih.
 - 2026-10-11 — Thread AI **dijeda** atas permintaan user setelah RAG tahap 1 (di-commit). Thread berikutnya: perbaikan
   fitur **Planner** dan **Notes Space**; setelah itu lanjut RAG tahap 2 (chatbot backend + riwayat chat permanen).
+
+- 2026-10-11 — Thread perbaikan **Planner** dimulai (tanpa perubahan backend/migrasi). Perbaikan:
+  1. Tab Harian: bagian **Terlambat** (hanya saat melihat hari ini) berisi todo belum selesai dari tanggal sebelumnya +
+     task/action yang lewat tenggat; todo bisa dipindahkan ke hari ini (satu per satu / sekaligus); task/action hanya
+     diubah lewat dialognya (tenggat proyek tidak dipindah otomatis).
+  2. Tab Jadwal: filter **Akan Datang** (default; agenda yang sedang berlangsung termasuk) / Sudah Lewat (terbaru dulu) /
+     Semua di `?sub=`, urut tanggal lalu jam, badge "Hari ini"/"Berlangsung"/"Selesai".
+  3. Tipe agenda punya **warna & ikon** (`AgendaType.color/icon`, tersimpan di `extra`); tipe tanpa pengaturan memakai
+     default bawaan atau warna stabil dari nama (`lib/schedule-style.ts`). Ganti nama tipe ikut memperbarui agenda
+     pemakainya (milik user yang sama); hapus tipe tidak mengubah agenda (label tetap).
+  4. Hapus rutinitas ikut menghapus riwayat centang (`completion`)-nya; konfirmasi menyebut jumlahnya dan menyarankan Arsipkan.
+  5. Tombol aksi hover (riwayat freeze, daftar agenda, todo, referensi) selalu terlihat di layar sentuh (`pointer-fine:`).
+  6. Agenda di tab Harian bisa diklik → dialog ubah agenda (`?agenda=`, `ScheduleFormDialog` diekspor dari schedule-tab).
+  Ditambah **paginasi** di Jadwal (10), Rutinitas (10), Referensi (12) lewat hook baru `usePagination`. Logika murni +
+  test di `features/planner/lib/planner-logic.test.ts`.
+  Pengecekan ulang: `routine.startDate` kini dibaca sebagai tanggal lokal (`new Date("YYYY-MM-DD")` = UTC → di zona barat
+  UTC rutinitas mulai sehari lebih awal); link media agenda lewat `toExternalHref` (`lib/urls.ts`: tanpa skema →
+  https, selain http/https → teks biasa); jam selesai < jam mulai ditolak; agenda tanpa lokasi & link tidak lagi
+  berlabel "Online"; cek nama tipe agenda ganda dibatasi per pemilik.
+  Lanjutan (disetujui user): rutinitas bulanan tanggal 29–31 dan interval bulanan/tahunan dari tanggal itu (termasuk
+  29 Feb) **jatuh ke hari terakhir** bulan yang lebih pendek (`dayInMonth`, keterangan tampil di form); rutinitas tidak
+  bisa dicentang/di-log untuk tanggal mendatang dan "Dilakukan Pada" tidak boleh di masa depan; dialog todo punya field
+  **tanggal** (todo bisa dipindah hari); freeze yang beririsan diberi **peringatan** (tetap boleh disimpan,
+  `overlappingFreezes`); tab Harian punya tombol **Tambah agenda** untuk tanggal yang dilihat (`?agenda=new`).
 
 ## 13. Konvensi Kode
 

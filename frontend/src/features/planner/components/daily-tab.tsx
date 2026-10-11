@@ -1,5 +1,7 @@
 import {
   AlertTriangle,
+  CalendarArrowDown,
+  CalendarClock,
   Check,
   CheckSquare,
   ChevronLeft,
@@ -10,8 +12,10 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Video,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { PRIORITY_RANK, PriorityBadge } from "@/components/common/priority-badge";
 import { SectionCard } from "@/components/common/section-card";
@@ -29,14 +33,31 @@ import {
 } from "@/data/collections";
 import { TaskQuickDialog, type TaskKind } from "@/features/productivity/components/task-quick-dialog";
 import { usePermissions } from "@/hooks/use-permissions";
-import { useSearchParam } from "@/hooks/use-search-param";
+import { useSearchParam, useSetSearchParams } from "@/hooks/use-search-param";
 import { useToday } from "@/hooks/use-today";
-import { addDays, formatFullDate, formatLocalYMD, formatNumericDate, parseLocalYMD, toDateKey } from "@/lib/dates";
+import {
+  addDays,
+  formatDayMonth,
+  formatFullDate,
+  formatLocalYMD,
+  formatNumericDate,
+  parseLocalYMD,
+  toDateKey,
+} from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { completionId, type Priority, type ProjectTask, type Todo } from "@/types/entities";
-import { compareScheduleTime, isRoutineActiveOnDate, isScheduleOnDate, scheduleTime } from "../lib/planner-logic";
+import {
+  compareScheduleTime,
+  isRoutineActiveOnDate,
+  isScheduleOnDate,
+  overdueTasks,
+  overdueTodos,
+  scheduleTime,
+} from "../lib/planner-logic";
+import { useAgendaTypeList } from "../use-agenda-types";
 import { PlannerCalendar } from "./planner-calendar";
 import { ActivityLogDialog, TodoDialog } from "./planner-dialogs";
+import { emptySchedule, ScheduleFormDialog } from "./schedule-tab";
 
 type CombinedItem = ({ isProd: false } & Todo) | ({ isProd: true; kind: TaskKind; parentName: string } & ProjectTask);
 
@@ -51,8 +72,15 @@ const ITEM_STYLE = {
   task: { border: "border-l-primary", check: "border-primary bg-primary", done: "bg-primary/8" },
 };
 
+const byPriority = (a: CombinedItem, b: CombinedItem) =>
+  (PRIORITY_RANK[b.priority ?? "low"] ?? 0) - (PRIORITY_RANK[a.priority ?? "low"] ?? 0);
+
+/** Tanggal asal item (YMD) — untuk label "Terlambat". */
+const itemYMD = (item: CombinedItem) => (item.isProd ? (item.dueDate ?? "") : formatLocalYMD(item.date));
+
 export function DailyTab() {
-  const { items: schedules } = useSchedules();
+  const { items: schedules, upsert: upsertSchedule } = useSchedules();
+  const { names: agendaTypes } = useAgendaTypeList();
   const { items: routines } = useRoutines();
   const { items: todos, setItems: setTodos } = useTodos();
   const { items: completions, setItems: setCompletions } = useCompletions();
@@ -62,16 +90,26 @@ export function DailyTab() {
   const { canEdit } = usePermissions();
 
   const today = useToday();
-  // Tanggal & dialog todo disimpan di URL: ?date=YYYY-MM-DD, ?todo=<id>|new (deep link)
+  // Tanggal & dialog disimpan di URL: ?date=YYYY-MM-DD, ?todo=<id>|new, ?agenda=<id> (deep link)
   const [dateParam, setDateParam] = useSearchParam("date");
   const [todoParam, setTodoParam] = useSearchParam("todo");
+  const [agendaParam, setAgendaParam] = useSearchParam("agenda");
   const editingTodo = todoParam && todoParam !== "new" ? (todos.find((t) => t.id === todoParam) ?? null) : null;
   const todoDialogOpen = todoParam === "new" || !!editingTodo;
+  const ymdForNew = dateParam || formatLocalYMD(today);
+  // ?agenda=new → agenda baru pada tanggal yang sedang dilihat
+  const editingSchedule =
+    agendaParam === "new"
+      ? emptySchedule(agendaTypes[0] ?? "Meeting", ymdForNew)
+      : agendaParam
+        ? (schedules.find((s) => s.id === agendaParam) ?? null)
+        : null;
   const currentDate = useMemo(
     () => (dateParam ? parseLocalYMD(dateParam) : editingTodo ? new Date(editingTodo.date) : today),
     [dateParam, editingTodo, today],
   );
   const setDate = (date: Date) => setDateParam(formatLocalYMD(date));
+  const setParams = useSetSearchParams();
 
   const [logRoutine, setLogRoutine] = useState<{ id: string; title: string } | null>(null);
   const [editingTask, setEditingTask] = useState<{ task: ProjectTask; kind: TaskKind } | null>(null);
@@ -79,28 +117,37 @@ export function DailyTab() {
 
   const ymd = formatLocalYMD(currentDate);
   const dateKey = toDateKey(currentDate);
+  // Item terlambat hanya ditampilkan saat melihat hari ini (hari lain menampilkan isi tanggalnya saja)
+  const isTodayView = ymd === formatLocalYMD(today);
+  // Rutinitas hanya bisa dicentang pada harinya atau sesudahnya
+  const isFutureView = ymd > formatLocalYMD(today);
 
   const todaysSchedules = schedules.filter((s) => isScheduleOnDate(s, ymd)).sort(compareScheduleTime);
   const todaysRoutines = routines.filter((r) => isRoutineActiveOnDate(r, currentDate));
 
+  const toCombinedTask = (t: ProjectTask): CombinedItem => {
+    const project = projects.find((p) => p.id === t.projectId);
+    const activity = project ? undefined : activities.find((a) => a.id === t.projectId);
+    return {
+      ...t,
+      isProd: true as const,
+      kind: (project ? "action" : "task") as TaskKind,
+      parentName: project?.title ?? activity?.title ?? "",
+    };
+  };
+
   const combined: CombinedItem[] = [
     ...todos.filter((t) => t.date === dateKey).map((t) => ({ ...t, isProd: false as const })),
-    ...tasks
-      .filter((t) => t.dueDate === ymd)
-      .map((t) => {
-        const project = projects.find((p) => p.id === t.projectId);
-        const activity = project ? undefined : activities.find((a) => a.id === t.projectId);
-        return {
-          ...t,
-          isProd: true as const,
-          kind: (project ? "action" : "task") as TaskKind,
-          parentName: project?.title ?? activity?.title ?? "",
-        };
-      }),
-  ].sort((a, b) => (PRIORITY_RANK[b.priority ?? "low"] ?? 0) - (PRIORITY_RANK[a.priority ?? "low"] ?? 0));
+    ...tasks.filter((t) => t.dueDate === ymd).map(toCombinedTask),
+  ].sort(byPriority);
+
+  const lateTodos = isTodayView ? overdueTodos(todos, ymd) : [];
+  const overdue: CombinedItem[] = isTodayView
+    ? [...lateTodos.map((t) => ({ ...t, isProd: false as const })), ...overdueTasks(tasks, ymd).map(toCombinedTask)]
+    : [];
 
   const toggleRoutine = (routineId: string) => {
-    if (!canEdit) return;
+    if (!canEdit || isFutureView) return;
     const done = completions.some((c) => c.routineId === routineId && c.date === dateKey);
     setCompletions((prev) =>
       done
@@ -125,23 +172,129 @@ export function DailyTab() {
     setLogRoutine(null);
   };
 
-  const toggleItem = (item: CombinedItem) => {
+  const toggleItem = (item: CombinedItem, late = false) => {
     if (!canEdit) return;
     if (item.isProd) {
       // Centang task produktivitas membuka dialog update
       setEditingTask({ task: stripCombined(item), kind: item.kind });
     } else {
       setTodos((prev) => prev.map((t) => (t.id === item.id ? { ...t, completed: !t.completed } : t)));
+      if (late) toast.success("Tugas terlambat ditandai selesai.");
     }
   };
 
-  const saveTodo = (title: string, priority: Priority) => {
+  /** Pindahkan todo terlambat ke tanggal yang sedang dilihat (hari ini). */
+  const moveTodosHere = (ids: string[]) => {
+    const set = new Set(ids);
+    setTodos((prev) => prev.map((t) => (set.has(t.id) ? { ...t, date: dateKey } : t)));
+    toast.success(ids.length > 1 ? `${ids.length} tugas dipindahkan ke hari ini.` : "Tugas dipindahkan ke hari ini.");
+  };
+
+  const saveTodo = (title: string, priority: Priority, todoYmd: string) => {
     const editing = editingTodo;
+    const date = toDateKey(parseLocalYMD(todoYmd));
     if (editing) {
-      setTodos((prev) => prev.map((t) => (t.id === editing.id ? { ...t, title, priority } : t)));
+      setTodos((prev) => prev.map((t) => (t.id === editing.id ? { ...t, title, priority, date } : t)));
     } else {
-      setTodos((prev) => [...prev, { id: `todo-${Date.now()}`, title, completed: false, date: dateKey, priority }]);
+      setTodos((prev) => [...prev, { id: `todo-${Date.now()}`, title, completed: false, date, priority }]);
     }
+    if (todoYmd !== ymd) toast.success(`Tugas disimpan pada ${formatDayMonth(parseLocalYMD(todoYmd))}.`);
+  };
+
+  const renderItem = (item: CombinedItem, late = false) => {
+    const style = ITEM_STYLE[item.isProd ? item.kind : "todo"];
+    return (
+      <div
+        key={`${item.isProd ? "p" : "t"}-${item.id}`}
+        className={cn(
+          "group flex items-center gap-3 rounded-xl border border-l-4 px-3 py-2.5 transition-colors",
+          style.border,
+          item.completed ? style.done : "bg-card hover:shadow-sm",
+        )}
+      >
+        <button
+          type="button"
+          disabled={!canEdit}
+          onClick={() => toggleItem(item, late)}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-default"
+        >
+          <span
+            className={cn(
+              "flex size-5 shrink-0 items-center justify-center rounded-md border-2",
+              item.completed ? cn(style.check, "text-white") : "border-muted-foreground/40",
+            )}
+          >
+            {item.completed && <Check className="size-3" strokeWidth={4} />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span
+              className={cn(
+                "block truncate text-sm font-semibold",
+                item.completed && "text-muted-foreground line-through",
+              )}
+            >
+              {item.title}
+            </span>
+            <span className="mt-1 flex flex-wrap items-center gap-1.5">
+              {late && (
+                <span className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-bold text-destructive">
+                  <CalendarClock className="size-3" /> {formatDayMonth(parseLocalYMD(itemYMD(item)))}
+                </span>
+              )}
+              {!item.completed && <PriorityBadge priority={item.priority} />}
+              {item.isProd && item.parentName && (
+                <span className="max-w-32 truncate text-[10px] font-semibold text-muted-foreground">
+                  {item.parentName}
+                </span>
+              )}
+              {item.isProd && (
+                <Badge
+                  className={item.kind === "action" ? "bg-mod-notes/15 text-mod-notes" : "bg-primary/12 text-primary"}
+                >
+                  {item.kind === "action" ? "Action" : "Task"}
+                </Badge>
+              )}
+            </span>
+          </span>
+        </button>
+        {canEdit && (
+          <div className="flex gap-0.5 opacity-100 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100">
+            {late && !item.isProd && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title="Pindahkan ke hari ini"
+                onClick={() => moveTodosHere([item.id])}
+              >
+                <CalendarArrowDown />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title="Ubah"
+              onClick={() =>
+                item.isProd
+                  ? setEditingTask({ task: stripCombined(item), kind: item.kind })
+                  : // Tanggal tampilan ikut dikunci agar todo terlambat tidak memindahkan tampilan ke tanggal asalnya
+                    setParams({ todo: item.id, date: ymd })
+              }
+            >
+              <PencilLine />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title="Hapus"
+              className="hover:text-destructive"
+              onClick={() => setDeleting(item)}
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -179,24 +332,57 @@ export function DailyTab() {
         <SectionCard
           icon={RefreshCw}
           title="Rutinitas & Agenda"
-          description="Jadwal hari ini"
+          description={isFutureView ? "Rutinitas bisa dicentang mulai harinya" : "Jadwal hari ini"}
           contentClassName="flex flex-col gap-2.5"
+          action={
+            canEdit && (
+              <Button
+                size="icon"
+                aria-label="Tambah agenda"
+                title="Tambah agenda"
+                onClick={() => setAgendaParam("new")}
+              >
+                <Plus />
+              </Button>
+            )
+          }
         >
           {todaysSchedules.map((sch) => (
-            <div
+            <button
               key={sch.id}
-              className="flex items-center gap-4 rounded-xl border-l-4 border-l-mod-planner bg-mod-planner/8 p-3"
+              type="button"
+              disabled={!canEdit}
+              title={canEdit ? "Buka agenda" : undefined}
+              onClick={() => setAgendaParam(sch.id)}
+              className="flex items-center gap-4 rounded-xl border-l-4 border-l-mod-planner bg-mod-planner/8 p-3 text-left transition-colors enabled:hover:bg-mod-planner/15 disabled:cursor-default"
             >
               <span className="min-w-12 text-xs font-bold text-mod-planner">
                 {sch.isAllDay ? "All Day" : scheduleTime(sch) || "??:??"}
               </span>
-              <div className="min-w-0">
-                <p className="truncate font-semibold">{sch.title}</p>
-                <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                  <MapPin className="size-3" /> {sch.location || "Online"}
-                </p>
-              </div>
-            </div>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-semibold">{sch.title}</span>
+                <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                  {sch.location ? (
+                    <>
+                      <MapPin className="size-3 shrink-0" /> <span className="truncate">{sch.location}</span>
+                    </>
+                  ) : (
+                    sch.media && (
+                      <>
+                        <Video className="size-3 shrink-0" /> Online
+                      </>
+                    )
+                  )}
+                  {sch.type && (
+                    <span className="truncate">
+                      {sch.location || sch.media ? "· " : ""}
+                      {sch.type}
+                    </span>
+                  )}
+                </span>
+              </span>
+              {canEdit && <PencilLine className="size-4 shrink-0 text-muted-foreground" />}
+            </button>
           ))}
 
           {todaysRoutines.map((routine) => {
@@ -215,14 +401,19 @@ export function DailyTab() {
               >
                 <button
                   type="button"
-                  disabled={!canEdit}
+                  disabled={!canEdit || isFutureView}
+                  title={isFutureView ? "Belum bisa dicentang: tanggal ini belum tiba" : undefined}
                   onClick={() => toggleRoutine(routine.id)}
                   className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-default"
                 >
                   <span
                     className={cn(
                       "flex size-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors",
-                      done ? "border-mod-overview bg-mod-overview text-white" : "border-muted-foreground/40",
+                      done
+                        ? "border-mod-overview bg-mod-overview text-white"
+                        : isFutureView
+                          ? "border-dashed border-muted-foreground/30"
+                          : "border-muted-foreground/40",
                     )}
                   >
                     {done && <Check className="size-3.5" strokeWidth={4} />}
@@ -238,7 +429,7 @@ export function DailyTab() {
                     )}
                   </span>
                 </button>
-                {canEdit && (
+                {canEdit && !isFutureView && (
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -274,91 +465,34 @@ export function DailyTab() {
             )
           }
         >
-          {combined.map((item) => {
-            const style = ITEM_STYLE[item.isProd ? item.kind : "todo"];
-            return (
-              <div
-                key={`${item.isProd ? "p" : "t"}-${item.id}`}
-                className={cn(
-                  "group flex items-center gap-3 rounded-xl border border-l-4 px-3 py-2.5 transition-colors",
-                  style.border,
-                  item.completed ? style.done : "bg-card hover:shadow-sm",
-                )}
-              >
-                <button
-                  type="button"
-                  disabled={!canEdit}
-                  onClick={() => toggleItem(item)}
-                  className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-default"
-                >
-                  <span
-                    className={cn(
-                      "flex size-5 shrink-0 items-center justify-center rounded-md border-2",
-                      item.completed ? cn(style.check, "text-white") : "border-muted-foreground/40",
-                    )}
+          {overdue.length > 0 && (
+            <div className="flex flex-col gap-2 rounded-2xl border border-destructive/30 bg-destructive/5 p-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                <span className="flex items-center gap-1.5 text-xs font-bold text-destructive">
+                  <AlertTriangle className="size-3.5" /> Terlambat ({overdue.length})
+                </span>
+                {canEdit && lateTodos.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => moveTodosHere(lateTodos.map((t) => t.id))}
                   >
-                    {item.completed && <Check className="size-3" strokeWidth={4} />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span
-                      className={cn(
-                        "block truncate text-sm font-semibold",
-                        item.completed && "text-muted-foreground line-through",
-                      )}
-                    >
-                      {item.title}
-                    </span>
-                    <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                      {!item.completed && <PriorityBadge priority={item.priority} />}
-                      {item.isProd && item.parentName && (
-                        <span className="max-w-32 truncate text-[10px] font-semibold text-muted-foreground">
-                          {item.parentName}
-                        </span>
-                      )}
-                      {item.isProd && (
-                        <Badge
-                          className={
-                            item.kind === "action" ? "bg-mod-notes/15 text-mod-notes" : "bg-primary/12 text-primary"
-                          }
-                        >
-                          {item.kind === "action" ? "Action" : "Task"}
-                        </Badge>
-                      )}
-                    </span>
-                  </span>
-                </button>
-                {canEdit && (
-                  <div className="flex gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      title="Ubah"
-                      onClick={() =>
-                        item.isProd
-                          ? setEditingTask({ task: stripCombined(item), kind: item.kind })
-                          : setTodoParam(item.id)
-                      }
-                    >
-                      <PencilLine />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      title="Hapus"
-                      className="hover:text-destructive"
-                      onClick={() => setDeleting(item)}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
+                    <CalendarArrowDown /> Pindahkan todo ke hari ini
+                  </Button>
                 )}
               </div>
-            );
-          })}
+              {overdue.map((item) => renderItem(item, true))}
+            </div>
+          )}
+
+          {combined.map((item) => renderItem(item))}
           {combined.length === 0 && (
-            <Empty className="border border-dashed py-10">
+            <Empty className={cn("border border-dashed", overdue.length > 0 ? "py-6" : "py-10")}>
               <EmptyHeader>
-                <EmptyDescription>Belum ada tugas.</EmptyDescription>
+                <EmptyDescription>
+                  {overdue.length > 0 ? "Belum ada tugas untuk hari ini." : "Belum ada tugas."}
+                </EmptyDescription>
               </EmptyHeader>
             </Empty>
           )}
@@ -377,8 +511,18 @@ export function DailyTab() {
       <TodoDialog
         open={todoDialogOpen}
         editing={editingTodo}
+        defaultDate={ymd}
         onOpenChange={(open) => !open && setTodoParam(null)}
         onSave={saveTodo}
+      />
+      <ScheduleFormDialog
+        schedule={canEdit ? editingSchedule : null}
+        agendaTypes={agendaTypes}
+        onOpenChange={(open) => !open && setAgendaParam(null)}
+        onSave={(schedule) => {
+          upsertSchedule(schedule);
+          setAgendaParam(null);
+        }}
       />
       <ActivityLogDialog
         routineTitle={logRoutine?.title ?? null}

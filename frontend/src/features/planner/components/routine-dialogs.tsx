@@ -1,4 +1,4 @@
-import { Info, PencilLine, Snowflake, Trash2 } from "lucide-react";
+import { AlertTriangle, Info, PencilLine, Snowflake, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
@@ -20,7 +20,7 @@ import { useToday } from "@/hooks/use-today";
 import { formatDayMonth, formatLocalYMD, formatShortDate, parseLocalYMD, todayYMD, WEEKDAY_SHORT } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { FreezePeriod, IntervalType, Routine, RoutineFrequency } from "@/types/entities";
-import { FREQUENCY_LABELS, INTERVAL_LABELS, isPeriodActiveOn } from "../lib/planner-logic";
+import { FREQUENCY_LABELS, INTERVAL_LABELS, isPeriodActiveOn, overlappingFreezes } from "../lib/planner-logic";
 import { useRetained } from "@/hooks/use-retained";
 
 // ============================================================================
@@ -162,6 +162,13 @@ function RoutineFormBody({ routine, onOpenChange, onSave }: RoutineFormDialogPro
                 </SelectContent>
               </Select>
               <span className="font-medium text-muted-foreground">sekali</span>
+              {(form.intervalType === "months" || form.intervalType === "years") &&
+                Number(form.startDate?.slice(8, 10)) > 28 && (
+                  <p className="w-full text-xs text-muted-foreground">
+                    Tanggal mulai {Number(form.startDate?.slice(8, 10))} jatuh ke hari terakhir pada bulan yang lebih
+                    pendek.
+                  </p>
+                )}
             </div>
           )}
 
@@ -216,6 +223,11 @@ function RoutineFormBody({ routine, onOpenChange, onSave }: RoutineFormDialogPro
                   );
                 })}
               </div>
+              {(form.monthDates ?? []).some((d) => Number(d) > 28) && (
+                <p className="text-xs text-muted-foreground">
+                  Tanggal 29–31 jatuh ke hari terakhir pada bulan yang lebih pendek.
+                </p>
+              )}
             </Field>
           )}
 
@@ -259,14 +271,15 @@ export function FreezeDialog({
             Rutinitas "{routine?.title}" tidak akan muncul di agenda dan tidak memengaruhi performa selama periode ini.
           </p>
         </div>
-        <FreezeForm onSave={onSave} />
+        <FreezeForm existing={routine?.freezePeriods ?? []} onSave={onSave} />
       </DialogContent>
     </Dialog>
   );
 }
 
-function FreezeForm({ onSave }: { onSave: (period: FreezePeriod) => void }) {
+function FreezeForm({ existing, onSave }: { existing: FreezePeriod[]; onSave: (period: FreezePeriod) => void }) {
   const [period, setPeriod] = useState<FreezePeriod>({ startDate: "", endDate: "", reason: "" });
+  const overlaps = overlappingFreezes(existing, period);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -313,6 +326,7 @@ function FreezeForm({ onSave }: { onSave: (period: FreezePeriod) => void }) {
             onChange={(e) => setPeriod({ ...period, reason: e.target.value })}
           />
         </Field>
+        <OverlapWarning overlaps={overlaps} />
         <Button type="submit" className="w-full bg-info text-info-foreground hover:bg-info/85">
           Simpan Freeze
         </Button>
@@ -399,6 +413,9 @@ export function FreezeHistoryDialog({
                       value={editForm.reason}
                       onChange={(e) => setEditForm({ ...editForm, reason: e.target.value })}
                     />
+                    <OverlapWarning
+                      overlaps={overlappingFreezes(routine?.freezePeriods ?? [], editForm, p.originalIndex)}
+                    />
                     <div className="flex gap-2">
                       <Button
                         type="button"
@@ -436,7 +453,7 @@ export function FreezeHistoryDialog({
                     {isActive && <Badge className="bg-info text-info-foreground">Aktif</Badge>}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground italic">"{p.reason}"</p>
-                  <div className="absolute top-2 right-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <div className="absolute top-2 right-2 flex gap-0.5 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100">
                     <Button
                       variant="ghost"
                       size="icon-xs"
@@ -476,5 +493,22 @@ export function FreezeHistoryDialog({
         }}
       />
     </>
+  );
+}
+
+/** Peringatan periode freeze yang beririsan (tetap boleh disimpan; periode beririsan tidak mengubah hasil). */
+function OverlapWarning({ overlaps }: { overlaps: FreezePeriod[] }) {
+  if (overlaps.length === 0) return null;
+  return (
+    <div className="flex gap-2 rounded-xl bg-warning/15 p-3 text-xs text-warning-foreground dark:text-warning">
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+      <p>
+        Beririsan dengan freeze lain:{" "}
+        {overlaps
+          .map((p) => `${formatDayMonth(parseLocalYMD(p.startDate))} – ${formatShortDate(parseLocalYMD(p.endDate))}`)
+          .join(", ")}
+        . Pertimbangkan mengubah periode yang sudah ada.
+      </p>
+    </div>
   );
 }
