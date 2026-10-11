@@ -6,12 +6,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { diskStorage } from "multer";
 import { ExtractionModule } from "../extraction/extraction.module";
+import { SharingModule } from "../sharing/sharing.module";
 import { UploadsController } from "./uploads.controller";
 import { UploadsService } from "./uploads.service";
 
 @Module({
   imports: [
     ExtractionModule,
+    SharingModule,
     MulterModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({

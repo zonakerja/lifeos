@@ -123,7 +123,8 @@ interface ArchiveCardProps {
   selected: boolean;
   onToggle: () => void;
   onDetail: () => void;
-  onLabel: () => void;
+  /** Kosong = tombol Cetak Label disembunyikan (mis. arsip milik user lain) */
+  onLabel?: () => void;
   onEdit: () => void;
   onDispose: (type: "destroy" | "transfer") => void;
 }
@@ -240,7 +241,7 @@ export function ArchiveCard({
           <IconAction label="Lihat Detail" onClick={onDetail}>
             <Info />
           </IconAction>
-          {!isFinal && (
+          {!isFinal && onLabel && (
             <IconAction label="Cetak Label" onClick={onLabel}>
               <Printer />
             </IconAction>

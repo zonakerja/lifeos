@@ -84,10 +84,6 @@ export const overdueTodos = (todos: Todo[], viewYmd: string, todayYmd = viewYmd)
 export const overdueTasks = (tasks: ProjectTask[], viewYmd: string, todayYmd = viewYmd) =>
   lateItemsOn(tasks, taskYMD, viewYmd, todayYmd);
 
-/** Patch status selesai: catat `completedAt` saat dicentang, hapus saat dibatalkan. */
-export const completionPatch = (completed: boolean, now = new Date()) =>
-  completed ? { completed: true, completedAt: now.toISOString() } : { completed: false, completedAt: undefined };
-
 /**
  * Tanggal `day` pada bulan milik `date`; bila bulan itu lebih pendek, jatuh ke hari terakhirnya
  * (tanggal 31 → 30 Nov / 28 Feb; 29 Feb → 28 Feb di tahun biasa).

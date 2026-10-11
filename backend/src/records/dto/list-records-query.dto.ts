@@ -1,4 +1,4 @@
-import { IsISO8601, IsOptional, IsString } from "class-validator";
+import { IsISO8601, IsOptional } from "class-validator";
 
 export class ListRecordsQueryDto {
   @IsOptional()
@@ -8,8 +8,4 @@ export class ListRecordsQueryDto {
   @IsOptional()
   @IsISO8601()
   to?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
 }

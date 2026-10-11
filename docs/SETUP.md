@@ -172,7 +172,7 @@ npm --prefix frontend install
 ```
 
 **Langkah 6 — coba jalankan** mengikuti §4 langkah 3–4, buka http://localhost:5173 dan login
-`admin@lifeos.com` / `123` (viewer: `viewer@lifeos.com` / `123`). Opsional, pastikan semuanya sehat:
+`admin@lifeos.com` / `123` (akun kedua untuk uji berbagi: `user@lifeos.com` / `123`). Opsional, pastikan semuanya sehat:
 
 ```powershell
 npm --prefix backend test; npm --prefix frontend test
@@ -320,7 +320,8 @@ npm run dev                     # http://localhost:4000/api/v1
 - Swagger UI: `http://localhost:4000/api/docs` (non-production).
 - Health: `GET /api/v1/health` (readiness: database, redis, storage) dan `GET /api/v1/health/live` (liveness).
 - Log: format mudah dibaca di development, JSON di production (`LOG_LEVEL`).
-- Akun demo (seed development): `admin@lifeos.com` / `123` (super_admin), `viewer@lifeos.com` / `123` (viewer).
+- Akun demo (seed development): `admin@lifeos.com` / `123` (super_admin), `user@lifeos.com` / `123` (member, untuk uji
+  berbagi). Data setiap akun terisolasi — admin pun tidak melihat data akun lain kecuali dibagikan.
 - Semua env divalidasi saat boot (`src/config/env.validation.ts`); daftar lengkap di `backend/.env.example`.
 
 | Perintah | Fungsi |

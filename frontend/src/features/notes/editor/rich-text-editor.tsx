@@ -52,6 +52,7 @@ import { toExternalHref } from "@/lib/urls";
 import { cn } from "@/lib/utils";
 import { InkBlock } from "./ink-block";
 import { UploadImage } from "./upload-image";
+import { usePermissions } from "@/hooks/use-permissions";
 
 export interface RichTextChange {
   doc: JSONContent;
@@ -157,6 +158,8 @@ function LinkButton({ editor, active }: { editor: Editor; active: boolean }) {
 function Toolbar({ editor, onUploaded }: { editor: Editor; onUploaded?: (uploadId: string) => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  // Di dalam item bersama (izin edit), berkas disimpan atas nama pemilik item
+  const { uploadOwnerId } = usePermissions();
   const state = useEditorState({
     editor,
     selector: ({ editor: e }) => ({
@@ -193,7 +196,7 @@ function Toolbar({ editor, onUploaded }: { editor: Editor; onUploaded?: (uploadI
     }
     setUploading(true);
     try {
-      const asset = await uploadsApi.upload(file, "free_note_image");
+      const asset = await uploadsApi.upload(file, "free_note_image", uploadOwnerId);
       onUploaded?.(asset.id);
       chain().insertUploadedImage({ uploadId: asset.id, alt: file.name }).run();
     } catch (error) {

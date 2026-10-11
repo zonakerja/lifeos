@@ -4,7 +4,7 @@
 //   SMOKE_ADMIN_EMAIL    akun super_admin (default admin@lifeos.com — seed development)
 //   SMOKE_ADMIN_PASSWORD (default 123)
 //
-// Tidak mengubah data asli: semua uji tulis memakai user sementara (member & viewer)
+// Tidak mengubah data asli: semua uji tulis memakai dua user member sementara
 // yang dibuat di awal dan dihapus (cascade) di akhir.
 const B = process.env.API_URL ?? "http://localhost:4000/api/v1";
 const ADMIN_EMAIL = process.env.SMOKE_ADMIN_EMAIL ?? "admin@lifeos.com";
@@ -99,10 +99,23 @@ const email = `smoke-${Date.now()}@lifeos.test`;
 r = await j("POST", "/users", { name: "Smoke Test", email, password: "rahasia", role: "member" }, admin);
 ok("create temp user", r.s === 201 && r.d.id, r);
 const tempUserId = r.d.id;
-const viewerEmail = `smoke-viewer-${Date.now()}@lifeos.test`;
-r = await j("POST", "/users", { name: "Smoke Viewer", email: viewerEmail, password: "rahasia", role: "viewer" }, admin);
-ok("create temp viewer", r.s === 201 && r.d.id, r);
-const tempViewerId = r.d.id;
+// Rekan untuk uji isolasi data & berbagi
+const partnerEmail = `smoke-partner-${Date.now()}@lifeos.test`;
+r = await j(
+  "POST",
+  "/users",
+  { name: "Smoke Partner", email: partnerEmail, password: "rahasia", role: "member" },
+  admin,
+);
+ok("create temp partner", r.s === 201 && r.d.id, r);
+const tempPartnerId = r.d.id;
+r = await j(
+  "POST",
+  "/users",
+  { name: "x", email: `v-${Date.now()}@lifeos.test`, password: "rahasia", role: "viewer" },
+  admin,
+);
+ok("role viewer removed 400", r.s === 400, r);
 r = await j("POST", "/auth/login", { email, password: "rahasia" });
 let at = r.d.accessToken;
 const rt = r.rt;
@@ -411,14 +424,223 @@ try {
   r = await j("POST", "/auth/refresh", null, null, sessionA.rt);
   ok("current session kept after password change", r.s === 200, r);
 
-  // ------------------------------------------------------------ viewer (read-only)
-  r = await j("POST", "/auth/login", { email: viewerEmail, password: "rahasia" });
-  const vt = r.d.accessToken;
-  r = await j("PUT", "/records/todo/x", { payload: {} }, vt);
-  ok("viewer write 403", r.s === 403, r);
-  r = await j("GET", "/users", null, vt);
-  ok("viewer users 403", r.s === 403, r);
-  r = await j("POST", "/auth/change-password", { currentPassword: "salah", newPassword: "1234" }, vt);
+  // ------------------------------------------------------------ isolasi data & berbagi
+  at = (await j("POST", "/auth/login", { email, password: "rahasia2" })).d.accessToken;
+  r = await j("POST", "/auth/login", { email: partnerEmail, password: "rahasia" });
+  const pt = r.d.accessToken;
+  const shareFile = new FormData();
+  shareFile.append("file", new Blob(["a;b\n1;2"], { type: "text/csv" }), "berbagi.csv");
+  r = await j("POST", "/uploads", shareFile, at);
+  const sharedAsset = r.d.id;
+  await j("PUT", "/records/free_note/sh-n1", { payload: { title: "Catatan lampiran", content: "isi" } }, at);
+  await j("PUT", "/records/free_note/sh-n2", { payload: { title: "Catatan pribadi", content: "rahasia" } }, at);
+  r = await j(
+    "PUT",
+    "/records/para_project/sh-p1",
+    {
+      payload: {
+        title: "Proyek Bersama",
+        resources: [
+          { id: "a1", type: "file", uploadId: sharedAsset },
+          { id: "a2", type: "note", noteId: "free-sh-n1" },
+        ],
+      },
+    },
+    at,
+  );
+  ok("owner project with attachments", r.s === 200, r);
+  await j("PUT", "/records/para_task/sh-t1", { payload: { title: "Action 1", projectId: "sh-p1" } }, at);
+
+  // Admin tidak punya akses ke data user lain
+  r = await j("GET", "/records/para_project", null, admin);
+  ok("admin cannot list user data", r.s === 200 && !r.d.some((x) => x.clientId === "sh-p1"), r);
+  r = await j("GET", `/records/para_project?userId=${tempUserId}`, null, admin);
+  ok("admin userId filter rejected 400", r.s === 400, r);
+  r = await j("PUT", "/records/para_project/sh-p1", { payload: { title: "x" }, userId: tempUserId }, admin);
+  ok("admin write user data 403", r.s === 403, r);
+  r = await j("DELETE", `/records/para_project/sh-p1?userId=${tempUserId}`, null, admin);
+  ok("admin delete user data 404", r.s === 404, r);
+  r = await j("GET", `/uploads/${sharedAsset}`, null, admin);
+  ok("admin cannot read user file 403", r.s === 403, r);
+  r = await j("GET", "/archive-audit", null, admin);
+  ok("admin audit only own", r.s === 200 && !r.d.some((x) => x.userId === tempUserId), r);
+  r = await j("GET", "/records/para_project", null, pt);
+  ok("partner sees nothing before share", r.s === 200 && r.d.length === 0, r);
+  r = await j("GET", `/uploads/${sharedAsset}`, null, pt);
+  ok("partner file 403 before share", r.s === 403, r);
+
+  // Membuat berbagi
+  r = await j("POST", "/shares", { recordType: "para_project", recordId: "sh-p1", email, permission: "view" }, at);
+  ok("share to self 400", r.s === 400, r);
+  r = await j(
+    "POST",
+    "/shares",
+    { recordType: "para_project", recordId: "sh-p1", email: "tidak-ada@lifeos.test", permission: "view" },
+    at,
+  );
+  ok("share unknown email 404", r.s === 404, r);
+  r = await j("POST", "/shares", { recordType: "todo", recordId: "x", email: partnerEmail, permission: "view" }, at);
+  ok("share non-shareable type 400", r.s === 400, r);
+  r = await j(
+    "POST",
+    "/shares",
+    { recordType: "para_project", recordId: "sh-p1", email: partnerEmail, permission: "view" },
+    pt,
+  );
+  ok("share someone else's item 404", r.s === 404, r);
+  r = await j(
+    "POST",
+    "/shares",
+    { recordType: "para_project", recordId: "sh-p1", email: partnerEmail.toUpperCase(), permission: "view" },
+    at,
+  );
+  ok("share project (view)", r.s === 201 && r.d.recipient.email === partnerEmail, r);
+  const shareId = r.d.id;
+  r = await j("GET", "/shares?recordType=para_project&recordId=sh-p1", null, at);
+  ok("owner lists recipients", r.s === 200 && r.d.length === 1, r);
+  r = await j("GET", "/shares?recordType=para_project&recordId=sh-p1", null, pt);
+  ok("recipient cannot list recipients 404", r.s === 404, r);
+
+  // Penerima: root + turunan + rujukan + berkas
+  r = await j("GET", "/records/para_project", null, pt);
+  const sharedProject = r.d.find((x) => x.clientId === "sh-p1");
+  ok(
+    "recipient sees shared project",
+    sharedProject?.share?.permission === "view" &&
+      sharedProject.share.root &&
+      sharedProject.share.ownerName === "Smoke Test",
+    r,
+  );
+  r = await j("GET", "/records/para_task", null, pt);
+  ok(
+    "recipient sees descendant task",
+    r.d.some((x) => x.clientId === "sh-t1" && x.share?.root === false),
+    r,
+  );
+  r = await j("GET", "/records/free_note", null, pt);
+  ok(
+    "recipient sees referenced note only",
+    r.d.length === 1 && r.d[0].clientId === "sh-n1" && r.d[0].share.permission === "view",
+    r,
+  );
+  r = await j("GET", `/uploads/${sharedAsset}`, null, pt);
+  ok("recipient reads attached file", r.s === 200, r);
+  r = await j("DELETE", `/uploads/${sharedAsset}`, null, pt);
+  ok("recipient cannot delete owner file 403", r.s === 403, r);
+  r = await j(
+    "PUT",
+    "/records/para_task/sh-t1",
+    { payload: { title: "Ubah", projectId: "sh-p1" }, userId: tempUserId },
+    pt,
+  );
+  ok("view cannot write 403", r.s === 403, r);
+  r = await j("GET", `/comments?recordType=para_project&recordId=sh-p1&ownerId=${tempUserId}`, null, pt);
+  ok("view reads comments", r.s === 200 && r.d.length === 0, r);
+  r = await j(
+    "POST",
+    "/comments",
+    { recordType: "para_project", recordId: "sh-p1", ownerId: tempUserId, body: "Halo" },
+    pt,
+  );
+  ok("view cannot comment 403", r.s === 403, r);
+
+  // Izin komentar
+  r = await j("PATCH", `/shares/${shareId}`, { permission: "comment" }, at);
+  ok("change permission to comment", r.s === 200 && r.d.permission === "comment", r);
+  r = await j(
+    "POST",
+    "/comments",
+    { recordType: "para_project", recordId: "sh-p1", ownerId: tempUserId, body: "Siap" },
+    pt,
+  );
+  ok("comment as recipient", r.s === 201 && r.d.author.name === "Smoke Partner", r);
+  const commentId = r.d.id;
+  r = await j("GET", "/comments?recordType=para_project&recordId=sh-p1", null, at);
+  ok("owner sees comment", r.s === 200 && r.d.length === 1 && r.d[0].body === "Siap", r);
+  r = await j("PATCH", `/comments/${commentId}`, { body: "Ubah" }, at);
+  ok("only author edits comment 403", r.s === 403, r);
+  r = await j(
+    "POST",
+    "/comments",
+    { recordType: "para_project", recordId: "sh-p1", ownerId: tempUserId, body: "x" },
+    admin,
+  );
+  ok("outsider comment 404", r.s === 404, r);
+
+  // Izin edit: ubah item, tambah turunan (pemilik = pemilik induk), hapus turunan, unggah ke ruang pemilik
+  r = await j("PATCH", `/shares/${shareId}`, { permission: "edit" }, at);
+  r = await j(
+    "PUT",
+    "/records/para_task/sh-t1",
+    { payload: { title: "Diubah rekan", projectId: "sh-p1" }, userId: tempUserId },
+    pt,
+  );
+  ok("edit shared task", r.s === 200 && r.d.userId === tempUserId && r.d.title === "Diubah rekan", r);
+  r = await j("PUT", "/records/para_task/sh-t2", { payload: { title: "Action rekan", projectId: "sh-p1" } }, pt);
+  ok("new child owned by project owner", r.s === 200 && r.d.userId === tempUserId, r);
+  r = await j("GET", "/records/para_task", null, at);
+  ok(
+    "owner sees collaborator task",
+    r.d.some((x) => x.clientId === "sh-t2"),
+    r,
+  );
+  r = await j("PUT", "/records/free_note/sh-n1", { payload: { title: "x" }, userId: tempUserId }, pt);
+  ok("referenced note stays read-only 403", r.s === 403, r);
+  r = await j("PUT", "/records/free_note/sh-n2", { payload: { title: "x" }, userId: tempUserId }, pt);
+  ok("unshared item 403", r.s === 403, r);
+  r = await j("DELETE", `/records/para_project/sh-p1?userId=${tempUserId}`, null, pt);
+  ok("recipient cannot delete shared root 403", r.s === 403, r);
+  r = await j("DELETE", `/records/para_task/sh-t2?userId=${tempUserId}`, null, pt);
+  ok("recipient deletes child", r.s === 200, r);
+  const collabFile = new FormData();
+  collabFile.append("file", new Blob(["x;y"], { type: "text/csv" }), "rekan.csv");
+  collabFile.append("ownerId", tempUserId);
+  r = await j("POST", "/uploads", collabFile, pt);
+  ok("collaborator upload into owner space", r.s === 201, r);
+  const collabAsset = r.d.id;
+  r = await j("GET", `/uploads/${collabAsset}/metadata`, null, at);
+  ok("owner owns collaborator upload", r.s === 200 && r.d.userId === tempUserId, r);
+  r = await j("DELETE", `/uploads/${collabAsset}`, null, pt);
+  ok("uploader can discard own upload", r.s === 200, r);
+  const strayFile = new FormData();
+  strayFile.append("file", new Blob(["x"], { type: "text/csv" }), "x.csv");
+  strayFile.append("ownerId", tempUserId);
+  r = await j("POST", "/uploads", strayFile, admin);
+  ok("upload to unshared owner 403", r.s === 403, r);
+
+  // Ringkasan berbagi, direktori, statistik admin
+  r = await j("GET", "/shares/incoming", null, pt);
+  ok(
+    "incoming shares",
+    r.s === 200 && r.d.length === 1 && r.d[0].item?.title === "Proyek Bersama" && r.d[0].owner.email === email,
+    r,
+  );
+  r = await j("GET", "/shares/outgoing", null, at);
+  ok("outgoing shares", r.s === 200 && r.d.length === 1 && r.d[0].recipient.email === partnerEmail, r);
+  r = await j("GET", "/users/directory?q=smoke-partner", null, at);
+  ok("user directory", r.s === 200 && r.d.length === 1 && r.d[0].email === partnerEmail && !("role" in r.d[0]), r);
+  r = await j("GET", "/users/directory?q=ab", null, at);
+  ok("directory needs 3 chars", r.s === 200 && r.d.length === 0, r);
+  r = await j("GET", "/users/stats", null, admin);
+  const stat = r.d?.find?.((x) => x.userId === tempUserId);
+  ok(
+    "admin stats without content",
+    r.s === 200 && stat?.records >= 4 && stat.files >= 1 && stat.sharesOut === 1 && !("title" in stat),
+    r,
+  );
+  r = await j("GET", "/users/stats", null, pt);
+  ok("member stats 403", r.s === 403, r);
+  r = await j("GET", "/users", null, pt);
+  ok("member users 403", r.s === 403, r);
+
+  // Penerima keluar dari berbagi → akses hilang
+  r = await j("DELETE", `/shares/${shareId}`, null, pt);
+  ok("recipient leaves share", r.s === 200, r);
+  r = await j("GET", "/records/para_project", null, pt);
+  ok("no access after leaving", r.d.length === 0, r);
+  r = await j("GET", `/uploads/${sharedAsset}`, null, pt);
+  ok("file 403 after leaving", r.s === 403, r);
+  r = await j("POST", "/auth/change-password", { currentPassword: "salah", newPassword: "1234" }, pt);
   ok("change pw wrong 400", r.s === 400, r);
   r = await j("POST", "/auth/logout", null, null, "x".repeat(30));
   ok("logout idempotent", r.s === 200, r);
@@ -428,8 +650,8 @@ try {
 } finally {
   r = await j("DELETE", `/users/${tempUserId}`, null, admin);
   ok("delete temp user (cascade)", r.s === 200, r);
-  r = await j("DELETE", `/users/${tempViewerId}`, null, admin);
-  ok("delete temp viewer", r.s === 200, r);
+  r = await j("DELETE", `/users/${tempPartnerId}`, null, admin);
+  ok("delete temp partner", r.s === 200, r);
 }
 
 console.log(failed ? `\n${failed} test GAGAL` : "\nSemua test lulus");

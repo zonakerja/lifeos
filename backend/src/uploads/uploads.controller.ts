@@ -59,6 +59,7 @@ export class UploadsController {
       properties: {
         file: { type: "string", format: "binary" },
         context: { type: "string" },
+        ownerId: { type: "string" },
       },
     },
   })
@@ -71,7 +72,7 @@ export class UploadsController {
     @CurrentUser() user: AuthUser,
   ) {
     if (!file) throw new BadRequestException("Field 'file' wajib diisi.");
-    return this.uploads.upload(file, user, dto.context);
+    return this.uploads.upload(file, user, dto.context, dto.ownerId);
   }
 
   @ApiBearerAuth()

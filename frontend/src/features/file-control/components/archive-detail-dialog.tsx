@@ -28,6 +28,10 @@ import { cn } from "@/lib/utils";
 import { type ArchiveFile, archiveTitle, classificationCode, isPermanent } from "../lib/archive";
 import { useFileControlActions } from "../use-file-control";
 import { StatusBadge } from "./archive-ui";
+import { AccessScope } from "@/components/common/access-scope";
+import { CommentsPanel } from "@/features/sharing/comments-panel";
+import { ShareButton } from "@/features/sharing/share-dialog";
+import { SharedBadge } from "@/features/sharing/shared-badge";
 
 const toDate = (value?: string) => (value ? (parseLocalYMD(value) ?? new Date(value)) : null);
 const yearOf = (value?: string) => toDate(value)?.getFullYear() ?? "...";
@@ -51,16 +55,21 @@ export function ArchiveDetailDialog({ file: fileProp, onClose }: { file: Archive
   return (
     <Dialog open={!!fileProp} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="flex max-h-[90svh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
-        {file && <ArchiveDetail file={file} onClose={onClose} />}
+        {file && (
+          <AccessScope item={file}>
+            <ArchiveDetail file={file} onClose={onClose} />
+          </AccessScope>
+        )}
       </DialogContent>
     </Dialog>
   );
 }
 
 function ArchiveDetail({ file, onClose }: { file: ArchiveFile; onClose: () => void }) {
-  const { items: classifications } = useClassifications();
-  const { items: jraList } = useJraList();
-  const { items: physRefs } = usePhysRefs();
+  // Arsip bersama merujuk klasifikasi/JRA/wadah milik pemiliknya
+  const { items: classifications } = useClassifications({ includeShared: true });
+  const { items: jraList } = useJraList({ includeShared: true });
+  const { items: physRefs } = usePhysRefs({ includeShared: true });
   const { items: borrowings } = useBorrowings();
   const { isSuperAdmin } = usePermissions();
   const actions = useFileControlActions();
@@ -83,7 +92,10 @@ function ArchiveDetail({ file, onClose }: { file: ArchiveFile; onClose: () => vo
     <>
       <DialogHeader className="border-b p-6">
         <DialogTitle className="text-xl">Detail Arsip</DialogTitle>
-        <DialogDescription className="font-mono">{file.archiveRegId || "-"}</DialogDescription>
+        <DialogDescription className="flex flex-wrap items-center gap-2 font-mono">
+          {file.archiveRegId || "-"}
+          <SharedBadge item={file} recordType={file.isArchived ? undefined : "para_resource"} />
+        </DialogDescription>
       </DialogHeader>
 
       <div className="flex-1 space-y-6 overflow-y-auto p-6">
@@ -122,7 +134,8 @@ function ArchiveDetail({ file, onClose }: { file: ArchiveFile; onClose: () => vo
                 <Eye /> Preview File
               </Button>
             )}
-            {(isDestroyed || isStatic) && isSuperAdmin && (
+            {!file.isArchived && <ShareButton item={file} recordType="para_resource" title={archiveTitle(file)} />}
+            {(isDestroyed || isStatic) && isSuperAdmin && !file.share && (
               <Button
                 size="sm"
                 variant="outline"
@@ -283,6 +296,7 @@ function ArchiveDetail({ file, onClose }: { file: ArchiveFile; onClose: () => vo
             </div>
           </div>
         )}
+        {!file.isArchived && <CommentsPanel recordType="para_resource" item={file} />}
       </div>
     </>
   );

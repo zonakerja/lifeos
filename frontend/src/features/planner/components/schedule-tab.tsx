@@ -28,6 +28,9 @@ import {
 } from "../lib/planner-logic";
 import { scheduleTypeStyle } from "../lib/schedule-style";
 import { useAgendaTypeList } from "../use-agenda-types";
+import { ShareButton } from "@/features/sharing/share-dialog";
+import { SharedBadge } from "@/features/sharing/shared-badge";
+import { itemAccess } from "@/lib/sharing";
 import { ScheduleDialogs } from "./schedule-dialogs";
 import { MediaLink } from "./schedule-form";
 
@@ -161,6 +164,7 @@ export function ScheduleTab() {
                         </Badge>
                       )}
                       {past && <Badge variant="secondary">Selesai</Badge>}
+                      <SharedBadge item={sch} recordType="schedule" />
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1.5">
@@ -189,11 +193,15 @@ export function ScheduleTab() {
                   >
                     <Eye />
                   </Button>
-                  {canEdit && (
+                  {canEdit && itemAccess(sch).canEdit && (
+                    <Button variant="ghost" size="icon" title="Ubah" onClick={() => setParams({ edit: sch.id })}>
+                      <PencilLine />
+                    </Button>
+                  )}
+                  {/* Bagikan & hapus hanya oleh pemilik agenda */}
+                  {canEdit && !sch.share && (
                     <>
-                      <Button variant="ghost" size="icon" title="Ubah" onClick={() => setParams({ edit: sch.id })}>
-                        <PencilLine />
-                      </Button>
+                      <ShareButton item={sch} recordType="schedule" title={sch.title} iconOnly />
                       <Button
                         variant="ghost"
                         size="icon"

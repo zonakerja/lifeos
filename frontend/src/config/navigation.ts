@@ -19,6 +19,7 @@ import {
   Package,
   Settings,
   Settings2,
+  Share2,
   Sparkles,
   StickyNote,
   Tag,
@@ -109,16 +110,18 @@ export const MODULES: ModuleDef[] = [
       { id: "static", label: "Statis", icon: Archive },
       { id: "destroyed", label: "Musnah", icon: FileX },
       { id: "references", label: "Referensi", icon: Tag },
+      { id: "shared", label: "Dibagikan", icon: Users },
     ],
   },
   {
     key: "settings",
     label: "Pengaturan",
-    description: "Profil, pengguna, branding aplikasi, dan API key AI.",
+    description: "Profil, berbagi, pengguna, branding aplikasi, dan API key AI.",
     path: "/settings",
     icon: Settings,
     tabs: [
       { id: "profile", label: "Profil Saya", icon: UserRound },
+      { id: "sharing", label: "Berbagi", icon: Share2 },
       { id: "users", label: "Manajemen User", icon: Users, roles: ["super_admin", "admin"] },
       { id: "app", label: "Aplikasi", icon: Settings2, roles: ["super_admin", "admin"] },
       { id: "api", label: "AI", icon: Sparkles },
@@ -135,5 +138,4 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   super_admin: "Super Admin",
   admin: "Admin",
   member: "Member",
-  viewer: "Viewer",
 };

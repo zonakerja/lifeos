@@ -1,12 +1,16 @@
 /**
- * Tipe entitas domain (payload di /records). Semua entitas boleh membawa `userId`
- * (diisi server) — jangan diubah manual kecuali oleh admin.
+ * Tipe entitas domain (payload di /records). Semua entitas boleh membawa `userId` (pemilik, diisi server) dan
+ * `share` (item milik user lain yang dibagikan) — keduanya jangan diubah manual.
  */
+
+import type { ShareMeta } from "./api";
 
 export type Priority = "low" | "medium" | "high";
 
 interface Owned {
   userId?: string;
+  /** Diisi saat dimuat bila item milik user lain yang dibagikan (tidak disimpan) */
+  share?: ShareMeta;
 }
 
 // ============================================================================

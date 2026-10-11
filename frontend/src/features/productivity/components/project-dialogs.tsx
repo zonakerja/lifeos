@@ -1,6 +1,7 @@
 import { BookOpen } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { AccessScope } from "@/components/common/access-scope";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -14,8 +15,9 @@ import { ResourceAiDialog } from "@/features/resources/resource-ai-dialog";
 import { mergeIntoGlobalResources } from "@/features/resources/resource-utils";
 import { generateId } from "@/lib/ids";
 import type { AttachedResource, Project } from "@/types/entities";
+import { useOpenSession, useRetained } from "@/hooks/use-retained";
+import { DiscardScope, useAttachmentEdits, useDiscardScope } from "../use-attachment-edits";
 import { TaskManager } from "./task-manager";
-import { useRetained } from "@/hooks/use-retained";
 
 const NO_AREA = "__none__";
 
@@ -47,22 +49,36 @@ export function ProjectFormDialog({
   onSaved,
 }: ProjectFormDialogProps) {
   const project = useRetained(projectProp);
+  const session = useOpenSession(projectProp !== null);
+  const { register, discardAll } = useDiscardScope();
+  // Batal / X / Esc: buang berkas yang diunggah di form tetapi tidak jadi disimpan
+  const close = () => {
+    discardAll();
+    onOpenChange(false);
+  };
   return (
-    <Dialog open={projectProp !== null} onOpenChange={onOpenChange}>
+    <Dialog open={projectProp !== null} onOpenChange={(open) => (open ? onOpenChange(true) : close())}>
       <DialogContent className="flex max-h-[90svh] flex-col sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{project === "new" ? "Buat Project Baru" : "Edit Project"}</DialogTitle>
         </DialogHeader>
         {project !== null && (
-          <ProjectForm
-            initial={project === "new" ? emptyProject(fixedAreaId) : { ...project, resources: project.resources ?? [] }}
-            fixedAreaId={fixedAreaId}
-            onCancel={() => onOpenChange(false)}
-            onSaved={(saved) => {
-              onSaved?.(saved);
-              onOpenChange(false);
-            }}
-          />
+          <AccessScope item={project === "new" ? null : project}>
+            <DiscardScope register={register}>
+              <ProjectForm
+                key={session}
+                initial={
+                  project === "new" ? emptyProject(fixedAreaId) : { ...project, resources: project.resources ?? [] }
+                }
+                fixedAreaId={fixedAreaId}
+                onCancel={close}
+                onSaved={(saved) => {
+                  onSaved?.(saved);
+                  onOpenChange(false);
+                }}
+              />
+            </DiscardScope>
+          </AccessScope>
         )}
       </DialogContent>
     </Dialog>
@@ -86,7 +102,10 @@ function ProjectForm({
   const { items: areas } = useAreas();
   const { setItems: setProjects } = useProjects();
   const { setItems: setResources } = useResources();
+  const edits = useAttachmentEdits({ contextTag: "Project", ownerId: initial.userId });
   const patch = (values: Partial<Project>) => setForm((prev) => ({ ...prev, ...values }));
+  const dropAttachment = (id: string) =>
+    setForm((prev) => ({ ...prev, resources: (prev.resources ?? []).filter((r) => r.id !== id) }));
 
   const save = () => {
     if (!form.title.trim()) {
@@ -106,6 +125,7 @@ function ProjectForm({
       setProjects((prev) => [...prev, created]);
       onSaved(created);
     }
+    edits.commit(); // lampiran berkas yang dilepas: hapus / jadikan Resource Global sesuai pilihan
   };
 
   return (
@@ -152,7 +172,8 @@ function ProjectForm({
               />
             </Field>
           </div>
-          {!fixedAreaId && (
+          {/* Area project milik user lain (berbagi) tidak bisa dipindah ke area kolaborator */}
+          {!fixedAreaId && !initial.share && (
             <Field>
               <FieldLabel>Area of Responsibility</FieldLabel>
               <Select value={form.areaId || NO_AREA} onValueChange={(v) => patch({ areaId: v === NO_AREA ? "" : v })}>
@@ -187,6 +208,7 @@ function ProjectForm({
               idPrefix="pr"
               onCancel={() => setAdding(false)}
               onAdd={(att) => {
+                edits.trackAdded(att);
                 patch({ resources: [...(form.resources ?? []), att] });
                 setAdding(false);
               }}
@@ -195,7 +217,10 @@ function ProjectForm({
           <AttachmentTable
             resources={form.resources}
             onOpenAi={setAiTarget}
-            onRemove={(id) => patch({ resources: (form.resources ?? []).filter((r) => r.id !== id) })}
+            onRemove={(id) => {
+              const att = form.resources?.find((r) => r.id === id);
+              if (att) edits.requestRemove(att, () => dropAttachment(id));
+            }}
           />
         </section>
       </div>
@@ -205,6 +230,7 @@ function ProjectForm({
         </Button>
         <Button onClick={save}>Simpan Project</Button>
       </DialogFooter>
+      {edits.dialog}
       <ResourceAiDialog
         resource={aiTarget}
         onOpenChange={(open) => !open && setAiTarget(null)}
@@ -225,11 +251,25 @@ export function ProjectDetailDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const project = useRetained(projectProp);
+  const session = useOpenSession(!!projectProp);
+  const { register, discardAll } = useDiscardScope();
   return (
-    <Dialog open={!!projectProp} onOpenChange={onOpenChange}>
+    <Dialog
+      open={!!projectProp}
+      onOpenChange={(open) => {
+        if (!open) discardAll(); // form Action yang terbuka: buang berkas yang belum disimpan
+        onOpenChange(open);
+      }}
+    >
       <DialogContent className="flex h-[90svh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
         <DialogTitle className="sr-only">{project?.title ?? "Detail Project"}</DialogTitle>
-        {project && <TaskManager key={project.id} owner={project} ownerType="Project" />}
+        {project && (
+          <AccessScope item={project}>
+            <DiscardScope register={register}>
+              <TaskManager key={`${project.id}-${session}`} owner={project} ownerType="Project" />
+            </DiscardScope>
+          </AccessScope>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -48,14 +48,15 @@ import {
   parseLocalYMD,
   toDateKey,
 } from "@/lib/dates";
+import { completionPatch } from "@/lib/completion";
 import { toExternalHref } from "@/lib/urls";
+import { itemAccess } from "@/lib/sharing";
 import { cn } from "@/lib/utils";
 import { completionId, type Priority, type ProjectTask, type Todo } from "@/types/entities";
 import {
   compareScheduleTime,
   isRoutineActiveOnDate,
   isScheduleOnDate,
-  completionPatch,
   doneOn,
   isDoneLate,
   overdueTasks,
@@ -307,15 +308,18 @@ export function DailyTab() {
             >
               <PencilLine />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              title="Hapus"
-              className="hover:text-destructive"
-              onClick={() => setDeleting(item)}
-            >
-              <Trash2 />
-            </Button>
+            {/* Task dari project/area yang dibagikan hanya bisa dihapus dengan izin edit */}
+            {itemAccess(item).canEdit && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title="Hapus"
+                className="hover:text-destructive"
+                onClick={() => setDeleting(item)}
+              >
+                <Trash2 />
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -572,14 +576,8 @@ export function DailyTab() {
         kind={editingTask?.kind ?? "task"}
         onOpenChange={(open) => !open && setEditingTask(null)}
         onSave={(task) => {
-          // Catat waktu selesai (untuk penanda "diselesaikan terlambat") saat status selesai berubah
-          setTasks((prev) =>
-            prev.map((t) =>
-              t.id !== task.id
-                ? t
-                : { ...t, ...task, ...(!!t.completed !== !!task.completed ? completionPatch(!!task.completed) : {}) },
-            ),
-          );
+          // TaskQuickDialog sudah mengisi/menghapus `completedAt` bila status selesai berubah (penanda "terlambat")
+          setTasks((prev) => prev.map((t) => (t.id !== task.id ? t : { ...t, ...task })));
           setEditingTask(null);
         }}
       />

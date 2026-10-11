@@ -11,9 +11,15 @@ import type {
   AssetMetadata,
   AuthSession,
   PublicUser,
+  RecordComment,
   RecordType,
+  ShareableType,
+  ShareEntry,
+  SharePermission,
   UploadedAsset,
   UserRole,
+  UserStats,
+  UserSummary,
 } from "@/types/api";
 
 export interface ProfileInput {
@@ -56,10 +62,43 @@ export const usersApi = {
   update: (id: string, input: Partial<UserInput>) =>
     request<PublicUser>(`/users/${id}`, { method: "PATCH", body: input }),
   remove: (id: string) => request<{ success: boolean }>(`/users/${id}`, { method: "DELETE" }),
+  /** Statistik pemakaian per user (admin) — tanpa isi data */
+  stats: () => request<UserStats[]>("/users/stats"),
+  /** Cari akun penerima berbagi (min. 3 huruf) */
+  directory: (q: string) => request<UserSummary[]>("/users/directory", { query: { q } }),
+};
+
+export const sharesApi = {
+  /** Penerima satu item milik sendiri */
+  forItem: (recordType: ShareableType, recordId: string) =>
+    request<ShareEntry[]>("/shares", { query: { recordType, recordId } }),
+  outgoing: () => request<ShareEntry[]>("/shares/outgoing"),
+  incoming: () => request<ShareEntry[]>("/shares/incoming"),
+  create: (input: { recordType: ShareableType; recordId: string; email: string; permission: SharePermission }) =>
+    request<ShareEntry>("/shares", { method: "POST", body: input }),
+  update: (id: string, permission: SharePermission) =>
+    request<ShareEntry>(`/shares/${id}`, { method: "PATCH", body: { permission } }),
+  /** Pemilik mencabut, atau penerima keluar dari berbagi */
+  remove: (id: string) => request<{ success: boolean }>(`/shares/${id}`, { method: "DELETE" }),
+};
+
+export interface CommentTarget {
+  recordType: RecordType;
+  recordId: string;
+  /** Pemilik item; kosong = milik sendiri */
+  ownerId?: string;
+}
+
+export const commentsApi = {
+  list: (target: CommentTarget) => request<RecordComment[]>("/comments", { query: { ...target } }),
+  create: (target: CommentTarget, body: string) =>
+    request<RecordComment>("/comments", { method: "POST", body: { ...target, body } }),
+  update: (id: string, body: string) => request<RecordComment>(`/comments/${id}`, { method: "PATCH", body: { body } }),
+  remove: (id: string) => request<{ success: boolean }>(`/comments/${id}`, { method: "DELETE" }),
 };
 
 export const recordsApi = {
-  list: <T>(type: RecordType, query?: { userId?: string; from?: string; to?: string }) =>
+  list: <T>(type: RecordType, query?: { from?: string; to?: string }) =>
     request<ApiRecord<T>[]>(`/records/${type}`, { query }),
   upsert: <T>(type: RecordType, clientId: string, payload: T, userId?: string) =>
     request<ApiRecord<T>>(`/records/${type}/${encodeURIComponent(clientId)}`, {
@@ -74,10 +113,12 @@ export const recordsApi = {
 };
 
 export const uploadsApi = {
-  upload: (file: File, context?: string) => {
+  /** `ownerId` = pemilik item bersama (izin edit) tempat berkas dilampirkan; kosong = milik sendiri. */
+  upload: (file: File, context?: string, ownerId?: string) => {
     const form = new FormData();
     form.append("file", file);
     if (context) form.append("context", context);
+    if (ownerId) form.append("ownerId", ownerId);
     return request<UploadedAsset>("/uploads", { method: "POST", body: form });
   },
   list: (take = 50) => request<UploadedAsset[]>("/uploads", { query: { take } }),

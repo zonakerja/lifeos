@@ -10,6 +10,7 @@ import {
 } from "@/data/collections";
 import { uploadsApi } from "@/lib/api/endpoints";
 import { generateId } from "@/lib/ids";
+import { useAuthStore } from "@/stores/auth-store";
 import type { AttachedResource, Resource } from "@/types/entities";
 import { describeCleanup, planAttachmentCleanup, referencedUploadIds } from "./attachment-cleanup";
 
@@ -49,10 +50,12 @@ const toGlobalResource = (att: AttachedResource, contextTag: string, ownerId?: s
 
 /**
  * Pembersihan berkas lampiran (dipakai bersama Planner & Productivity, aturan di `attachment-cleanup.ts`).
- * - `referenced(exclude)` → `uploadId` yang masih dipakai di luar lampiran `exclude` (untuk menandai berkas "dipakai di
- *   tempat lain" di dialog).
- * - `release(files, keepIds, { contextTag, exclude?, ownerId? })` → hapus berkas yang tidak dipertahankan & tidak dipakai
- *   di tempat lain, jadikan yang dipertahankan Resource global (tag `contextTag`), tampilkan ringkasan.
+ * - `referenced(exclude, excludeResourceIds?)` → `uploadId` yang masih dipakai di luar lampiran `exclude` (dan di luar
+ *   Resource global `excludeResourceIds`, mis. resource yang sedang dihapus) — untuk menandai berkas "dipakai di tempat
+ *   lain" di dialog.
+ * - `release(files, keepIds, { contextTag, exclude?, ownerId?, excludeResourceIds? })` → hapus berkas yang tidak
+ *   dipertahankan & tidak dipakai di tempat lain, jadikan yang dipertahankan Resource global (tag `contextTag`),
+ *   tampilkan ringkasan.
  */
 export function useAttachmentCleanup() {
   const { items: resources, setItems: setResources } = useResources();
@@ -61,11 +64,13 @@ export function useAttachmentCleanup() {
   const { items: projects } = useProjects();
   const { items: activities } = useActivities();
   const { items: archives } = useParaArchives();
+  const meId = useAuthStore((st) => st.user?.id);
 
   const referenced = useCallback(
-    (exclude: AttachedResource[]) => {
+    (exclude: AttachedResource[], excludeResourceIds: string[] = []) => {
+      const skip = new Set(excludeResourceIds);
       const ids = referencedUploadIds(
-        resources,
+        skip.size ? resources.filter((r) => !skip.has(r.id)) : resources,
         [
           ...schedules.flatMap((s) => [s.resources, s.results]),
           ...tasks.map((t) => t.resources),
@@ -84,10 +89,17 @@ export function useAttachmentCleanup() {
     (
       files: AttachedResource[],
       keepIds: Iterable<string>,
-      options: { contextTag: string; exclude?: AttachedResource[]; ownerId?: string },
+      options: { contextTag: string; exclude?: AttachedResource[]; ownerId?: string; excludeResourceIds?: string[] },
     ) => {
-      const plan = planAttachmentCleanup(files, keepIds, referenced(options.exclude ?? files));
-      if (plan.keep.length) {
+      const plan = planAttachmentCleanup(
+        files,
+        keepIds,
+        referenced(options.exclude ?? files, options.excludeResourceIds),
+      );
+      // Item milik user lain (berbagi): berkas tetap milik pemiliknya — kolaborator tidak membuat Resource Global
+      // atas nama pemilik; penghapusan berkas pemilik ditolak server (diabaikan diam-diam)
+      const foreign = !!options.ownerId && options.ownerId !== meId;
+      if (plan.keep.length && !foreign) {
         setResources((prev) => {
           const known = new Set(prev.map((r) => r.uploadId).filter(Boolean));
           const added = plan.keep
@@ -101,7 +113,7 @@ export function useAttachmentCleanup() {
       if (summary) toast.info("Lampiran berkas", { description: summary });
       return plan;
     },
-    [referenced, setResources],
+    [meId, referenced, setResources],
   );
 
   /** Hapus berkas yang baru diunggah tetapi tidak jadi disimpan (tanpa pertanyaan, tanpa ringkasan). */

@@ -60,6 +60,10 @@ import {
 import { CancelledError, DOCUMENT_ACCEPT, readFileText } from "../lib/read-file-text";
 import { removeUploads } from "../lib/remove-uploads";
 import { SummaryStyleDialog } from "./summary-style-dialog";
+import { usePermissions } from "@/hooks/use-permissions";
+import { CommentsPanel } from "@/features/sharing/comments-panel";
+import { ShareButton } from "@/features/sharing/share-dialog";
+import { SharedBadge } from "@/features/sharing/shared-badge";
 
 type ProcessStatus = "idle" | "processing" | "done" | "error";
 
@@ -102,6 +106,8 @@ export function AiNoteEditor({
   const ai = useAi();
   const navigate = useNavigate();
   const { items: schedules } = useSchedules();
+  // Notes AI milik user lain (berbagi, izin edit): berkas baru disimpan atas nama pemiliknya
+  const { uploadOwnerId } = usePermissions();
   const [draft, setDraft] = useState<AiNote>(note);
   const [dirty, setDirty] = useState(false);
   const [audioStatus, setAudioStatus] = useState<ProcessStatus>(note.audioTranscript ? "done" : "idle");
@@ -173,7 +179,7 @@ export function AiNoteEditor({
   const trackUpload = (file: File, context: string) => {
     setPendingUploads((n) => n + 1);
     return uploadsApi
-      .upload(file, context)
+      .upload(file, context, uploadOwnerId)
       .then((asset) => {
         sessionUploadsRef.current.add(asset.id);
         // Editor sudah ditutup (perubahan dibuang) sebelum upload selesai → berkas tidak dipakai
@@ -396,17 +402,21 @@ export function AiNoteEditor({
               </Badge>
             )}
           </div>
-          {!readOnly && (
-            <Button onClick={save} disabled={busy}>
-              {busy ? (
-                <>
-                  <Spinner /> {pendingUploads > 0 ? "Mengunggah..." : "Memproses..."}
-                </>
-              ) : (
-                "Simpan"
-              )}
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            <SharedBadge item={note} recordType="ai_note" />
+            <ShareButton item={note} recordType="ai_note" title={draft.title} iconOnly />
+            {!readOnly && (
+              <Button onClick={save} disabled={busy}>
+                {busy ? (
+                  <>
+                    <Spinner /> {pendingUploads > 0 ? "Mengunggah..." : "Memproses..."}
+                  </>
+                ) : (
+                  "Simpan"
+                )}
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -689,6 +699,7 @@ export function AiNoteEditor({
             </div>
           </section>
         </div>
+        <CommentsPanel recordType="ai_note" item={note} />
       </CardContent>
 
       <SummaryStyleDialog open={styleOpen} onOpenChange={setStyleOpen} onConfirm={(s, c) => void generate(s, c)} />

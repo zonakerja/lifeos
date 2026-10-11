@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Home, Pencil, Phone, Plus, Trash2, Users } from "lucide-react";
+import { Database, Home, Pencil, Phone, Plus, Share2, Trash2, Users } from "lucide-react";
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -24,16 +24,30 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner";
 import { ROLE_LABELS } from "@/config/navigation";
 import { useUserMutations, useUsers } from "@/data/use-users";
+import { useUserStats } from "@/data/use-sharing";
+import { useToday } from "@/hooks/use-today";
+import { formatRelative } from "@/lib/dates";
 import { errorMessage } from "@/lib/api/client";
 import { useAuthStore } from "@/stores/auth-store";
-import type { PublicUser, UserRole } from "@/types/api";
+import type { PublicUser, UserRole, UserStats } from "@/types/api";
 import { useRetained } from "@/hooks/use-retained";
 
 const ROLE_BADGE: Record<UserRole, string> = {
   super_admin: "bg-mod-overview/15 text-mod-overview",
   admin: "bg-mod-planner/15 text-mod-planner",
   member: "bg-mod-productivity/15 text-mod-productivity",
-  viewer: "bg-muted text-muted-foreground",
+};
+
+const formatBytes = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
 };
 
 const userSchema = (isNew: boolean) =>
@@ -43,7 +57,7 @@ const userSchema = (isNew: boolean) =>
     password: isNew
       ? z.string().min(3, "Password wajib diisi (minimal 3 karakter).")
       : z.string().refine((v) => v === "" || v.length >= 3, "Password minimal 3 karakter."),
-    role: z.enum(["super_admin", "admin", "member", "viewer"]),
+    role: z.enum(["super_admin", "admin", "member"]),
     phone: z.string(),
     address: z.string(),
   });
@@ -58,6 +72,8 @@ export function UsersTab() {
   const [editing, setEditing] = useState<PublicUser | "new" | null>(null);
   const [deleting, setDeleting] = useState<PublicUser | null>(null);
   const { remove } = useUserMutations();
+  const { data: stats = [] } = useUserStats();
+  const now = useToday();
 
   const isSuperAdmin = currentUser?.role === "super_admin";
   // Admin biasa tidak boleh mengelola akun super admin (juga ditegakkan backend)
@@ -79,7 +95,7 @@ export function UsersTab() {
     <SectionCard
       icon={Users}
       title="Manajemen User"
-      description="Kelola akun dan hak akses pengguna aplikasi."
+      description="Kelola akun dan role pengguna. Data setiap pengguna terisolasi — admin hanya melihat statistik pemakaian, bukan isi data."
       action={
         <Button onClick={() => setEditing("new")}>
           <Plus /> Tambah User
@@ -108,6 +124,7 @@ export function UsersTab() {
                     {u.id === currentUser?.id && <Badge variant="outline">Anda</Badge>}
                   </div>
                   <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                  <UserStatsLine stat={stats.find((st) => st.userId === u.id)} now={now} />
                   {(u.phone || u.address) && (
                     <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
                       {u.phone && (
@@ -156,6 +173,22 @@ export function UsersTab() {
         onConfirm={confirmDelete}
       />
     </SectionCard>
+  );
+}
+
+/** Statistik pemakaian (tanpa isi data): jumlah data, berkas & ukurannya, berbagi, aktif terakhir. */
+function UserStatsLine({ stat, now }: { stat?: UserStats; now: Date }) {
+  if (!stat) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      <span className="flex items-center gap-1">
+        <Database className="size-3" /> {stat.records} data · {stat.files} berkas ({formatBytes(stat.storageBytes)})
+      </span>
+      <span className="flex items-center gap-1">
+        <Share2 className="size-3" /> membagikan {stat.sharesOut} · menerima {stat.sharesIn}
+      </span>
+      <span>Aktif {stat.lastActiveAt ? formatRelative(stat.lastActiveAt, now) : "belum pernah"}</span>
+    </div>
   );
 }
 
@@ -233,9 +266,7 @@ function UserForm({
     }
   });
 
-  const roles: UserRole[] = allowSuperAdmin
-    ? ["member", "viewer", "admin", "super_admin"]
-    : ["member", "viewer", "admin"];
+  const roles: UserRole[] = allowSuperAdmin ? ["member", "admin", "super_admin"] : ["member", "admin"];
   const saving = create.isPending || update.isPending;
 
   return (

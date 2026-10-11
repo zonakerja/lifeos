@@ -16,8 +16,10 @@ import {
 } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { toast } from "sonner";
-import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { SearchableSelect } from "@/components/common/searchable-select";
+import { ownedFiles } from "@/features/resources/attachment-cleanup";
+import { DeleteWithFilesDialog } from "@/features/resources/delete-with-files-dialog";
+import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -33,8 +35,12 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { useActivities, useAreas, useProjects, useProjectTasks } from "@/data/collections";
+import { AccessScope } from "@/components/common/access-scope";
+import { CommentsPanel } from "@/features/sharing/comments-panel";
+import { ShareButton } from "@/features/sharing/share-dialog";
+import { SharedBadge } from "@/features/sharing/shared-badge";
 import { usePermissions } from "@/hooks/use-permissions";
-import { useRetained } from "@/hooks/use-retained";
+import { useOpenSession, useRetained } from "@/hooks/use-retained";
 import { formatNumericDate } from "@/lib/dates";
 import { generateId } from "@/lib/ids";
 import { cn } from "@/lib/utils";
@@ -53,6 +59,7 @@ import {
   rootActivities,
 } from "../lib/para";
 import { taskProgress } from "../lib/progress";
+import { DiscardScope, useDiscardScope } from "../use-attachment-edits";
 import { useParaActions } from "../use-para-actions";
 import { ProjectFormDialog } from "./project-dialogs";
 import { TaskManager } from "./task-manager";
@@ -375,11 +382,25 @@ export function AreaDetailDialog({
   onArchive: (area: Area) => void;
 }) {
   const area = useRetained(areaProp);
+  const session = useOpenSession(!!areaProp);
+  const { register, discardAll } = useDiscardScope();
   return (
-    <Dialog open={!!areaProp} onOpenChange={onOpenChange}>
+    <Dialog
+      open={!!areaProp}
+      onOpenChange={(open) => {
+        if (!open) discardAll(); // form Task yang terbuka: buang berkas yang belum disimpan
+        onOpenChange(open);
+      }}
+    >
       <DialogContent className="flex h-[90svh] flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl md:flex-row">
         <DialogTitle className="sr-only">{area?.title ?? "Detail Area"}</DialogTitle>
-        {area && <AreaDetail key={area.id} area={area} onArchive={onArchive} />}
+        {area && (
+          <AccessScope item={area}>
+            <DiscardScope register={register}>
+              <AreaDetail key={`${area.id}-${session}`} area={area} onArchive={onArchive} />
+            </DiscardScope>
+          </AccessScope>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -392,12 +413,19 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
   const actions = useParaActions();
   const { setItems: setAreas } = useAreas();
   const { canEdit } = usePermissions();
+  // Area milik user lain (berbagi): bagikan, arsipkan, ambil/lepas project hanya oleh pemilik
+  const sharedArea = !!area.share;
   const [selection, setSelection] = useState<Selection>(null);
   const [editingTitle, setEditingTitle] = useState<{ title: string; description: string } | null>(null);
   const [activityForm, setActivityForm] = useState<ActivityFormTarget>(null);
   const [projectForm, setProjectForm] = useState<Project | "new" | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
   const [deleting, setDeleting] = useState<{ label: "Project" | AreaLevel; item: Activity | Project } | null>(null);
+  const cleanup = useAttachmentCleanup();
+  // Lampiran item + turunan + task yang ikut terhapus (berkasnya dibersihkan dari storage)
+  const deletingAttachments = deleting
+    ? actions.deleteAttachments(deleting.label === "Project" ? "project" : "activity", deleting.item)
+    : null;
 
   const areaActivities = activities.filter((a) => a.areaId === area.id);
   const subAreas = rootActivities(activities, area.id);
@@ -484,7 +512,7 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
                 <ListPlus />
               </Button>
             )}
-            {kind === "project" && (
+            {kind === "project" && !sharedArea && (
               <Button
                 variant="ghost"
                 size="icon-xs"
@@ -650,29 +678,38 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-2 pr-8 md:pr-0">
-            <h3 className="truncate text-xl font-bold">{area.title}</h3>
-            {canEdit && (
-              <div className="flex gap-0.5">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  title="Ubah area"
-                  onClick={() => setEditingTitle({ title: area.title, description: area.description ?? "" })}
-                >
-                  <PencilLine />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  title="Arsipkan area"
-                  className="hover:text-warning"
-                  onClick={() => onArchive(area)}
-                >
-                  <Archive />
-                </Button>
-              </div>
-            )}
+          <div className="flex flex-col gap-1.5 pr-8 md:pr-0">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="truncate text-xl font-bold">{area.title}</h3>
+              {canEdit && (
+                <div className="flex gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    title="Ubah area"
+                    onClick={() => setEditingTitle({ title: area.title, description: area.description ?? "" })}
+                  >
+                    <PencilLine />
+                  </Button>
+                  {/* Bagikan & arsipkan hanya oleh pemilik area */}
+                  {!sharedArea && (
+                    <>
+                      <ShareButton item={area} recordType="para_area" title={area.title} iconOnly />
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        title="Arsipkan area"
+                        className="hover:text-warning"
+                        onClick={() => onArchive(area)}
+                      >
+                        <Archive />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+            <SharedBadge item={area} recordType="para_area" />
           </div>
         )}
 
@@ -711,14 +748,17 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
               <span className="text-xs font-bold tracking-wider text-muted-foreground uppercase">Daftar Project</span>
               {canEdit && (
                 <div className="flex gap-0.5">
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    title="Ambil dari Free Project"
-                    onClick={() => setAttachOpen(true)}
-                  >
-                    <FolderInput />
-                  </Button>
+                  {/* Project milik kolaborator tidak bisa dimasukkan ke area milik orang lain */}
+                  {!sharedArea && (
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      title="Ambil dari Free Project"
+                      onClick={() => setAttachOpen(true)}
+                    >
+                      <FolderInput />
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon-xs"
@@ -750,15 +790,18 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
         ) : currentProject ? (
           <TaskManager key={`project-${currentProject.id}`} owner={currentProject} ownerType="Project" />
         ) : (
-          <Empty className="h-full">
-            <EmptyHeader>
-              <EmptyMedia variant="icon" className="bg-module-soft text-module">
-                <Layers />
-              </EmptyMedia>
-              <EmptyTitle>Pilih Sub Area, Kegiatan, atau Project</EmptyTitle>
-              <EmptyDescription>Pilih item di sidebar kiri untuk mengelola task/action.</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          <div className="flex h-full flex-col overflow-y-auto p-5">
+            <Empty className="flex-1">
+              <EmptyHeader>
+                <EmptyMedia variant="icon" className="bg-module-soft text-module">
+                  <Layers />
+                </EmptyMedia>
+                <EmptyTitle>Pilih Sub Area, Kegiatan, atau Project</EmptyTitle>
+                <EmptyDescription>Pilih item di sidebar kiri untuk mengelola task/action.</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+            <CommentsPanel recordType="para_area" item={area} />
+          </div>
         )}
       </div>
 
@@ -783,7 +826,7 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
           setSelection({ kind: "project", id: proj.id });
         }}
       />
-      <ConfirmDialog
+      <DeleteWithFilesDialog
         open={!!deleting}
         onOpenChange={(open) => !open && setDeleting(null)}
         title={`Hapus ${deleting?.label ?? "Item"}?`}
@@ -792,11 +835,13 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
           deleting ? actions.deleteImpact(deleting.item.id) : { taskCount: 0 },
         )}
         itemName={deleting?.item.title}
+        files={deletingAttachments ? ownedFiles(deletingAttachments) : []}
+        shared={deletingAttachments ? cleanup.referenced(deletingAttachments) : undefined}
         confirmLabel="Hapus"
-        onConfirm={() => {
+        onConfirm={(keepIds) => {
           if (!deleting) return;
-          if (deleting.label === "Project") actions.deleteProject(deleting.item as Project);
-          else actions.deleteActivity(deleting.item as Activity);
+          if (deleting.label === "Project") actions.deleteProject(deleting.item as Project, keepIds);
+          else actions.deleteActivity(deleting.item as Activity, keepIds);
           // Pilihan dikosongkan bila item terpilih ikut terhapus (termasuk turunannya)
           const removed =
             deleting.label === "Project" ? [deleting.item.id] : activityTreeIds(activities, deleting.item.id);

@@ -14,10 +14,13 @@ export const links = {
   project: (id: string) => `/productivity/projects?project=${encodeURIComponent(id)}`,
   task: (id: string) => `/productivity/projects?task=${encodeURIComponent(id)}`,
   areas: () => "/productivity/areas",
+  area: (id: string) => `/productivity/areas?area=${encodeURIComponent(id)}`,
   resource: (id: string) => `/productivity/resources?resource=${encodeURIComponent(id)}`,
   notes: (tab: "free" | "ai" | "lists" = "free") => `/notes/${tab}`,
   /** Buka langsung satu catatan (tab Catatan / Notes AI). */
   note: (tab: "free" | "ai", id: string | number) => `/notes/${tab}?note=${encodeURIComponent(String(id))}`,
+  /** Sorot satu list di tab List Bebas. */
+  list: (id: string | number) => `/notes/lists?list=${encodeURIComponent(String(id))}`,
 };
 
 /** `app:<type>:<id>` → path aplikasi, atau null bila tidak dikenal. */

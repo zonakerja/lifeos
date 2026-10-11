@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { UserRole } from "../generated/prisma/client";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
@@ -21,6 +21,19 @@ export class UsersController {
   @Get()
   findAll() {
     return this.users.findAll();
+  }
+
+  /** Statistik pemakaian per user (jumlah data & berkas) — tanpa isi data. */
+  @Roles(UserRole.super_admin, UserRole.admin)
+  @Get("stats")
+  stats() {
+    return this.users.stats();
+  }
+
+  /** Cari akun untuk dibagikan item (semua user login; min. 3 huruf, maks. 8 hasil, hanya nama & email). */
+  @Get("directory")
+  directory(@Query("q") q: string | undefined, @CurrentUser() user: AuthUser) {
+    return this.users.directory(q ?? "", user);
   }
 
   @Roles(UserRole.super_admin, UserRole.admin)

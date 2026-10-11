@@ -1,6 +1,9 @@
 import { CalendarDays, FileText, Link2, Mic, Paperclip, Pin, PinOff, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { AccessScope } from "@/components/common/access-scope";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { SharedBadge } from "@/features/sharing/shared-badge";
+import { itemAccess } from "@/lib/sharing";
 import { PageLoader } from "@/components/common/page-loader";
 import { PaginationControl } from "@/components/common/pagination-control";
 import { SearchInput } from "@/components/common/search-input";
@@ -71,14 +74,16 @@ export function AiNotesTab() {
 
   if (editing) {
     return (
-      <AiNoteEditor
-        // Remount saat agenda asal selesai dimuat agar catatan baru ikut terisi
-        key={`${noteParam}:${fromSchedule?.id ?? ""}`}
-        note={editing}
-        readOnly={!canEdit}
-        onPersist={(note) => upsert({ ...note, id: note.id || Date.now(), updatedAt: new Date().toISOString() })}
-        onExit={() => setParams({ note: null, schedule: null })}
-      />
+      <AccessScope item={editing}>
+        <AiNoteEditor
+          // Remount saat agenda asal selesai dimuat agar catatan baru ikut terisi
+          key={`${noteParam}:${fromSchedule?.id ?? ""}`}
+          note={editing}
+          readOnly={!canEdit || !itemAccess(editing).canEdit}
+          onPersist={(note) => upsert({ ...note, id: note.id || Date.now(), updatedAt: new Date().toISOString() })}
+          onExit={() => setParams({ note: null, schedule: null })}
+        />
+      </AccessScope>
     );
   }
 
@@ -154,6 +159,7 @@ export function AiNotesTab() {
                   )}
                 </div>
                 <div className="my-2 flex flex-wrap gap-2">
+                  <SharedBadge item={n} recordType="ai_note" />
                   {n.hasAudio && (
                     <Badge variant="outline" className="border-destructive/30 text-destructive">
                       <Mic /> Audio
@@ -173,7 +179,8 @@ export function AiNotesTab() {
                 <p className="line-clamp-2 pr-20 text-sm text-muted-foreground">
                   {preview(n) || "Tidak ada pratinjau konten."}
                 </p>
-                {canEdit && (
+                {/* Sematkan & hapus hanya untuk catatan milik sendiri */}
+                {canEdit && !n.share && (
                   <div className={cn("absolute right-4 bottom-4 flex gap-0.5", HOVER_ACTIONS)}>
                     <Button
                       variant="ghost"

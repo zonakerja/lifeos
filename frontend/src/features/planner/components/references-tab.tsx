@@ -32,7 +32,7 @@ import { AGENDA_COLORS, defaultAgendaColor, defaultAgendaIcon, resolveAgendaStyl
 const AI_CONTEXT = "tipe/kategori agenda (jadwal kegiatan) di Planner";
 import { useAgendaTypeList } from "../use-agenda-types";
 
-/** Agenda yang memakai tipe ini (milik user yang sama; super admin melihat tipe semua user). */
+/** Agenda yang memakai tipe ini (milik user yang sama; agenda yang dibagikan user lain tidak ikut). */
 const usesType = (s: Schedule, type: AgendaType) =>
   s.type === type.name && (!type.userId || !s.userId || s.userId === type.userId);
 
@@ -48,7 +48,7 @@ export function ReferencesTab() {
   const [deleting, setDeleting] = useState<AgendaType | null>(null);
   const { pageItems, controlProps } = usePagination(types, 12);
 
-  /** Nama ganda hanya dicek di antara tipe milik pemilik yang sama (super admin melihat tipe semua user). */
+  /** Nama ganda hanya dicek di antara tipe milik pemilik yang sama. */
   const isDuplicate = (name: string, ownerId: string | undefined, exceptId?: string) =>
     types.some(
       (t) =>

@@ -1,4 +1,4 @@
-import type { Activity, Area, Project, ProjectTask } from "@/types/entities";
+import type { Activity, Area, AttachedResource, Project, ProjectTask, Resource } from "@/types/entities";
 
 /** Palet warna proyek (token desain) — dipilih stabil berdasarkan hash ID. */
 const PROJECT_COLORS = [
@@ -163,4 +163,53 @@ export const deleteDescription = (
   return parts.length > 0
     ? `${label} ini beserta ${joinParts(parts)} di dalamnya akan dihapus permanen. Gunakan Arsipkan bila ingin menyimpannya.`
     : "Anda yakin ingin menghapus item ini secara permanen?";
+};
+
+// ============================================================================
+// Lampiran yang ikut terhapus (untuk pembersihan berkas, lihat features/resources/attachment-cleanup.ts)
+// ============================================================================
+
+/** Semua lampiran project beserta action-nya. */
+export const projectAttachments = (project: Project, tasks: ProjectTask[]): AttachedResource[] => [
+  ...(project.resources ?? []),
+  ...tasks.filter((t) => t.projectId === project.id).flatMap((t) => t.resources ?? []),
+];
+
+/** Semua lampiran item area (Sub Area/Kegiatan/Sub Kegiatan) beserta seluruh turunan dan task-nya. */
+export const activityTreeAttachments = (
+  activities: Activity[],
+  tasks: ProjectTask[],
+  id: string,
+): AttachedResource[] => {
+  const ids = new Set(activityTreeIds(activities, id));
+  return [
+    ...activities.filter((a) => ids.has(a.id)).flatMap((a) => a.resources ?? []),
+    ...tasks.filter((t) => ids.has(t.projectId)).flatMap((t) => t.resources ?? []),
+  ];
+};
+
+/** Berkas milik Resource global dalam format lampiran (untuk pembersihan berkas), atau null bila bukan berkas. */
+export const resourceFileAttachment = (
+  resource: Pick<Resource, "id" | "uploadId" | "title" | "mimeType">,
+): AttachedResource | null =>
+  resource.uploadId
+    ? {
+        id: `resource-file-${resource.id}`,
+        type: "file",
+        uploadId: resource.uploadId,
+        name: resource.title,
+        mimeType: resource.mimeType,
+      }
+    : null;
+
+/**
+ * `uploadId` lama yang tidak lagi dipakai resource setelah disimpan (berkas diganti, atau tipe tidak lagi "file"),
+ * atau null.
+ */
+export const replacedUploadId = (
+  before: Pick<Resource, "uploadId"> | null,
+  after: Pick<Resource, "uploadId" | "type">,
+) => {
+  const kept = after.type === "file" ? after.uploadId : undefined;
+  return before?.uploadId && before.uploadId !== kept ? before.uploadId : null;
 };

@@ -46,6 +46,11 @@ import { isSchedulePast, scheduleEnd, scheduleStart, scheduleTimeLabel } from ".
 import { scheduleTypeStyle } from "../lib/schedule-style";
 import { useAgendaTypeList } from "../use-agenda-types";
 import { emptySchedule, type ReleasedFiles, ScheduleFormDialog } from "./schedule-form";
+import { AccessScope } from "@/components/common/access-scope";
+import { CommentsPanel } from "@/features/sharing/comments-panel";
+import { ShareButton } from "@/features/sharing/share-dialog";
+import { SharedBadge } from "@/features/sharing/shared-badge";
+import { itemAccess } from "@/lib/sharing";
 
 /** Tag konteks saat lampiran agenda disimpan ke Resource global. */
 const GLOBAL_TAG = "Agenda";
@@ -55,7 +60,7 @@ const GLOBAL_TAG = "Agenda";
  * Jadwal):
  * - `?agenda=<id>` → tampilan **lihat** (link meeting bisa diklik, dasar pelaksanaan, hasil agenda)
  * - `?agenda=new`  → form agenda baru pada `defaultDate`
- * - `?edit=<id>`   → form ubah (viewer diarahkan ke tampilan lihat; `?edit=new` = agenda baru)
+ * - `?edit=<id>`   → form ubah (tanpa izin ubah — agenda yang dibagikan dengan izin Lihat/Komentar — diarahkan ke tampilan lihat; `?edit=new` = agenda baru)
  */
 export function ScheduleDialogs({ defaultDate }: { defaultDate?: string }) {
   const { items: schedules, upsert } = useSchedules();
@@ -67,9 +72,12 @@ export function ScheduleDialogs({ defaultDate }: { defaultDate?: string }) {
   const setParams = useSetSearchParams();
   const cleanup = useAttachmentCleanup();
 
-  const viewId = agendaParam && agendaParam !== "new" ? agendaParam : !canEdit ? editParam : null;
+  // Agenda milik user lain tanpa izin edit (berbagi) dibuka sebagai tampilan lihat
+  const editTarget = editParam && editParam !== "new" ? schedules.find((s) => s.id === editParam) : undefined;
+  const canEditTarget = canEdit && (!editTarget || itemAccess(editTarget).canEdit);
+  const viewId = agendaParam && agendaParam !== "new" ? agendaParam : !canEditTarget ? editParam : null;
   const viewing = viewId ? (schedules.find((s) => s.id === viewId) ?? null) : null;
-  const editing: Schedule | null = !canEdit
+  const editing: Schedule | null = !canEditTarget
     ? null
     : agendaParam === "new" || editParam === "new"
       ? emptySchedule(agendaTypes[0] ?? "Meeting", defaultDate)
@@ -90,24 +98,26 @@ export function ScheduleDialogs({ defaultDate }: { defaultDate?: string }) {
     <>
       <ScheduleDetailDialog
         schedule={viewing}
-        canEdit={canEdit}
+        canEdit={canEdit && itemAccess(viewing).canEdit}
         onOpenChange={(open) => !open && setParams({ agenda: null })}
         onEdit={(id) => setParams({ agenda: null, edit: id })}
         onChange={save}
       />
-      <ScheduleFormDialog
-        schedule={editing}
-        agendaTypes={agendaTypes}
-        onOpenChange={(open) => !open && setParams({ agenda: null, edit: null })}
-        onSave={(schedule, released: ReleasedFiles[]) => {
-          save(schedule);
-          // Berkas yang dilepas di form: hapus / jadikan Resource global sesuai pilihan user
-          for (const r of released)
-            cleanup.release(r.files, r.keepIds, { contextTag: GLOBAL_TAG, ownerId: schedule.userId });
-          // Setelah disimpan tampilkan hasilnya
-          setParams({ agenda: schedule.id, edit: null });
-        }}
-      />
+      <AccessScope item={editing}>
+        <ScheduleFormDialog
+          schedule={editing}
+          agendaTypes={agendaTypes}
+          onOpenChange={(open) => !open && setParams({ agenda: null, edit: null })}
+          onSave={(schedule, released: ReleasedFiles[]) => {
+            save(schedule);
+            // Berkas yang dilepas di form: hapus / jadikan Resource global sesuai pilihan user
+            for (const r of released)
+              cleanup.release(r.files, r.keepIds, { contextTag: GLOBAL_TAG, ownerId: schedule.userId });
+            // Setelah disimpan tampilkan hasilnya
+            setParams({ agenda: schedule.id, edit: null });
+          }}
+        />
+      </AccessScope>
     </>
   );
 }
@@ -127,7 +137,11 @@ function ScheduleDetailDialog({ schedule: scheduleProp, ...props }: ScheduleDeta
   return (
     <Dialog open={!!scheduleProp} onOpenChange={props.onOpenChange}>
       <DialogContent className="flex max-h-[90svh] flex-col sm:max-w-3xl">
-        {schedule && <ScheduleDetail key={schedule.id} schedule={schedule} {...props} />}
+        {schedule && (
+          <AccessScope item={schedule}>
+            <ScheduleDetail key={schedule.id} schedule={schedule} {...props} />
+          </AccessScope>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -193,6 +207,7 @@ function ScheduleDetail({
                 </span>
               )}
               <Badge className={status.className}>{status.label}</Badge>
+              <SharedBadge item={schedule} recordType="schedule" />
             </DialogDescription>
           </div>
         </div>
@@ -381,9 +396,11 @@ function ScheduleDetail({
             }}
           />
         </section>
+        <CommentsPanel recordType="schedule" item={schedule} />
       </div>
 
       <DialogFooter>
+        <ShareButton item={schedule} recordType="schedule" title={schedule.title} className="sm:mr-auto" />
         <Button variant="outline" onClick={() => onOpenChange(false)}>
           Tutup
         </Button>

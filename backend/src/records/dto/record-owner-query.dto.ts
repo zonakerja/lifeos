@@ -1,7 +1,7 @@
 import { IsOptional, IsString } from "class-validator";
 
 export class RecordOwnerQueryDto {
-  /** Pemilik record (hanya admin/super_admin). */
+  /** Pemilik record bila item milik user lain yang dibagikan (izin edit). Default: user yang login. */
   @IsOptional()
   @IsString()
   userId?: string;

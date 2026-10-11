@@ -49,15 +49,17 @@ const randomSuffix = () => Math.floor(Math.random() * 1000);
 /**
  * Sumber data File Control: resource bertipe file (aktif) + file yang ada di dalam
  * snapshot PARA Archive. Setiap perubahan dirutekan kembali ke koleksi asalnya.
+ * Default hanya arsip milik sendiri (pengelolaan, auto-dispose, transaksi); `includeShared` menyertakan arsip yang
+ * dibagikan user lain (tab Dibagikan & detail arsip).
  */
-export function useArchiveFiles() {
+export function useArchiveFiles({ includeShared = false }: { includeShared?: boolean } = {}) {
   const today = useToday();
   const resources = useResources();
   const archives = useParaArchives();
 
   const files = useMemo<ArchiveFile[]>(() => {
     const active = resources.items
-      .filter((r) => r.type === "file")
+      .filter((r) => r.type === "file" && (includeShared || !r.share))
       .map((r) => ({ ...(r as ArchiveResource), isArchived: false }));
     const archived = archives.items
       .filter(
@@ -70,7 +72,7 @@ export function useArchiveFiles() {
         archiveWrapperId: a.id,
       }));
     return [...active, ...archived].map((r) => ({ ...r, dynamicStatus: computeDynamicStatus(r, today) }));
-  }, [resources.items, archives.items, today]);
+  }, [resources.items, archives.items, today, includeShared]);
 
   /** Simpan perubahan banyak arsip sekaligus (dirutekan ke resources / para_archive). */
   const saveFiles = (updated: (ArchiveResource & Partial<ArchiveFile>)[]) => {

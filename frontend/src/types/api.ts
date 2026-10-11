@@ -1,4 +1,4 @@
-export type UserRole = "super_admin" | "admin" | "member" | "viewer";
+export type UserRole = "super_admin" | "admin" | "member";
 
 export interface PublicUser {
   id: string;
@@ -138,6 +138,72 @@ export interface ApiRecord<T = Record<string, unknown>> {
   payload: T;
   createdAt: string;
   updatedAt: string;
+  /** Terisi bila record milik user lain yang dibagikan ke user ini */
+  share?: ShareMeta;
+}
+
+// ============================================================================
+// Berbagi & komentar
+// ============================================================================
+
+/** view = baca; comment = baca + komentar; edit = ubah isi & tambah turunan. */
+export type SharePermission = "view" | "comment" | "edit";
+
+/** Record type yang bisa dibagikan sebagai item induk (sama dengan backend `SHAREABLE_TYPES`). */
+export type ShareableType =
+  "para_project" | "para_area" | "para_resource" | "free_note" | "ai_note" | "list" | "schedule";
+
+/** Penanda item milik user lain yang dapat diakses lewat berbagi. */
+export interface ShareMeta {
+  ownerId: string;
+  ownerName: string;
+  permission: SharePermission;
+  /** true = item yang dibagikan langsung; false = turunan/rujukan/lampirannya */
+  root: boolean;
+}
+
+export interface UserSummary {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface ShareEntry {
+  id: string;
+  ownerId: string;
+  recipientId: string;
+  recordType: ShareableType;
+  recordId: string;
+  permission: SharePermission;
+  createdAt: string;
+  updatedAt: string;
+  recipient?: UserSummary;
+  owner?: UserSummary;
+  /** Judul item (null = sudah dihapus/diarsipkan pemilik) — hanya di daftar masuk/keluar */
+  item?: { title: string | null; date: string | null } | null;
+}
+
+export interface RecordComment {
+  id: string;
+  ownerId: string;
+  recordType: string;
+  recordId: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  author: { id: string; name: string };
+}
+
+/** Statistik pemakaian per user untuk admin (tanpa isi data). */
+export interface UserStats {
+  userId: string;
+  records: number;
+  files: number;
+  storageBytes: number;
+  sharesOut: number;
+  sharesIn: number;
+  lastActiveAt: string | null;
 }
 
 export interface UploadedAsset {

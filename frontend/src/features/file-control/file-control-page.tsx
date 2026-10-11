@@ -11,6 +11,7 @@ import { type ArchiveListTabId, ArchiveListTab } from "./components/archive-list
 import { ArrangementTab } from "./components/arrangement/arrangement-tab";
 import { TransactionsTab } from "./components/transactions/transactions-tab";
 import { ReferencesTab } from "./components/references/references-tab";
+import { SharedArchivesTab } from "./components/shared-archives-tab";
 import { useArchiveFiles, useFileControlActions } from "./use-file-control";
 
 const LIST_TABS: ArchiveListTabId[] = ["pending", "physical", "digital", "static", "destroyed"];
@@ -19,10 +20,12 @@ export function Component() {
   const today = useToday();
   const { canEdit } = usePermissions();
   const { files, isLoading } = useArchiveFiles();
+  // Detail juga bisa membuka arsip milik user lain yang dibagikan (tab Dibagikan, Pengaturan → Berbagi)
+  const { files: visibleFiles } = useArchiveFiles({ includeShared: true });
   const jra = useJraList();
   const actions = useFileControlActions();
   const [detailId, setDetailId] = useSearchParam("archive");
-  const detail = files.find((f) => f.id === detailId) ?? null;
+  const detail = visibleFiles.find((f) => f.id === detailId) ?? null;
 
   // Auto-dispose arsip digital yang masa inaktifnya lewat (sekali per perubahan data, idempoten)
   const autoDispose = useEffectEvent(() => {
@@ -70,6 +73,7 @@ export function Component() {
           {tab === "arrangement" && <ArrangementTab />}
           {tab === "transactions" && <TransactionsTab />}
           {tab === "references" && <ReferencesTab />}
+          {tab === "shared" && <SharedArchivesTab />}
           <ArchiveDetailDialog file={detail} onClose={() => setDetailId(null)} />
         </>
       )}

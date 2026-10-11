@@ -18,6 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useAiNotes, useFreeNotes, useLists, useResources } from "@/data/collections";
 import { ResourceAiDialog } from "@/features/resources/resource-ai-dialog";
+import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
 import { openAttachment } from "@/features/resources/resource-utils";
 import { SummaryStatusBadge } from "@/features/resources/summary-status-badge";
 import { useFileSummarizer } from "@/features/resources/use-file-summarizer";
@@ -31,10 +32,16 @@ import { formatNumericDate } from "@/lib/dates";
 import { generateId } from "@/lib/ids";
 import { cn } from "@/lib/utils";
 import type { Resource } from "@/types/entities";
-import { PARA_INFO } from "../lib/para";
+import { AccessScope } from "@/components/common/access-scope";
+import { CommentsButton } from "@/features/sharing/comments-panel";
+import { ShareButton } from "@/features/sharing/share-dialog";
+import { SharedBadge } from "@/features/sharing/shared-badge";
+import { itemAccess } from "@/lib/sharing";
+import { PARA_INFO, replacedUploadId, resourceFileAttachment } from "../lib/para";
+import { DiscardScope, useDiscardOnClose, useDiscardScope } from "../use-attachment-edits";
 import { useParaActions } from "../use-para-actions";
 import { ParaInfo } from "./para-info";
-import { useRetained } from "@/hooks/use-retained";
+import { useOpenSession, useRetained } from "@/hooks/use-retained";
 
 const resourceTags = (r: Resource) => (Array.isArray(r.tags) ? r.tags : r.sourceTag ? [r.sourceTag] : ["Global"]);
 
@@ -50,6 +57,11 @@ export function ResourcesTab() {
   const [editing, setEditing] = useState<Resource | "new" | null>(null);
   const [aiTarget, setAiTarget] = useState<Resource | null>(null);
   const [deleting, setDeleting] = useState<Resource | null>(null);
+  const cleanup = useAttachmentCleanup();
+  // Berkas milik resource yang dihapus: ikut dihapus dari storage bila tidak dipakai di tempat lain
+  const deletingFile = deleting ? resourceFileAttachment(deleting) : null;
+  const deletingFileShared =
+    !!deletingFile?.uploadId && cleanup.referenced([], [deleting!.id]).has(deletingFile.uploadId);
   const [archiving, setArchiving] = useState<Resource | null>(null);
   // Deep link ?resource=<id> menyorot baris resource
   const [highlightId] = useSearchParam("resource");
@@ -121,6 +133,7 @@ export function ResourcesTab() {
                     )}
                     <span className="truncate">{res.title || "Untitled"}</span>
                   </button>
+                  <SharedBadge item={res} recordType="para_resource" className="mt-1" />
                 </TableCell>
                 <TableCell className="max-w-56 truncate text-muted-foreground">{res.content || "-"}</TableCell>
                 <TableCell className="text-xs">{res.date ? formatNumericDate(res.date) : "-"}</TableCell>
@@ -149,11 +162,16 @@ export function ResourcesTab() {
                     >
                       <Bot />
                     </Button>
-                    {canEdit && (
+                    <CommentsButton recordType="para_resource" item={res} title={res.title} />
+                    {canEdit && itemAccess(res).canEdit && (
+                      <Button variant="ghost" size="icon-sm" title="Ubah" onClick={() => setEditing(res)}>
+                        <PencilLine />
+                      </Button>
+                    )}
+                    {/* Bagikan, arsipkan, hapus hanya oleh pemilik */}
+                    {canEdit && !res.share && (
                       <>
-                        <Button variant="ghost" size="icon-sm" title="Ubah" onClick={() => setEditing(res)}>
-                          <PencilLine />
-                        </Button>
+                        <ShareButton item={res} recordType="para_resource" title={res.title} iconOnly />
                         <Button
                           variant="ghost"
                           size="icon-sm"
@@ -202,11 +220,26 @@ export function ResourcesTab() {
         open={!!deleting}
         onOpenChange={(open) => !open && setDeleting(null)}
         title="Hapus Resource?"
-        description="Anda yakin ingin menghapus item ini secara permanen dari database?"
+        description={
+          !deletingFile
+            ? "Anda yakin ingin menghapus item ini secara permanen dari database?"
+            : deletingFileShared
+              ? "Resource ini akan dihapus permanen. Berkasnya tetap disimpan karena masih dipakai di tempat lain (lampiran item lain / arsip)."
+              : "Resource ini beserta berkasnya di storage akan dihapus permanen."
+        }
         itemName={deleting?.title}
         confirmLabel="Konfirmasi Hapus"
         onConfirm={() => {
-          if (deleting) setResources((prev) => prev.filter((r) => r.id !== deleting.id));
+          if (deleting) {
+            setResources((prev) => prev.filter((r) => r.id !== deleting.id));
+            if (deletingFile) {
+              cleanup.release([deletingFile], [], {
+                contextTag: "Global Resource",
+                exclude: [],
+                excludeResourceIds: [deleting.id],
+              });
+            }
+          }
           setDeleting(null);
         }}
       />
@@ -235,27 +268,60 @@ function ResourceFormDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const resource = useRetained(resourceProp);
+  const session = useOpenSession(resourceProp !== null);
+  const { register, discardAll } = useDiscardScope();
+  const close = () => {
+    discardAll(); // Batal / X / Esc: buang berkas yang diunggah tetapi tidak jadi disimpan
+    onOpenChange(false);
+  };
   return (
-    <Dialog open={resourceProp !== null} onOpenChange={onOpenChange}>
+    <Dialog open={resourceProp !== null} onOpenChange={(open) => (open ? onOpenChange(true) : close())}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{resource === "new" ? "Tambah Resource" : "Edit Resource"}</DialogTitle>
         </DialogHeader>
         {resource !== null && (
-          <ResourceForm resource={resource === "new" ? null : resource} onDone={() => onOpenChange(false)} />
+          <AccessScope item={resource === "new" ? null : resource}>
+            <DiscardScope register={register}>
+              <ResourceForm
+                key={session}
+                resource={resource === "new" ? null : resource}
+                onCancel={close}
+                onDone={() => onOpenChange(false)}
+              />
+            </DiscardScope>
+          </AccessScope>
         )}
       </DialogContent>
     </Dialog>
   );
 }
 
-function ResourceForm({ resource, onDone }: { resource: Resource | null; onDone: () => void }) {
+function ResourceForm({
+  resource,
+  onCancel,
+  onDone,
+}: {
+  resource: Resource | null;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
   const { setItems: setResources } = useResources();
+  const cleanup = useAttachmentCleanup();
+  // Berkas yang diunggah di sesi form ini (dibuang bila tidak disimpan / diganti lagi sebelum disimpan)
+  const sessionUploads = useRef(new Set<string>());
+  const savedRef = useRef(false);
+  useDiscardOnClose(() => {
+    if (savedRef.current || sessionUploads.current.size === 0) return;
+    cleanup.discardUploads([...sessionUploads.current]);
+    sessionUploads.current.clear();
+  });
   const { items: freeNotes } = useFreeNotes();
   const { items: aiNotes } = useAiNotes();
   const { items: lists } = useLists();
   const summarizer = useFileSummarizer();
   const [uploading, setUploading] = useState(false);
+  const { uploadOwnerId } = usePermissions();
   const fileRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<Resource>(
     () => resource ?? { id: "", title: "", number: "", type: "link", content: "", date: "", url: "", noteId: "" },
@@ -284,7 +350,10 @@ function ResourceForm({ resource, onDone }: { resource: Resource | null; onDone:
     if (!file) return;
     setUploading(true);
     try {
-      const asset = await uploadsApi.upload(file, "resource");
+      const asset = await uploadsApi.upload(file, "resource", uploadOwnerId);
+      // Upload sebelumnya di sesi ini (belum pernah tersimpan) langsung dibuang saat diganti
+      if (form.uploadId && sessionUploads.current.delete(form.uploadId)) cleanup.discardUploads([form.uploadId]);
+      sessionUploads.current.add(asset.id);
       patch({ uploadId: asset.id, mimeType: asset.mimeType, url: undefined, title: form.title || asset.originalName });
     } catch (error) {
       toast.error("Upload file gagal", { description: errorMessage(error) });
@@ -301,7 +370,13 @@ function ResourceForm({ resource, onDone }: { resource: Resource | null; onDone:
       toast.error("Nama resource wajib diisi.");
       return;
     }
-    const data = { ...form, title: form.title.trim(), date: form.date || new Date().toISOString().slice(0, 10) };
+    const data: Resource = {
+      ...form,
+      title: form.title.trim(),
+      date: form.date || new Date().toISOString().slice(0, 10),
+      // Resource bukan berkas tidak menyimpan rujukan berkas
+      ...(form.type === "file" ? {} : { uploadId: undefined, mimeType: undefined }),
+    };
     if (resource) {
       setResources((prev) =>
         prev.map((r) =>
@@ -313,6 +388,14 @@ function ResourceForm({ resource, onDone }: { resource: Resource | null; onDone:
         ...prev,
         { ...data, id: generateId("res"), tags: ["Global Resource"], createdAt: new Date().toISOString() },
       ]);
+    }
+    savedRef.current = true;
+    // Berkas lama yang diganti / tidak dipakai lagi dihapus dari storage (kecuali masih dipakai di tempat lain)
+    const oldUploadId = replacedUploadId(resource, data);
+    if (resource && oldUploadId) {
+      const old = resourceFileAttachment({ ...resource, uploadId: oldUploadId });
+      if (old)
+        cleanup.release([old], [], { contextTag: "Global Resource", exclude: [], excludeResourceIds: [resource.id] });
     }
     onDone();
   };
@@ -420,7 +503,7 @@ function ResourceForm({ resource, onDone }: { resource: Resource | null; onDone:
         />
       </Field>
       <DialogFooter>
-        <Button variant="outline" onClick={onDone}>
+        <Button variant="outline" onClick={onCancel}>
           Batal
         </Button>
         <Button onClick={save} disabled={uploading || summarizer.status === "processing"}>

@@ -51,9 +51,17 @@ export const useParaArchives = () => useCollection<ParaArchive>("para_archive");
 export const useParaArchiveLogs = () => useCollection<ParaArchiveLog>("para_archive_log");
 
 // File Control (kearsipan)
-export const useClassifications = () => useCollection<ArchiveClassification>("archive_classification");
-export const useJraList = () => useCollection<ArchiveJra>("archive_jra");
-export const usePhysRefs = () => useCollection<PhysicalReference>("archive_physical_reference");
+/**
+ * Referensi kearsipan untuk PENGELOLAAN hanya milik sendiri; `includeShared` menyertakan referensi milik pemilik arsip
+ * yang dibagikan (untuk menampilkan nama klasifikasi/JRA/wadah di detail arsip bersama).
+ */
+type SharedOption = { includeShared?: boolean };
+export const useClassifications = ({ includeShared }: SharedOption = {}) =>
+  useCollection<ArchiveClassification>("archive_classification", { ownOnly: !includeShared });
+export const useJraList = ({ includeShared }: SharedOption = {}) =>
+  useCollection<ArchiveJra>("archive_jra", { ownOnly: !includeShared });
+export const usePhysRefs = ({ includeShared }: SharedOption = {}) =>
+  useCollection<PhysicalReference>("archive_physical_reference", { ownOnly: !includeShared });
 export const useBorrowings = () => useCollection<ArchiveBorrowing>("archive_borrowing");
 export const useDispositionLogs = () => useCollection<ArchiveDispositionLog>("archive_disposition");
 export const useMoveLogs = () => useCollection<ArchiveMoveLog>("archive_move_log");

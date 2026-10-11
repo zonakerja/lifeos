@@ -161,7 +161,8 @@ LifeOS/
 | Redis 8.10 | lifeos-redis | 6379 | tanpa password |
 | SeaweedFS 4.48 (S3) | lifeos-storage | 8333 (S3), 8888 (filer UI) | `lifeos` / `lifeos-secret`, bucket `lifeos-assets` (dibuat otomatis) |
 
-Seed development: `admin@lifeos.com` / `123` (super_admin), `viewer@lifeos.com` / `123` (viewer).
+Seed development: `admin@lifeos.com` / `123` (super_admin), `user@lifeos.com` / `123` (member, untuk uji berbagi).
+Akun `viewer@lifeos.com` lama (dev) kini member ("Tamu Viewer") — boleh dihapus.
 Volume PostgreSQL memuat nomor major (`lifeos-postgres18-data`, prod `postgres18-data`) dan di-mount ke
 `/var/lib/postgresql`. Data dev hanya dummy: boleh direset kapan saja (`docker compose down -v` → `up -d --wait` →
 `CREATE DATABASE lifeos_shadow` → `npx prisma migrate deploy` → `npm run prisma:seed`).
@@ -200,7 +201,18 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   refresh paralel; reuse setelahnya → semua sesi user dihapus. `POST /auth/logout`, `GET/PATCH /auth/me`,
   `POST /auth/change-password` (hapus sesi lain). Pencabutan eksplisit = hapus baris; `revokedAt` hanya untuk rotasi.
   Admin mengubah password/role user → sesi user itu dihapus.
-- **Users**: list/get (admin, super_admin), create/update/delete (super_admin; admin hanya kelola non-super-admin).
+- **Isolasi data** (detail: `docs/ARCHITECTURE.md` §3.3): role `super_admin | admin | member` (viewer dihapus). Setiap
+  user — termasuk admin — hanya membaca/menulis datanya sendiri + item yang **dibagikan** kepadanya. Role hanya untuk
+  pengelolaan akun & aplikasi. **Jangan** menambah jalan pintas "admin melihat semua data" di endpoint mana pun.
+- **Users**: list/get (admin, super_admin), create/update/delete (super_admin; admin hanya kelola non-super-admin),
+  `GET /users/stats` (admin: jumlah data/berkas/ukuran/berbagi/aktif terakhir, tanpa isi), `GET /users/directory?q=`
+  (semua user: cari penerima berbagi, min. 3 huruf, nama+email). Hapus user → berkasnya ikut dihapus dari storage.
+- **Berbagi & komentar** (`src/sharing/`): tabel `shares` (item induk `para_project | para_area | para_resource |
+  free_note | ai_note | list | schedule`, izin `view | comment | edit`) + `record_comments`. Akses dihitung saat request
+  oleh `ShareAccessService` dari logika murni `share-graph.ts` (+ test): turunan ikut dengan izin root, rujukan
+  (catatan/resource terlampir, klasifikasi/JRA/wadah arsip) baca-saja, berkas = semua key `*uploadId` di payload item
+  yang dapat diakses. Turunan baru menambah relasi → ubah `expandDescendants`/`parentRefsOf`; rujukan baru →
+  `referencesOf`. Endpoint `/shares`, `/shares/outgoing|incoming`, `/comments`.
 - **Settings**: `GET /settings/app` publik (branding login); `PATCH` admin.
 - **AI** (`src/ai/`, detail: `docs/ARCHITECTURE.md` §3.1): `GET/PATCH /ai/settings`, `PUT/DELETE /ai/settings/:provider`,
   `POST /ai/settings/:provider/test`, `POST /ai/generate` (multipart `prompt` + `files[]`, maks. 5 / 20 MB). Katalog
@@ -209,7 +221,7 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   `ai_credentials` (terenkripsi, API hanya mengembalikan `keyHint`), provider aktif di `users.ai_provider`, sakelar
   **cadangan otomatis** `users.ai_fallback` (`ai-routing.ts`: lampiran tak didukung / kuota / tak terjangkau → provider
   lain yang punya key; respons `fallback`). Error
-  provider → 429 (kuota) / 422 (lainnya) — **jangan** 401 atau ≥ 502 (lihat §15). Viewer boleh memakai AI (tidak menulis data).
+  provider → 429 (kuota) / 422 (lainnya) — **jangan** 401 atau ≥ 502 (lihat §15). Semua role boleh memakai AI.
 - **Indeks pengetahuan / RAG** (`src/ai/index/`, detail: `docs/ARCHITECTURE.md` §3.2): tabel `ai_chunks` (pgvector 768,
   `gemini-embedding-2` dengan key Gemini pemilik data; tanpa key → tanpa embedding, pencarian kata saja), antrian BullMQ
   `ai-index` dipicu `RecordsService` & ekstraksi, sakelar `users.ai_index_enabled`, `GET /ai/index`,
@@ -229,20 +241,24 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     `audit: true` (resource hanya bila punya `archivalStatus`; snapshot PARA hanya berisi file). `GET /archive-audit`.
   - Migrasi: baseline `20261009120000_init` + `20261011120000_activity_parent` +
     `20261011130000_para_archive_log` + `20261011140000_ai_credentials` +
-    `20261011150000_ai_fallback`. Migrasi baru → lihat docs/SETUP.md §10
+    `20261011150000_ai_fallback` + `20261011160000_ai_chunks` + `20261011170000_sharing` (viewer → member, `shares`,
+    `record_comments`, `assets.uploaded_by_id`). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
-- **Records API**: `GET /records/:type?userId&from&to`, `PUT /records/:type/:clientId` `{ payload, userId? }` (upsert,
-  juga undelete), `DELETE /records/:type/:clientId?userId=` (soft delete). Admin tanpa `userId` melihat semua user.
-- **Uploads**: multer diskStorage (tmp) → SHA-256 streaming → S3 `<userId>/<yyyy>/<mm>/<ts>-<uuid><ext>` → `assets` +
+- **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
+  /records/:type/:clientId` `{ payload, userId? }` (upsert, juga undelete; `userId` = pemilik item bersama, butuh izin
+  edit; item baru di dalam item bersama otomatis milik pemilik induknya), `DELETE /records/:type/:clientId?userId=`
+  (soft delete; item induk bersama hanya oleh pemiliknya). `share` di payload dibuang server.
+- **Uploads** (`ownerId` opsional = unggah ke item bersama berizin edit → berkas milik pemilik, `uploaded_by_id` =
+  pengunggah; baca: pemilik/pengunggah/penerima item yang merujuk berkas; hapus: pemilik/pengunggah): multer diskStorage (tmp) → SHA-256 streaming → S3 `<userId>/<yyyy>/<mm>/<ts>-<uuid><ext>` → `assets` +
   `asset_extractions` → job BullMQ `asset-extraction` (≤ 20 MB: teks, PDF, DOCX, XLSX; gambar/PDF scan → OCR Gemini milik
   pemilik berkas; selesai → indeks RAG). `GET /uploads/:id` (Bearer), `POST /uploads/:id/link`
   → `/uploads/:id/download?token=` 10 menit. Respons berkas: `CSP: sandbox`, konten aktif dipaksa attachment.
 - **Health**: `/health` (readiness, 503 bila dependensi down), `/health/live` (liveness).
 - **Seed**: `src/database/seed.ts` (dev: akun demo via `prisma db seed` → `tsx`; production: super admin dari env,
   `node dist/database/seed.js`).
-- **Test**: `npm test` (Vitest unit), `npm run test:smoke` (end-to-end ±50 skenario; membuat & menghapus user member
-  + viewer sementara; env `API_URL`, `SMOKE_ADMIN_EMAIL`, `SMOKE_ADMIN_PASSWORD`).
+- **Test**: `npm test` (Vitest unit), `npm run test:smoke` (end-to-end ±95 skenario termasuk isolasi admin & berbagi;
+  membuat & menghapus dua user member sementara; env `API_URL`, `SMOKE_ADMIN_EMAIL`, `SMOKE_ADMIN_PASSWORD`).
 - Perintah: `dev | build | start | lint | typecheck | test | test:smoke | prisma:generate | prisma:deploy |
   prisma:seed | db:generate-models`.
 
@@ -260,13 +276,15 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   token/user di localStorage.** `lib/api/client.ts`: `credentials: "include"`, refresh single-flight saat 401.
 - **Data domain**: `useCollection<T>(recordType, { getId? })` → `{ items, setItems, upsert, remove, isLoading }`.
   `setItems(updater)` = diff prev/next → PUT/DELETE per item (debounce 500 ms, diserialkan per item, optimistis,
-  rollback + toast). `flushPendingWrites()` saat logout. Super admin melihat data semua user.
+  rollback + toast). `flushPendingWrites()` saat logout. Koleksi berisi data sendiri + item bersama (bertanda `share`,
+  dibuang saat menulis; respons upsert memperbarui `userId` item baru). Opsi `ownOnly` = hanya milik sendiri (dipakai
+  referensi File Control: `useClassifications/useJraList/usePhysRefs({ includeShared })`).
 - **Design system (wajib)**: token OKLCH di `src/index.css`; dilarang warna hardcoded / ternary dark mode. Warna modul
   via `data-module` → `bg-module`, `text-module`, `bg-module-soft`, `bg-module-gradient`, `text-module-foreground`;
   status `success | warning | info | destructive`. Font Figtree. Setiap halaman memakai `<ModulePage module="...">`.
   Pakai komponen shadcn; jangan membuat modal/tombol custom.
 - **Bundle**: rute, halaman login, `Markdown` (react-markdown + KaTeX, `markdown-renderer.tsx`), `html5-qrcode`, dan
-  editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±395 kB; tanpa
+  editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±460 kB; tanpa
   peringatan ukuran chunk.
 - **CSP produksi** (`nginx.conf`): `script-src 'self'`, `connect-src 'self'` (AI lewat backend), `style-src 'self'
   'unsafe-inline'`, `img/media blob: data:`. Domain eksternal baru → tambahkan di sini (lebih baik lewat backend).
@@ -279,7 +297,20 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   `?project=`, `?area=`, `?task=`, `?resource=`, `?note=<id>|new` (Catatan & Notes AI, `links.note(tab, id)`; Catatan juga `new-ink` = tulis tangan), `?archive=`,
   sub-tab/filter `?sub=`/`?ref=`. Peta di `src/lib/deep-links.ts`. Mengubah **lebih dari satu** param
   sekaligus → `useSetSearchParams()({ a: null, b: null })`, jangan dua setter `useSearchParam` berturut-turut.
-- **Waktu di render**: `useToday()`. **Hak akses**: `usePermissions()` (viewer read-only).
+- **Waktu di render**: `useToday()`. **Hak akses**: `usePermissions()` → `canEdit` (data sendiri selalu true; di dalam
+  `<AccessScope item>` mengikuti izin berbagi item) + `uploadOwnerId` (upload lampiran di item bersama).
+- **Berbagi (pola wajib untuk item yang bisa dibagikan)** — `lib/sharing.ts` (`itemAccess(item)` → `canEdit`,
+  `canComment`, `isOwner`; `isMine`; label izin; `sharedItemPath`), komponen di `features/sharing/`:
+  - Bungkus dialog/editor satu item dengan `<AccessScope item={x}>` (`components/common/access-scope.tsx`) agar kontrol
+    ubah otomatis tersembunyi untuk izin Lihat/Komentar dan upload diarahkan ke pemilik.
+  - Kartu/daftar: `<SharedBadge item recordType?>` ("Pemilik · Izin" / "Dibagikan · n"); tombol ubah butuh
+    `itemAccess(x).canEdit`; **hapus, arsipkan, sematkan, bagikan hanya `!x.share`** (pemilik).
+  - `<ShareButton item recordType title iconOnly?>` (hanya tampil untuk pemilik; dialog email + izin, daftar
+    penerima). `<CommentsPanel recordType item>` / `<CommentsButton>` (hanya tampil bila item sedang dibagikan).
+  - Item baru di dalam item bersama: set `userId` = pemilik induk bila diketahui (server juga menurunkannya).
+  - Pengaturan → **Berbagi** (`sharing-tab.tsx`): Dibagikan dengan saya / oleh saya (ubah izin, cabut, keluar).
+  - File Control: pengelolaan (daftar, penataan, transaksi, auto-dispose) hanya arsip milik sendiri
+    (`useArchiveFiles()`); tab **Dibagikan** + detail memakai `useArchiveFiles({ includeShared: true })`.
 - **AI**: hanya via `useAi()` (`src/lib/ai/use-ai.ts`) → `aiApi.generate(prompt, files)` (`POST /ai/generate`);
   `isConfigured` dari `user.aiProvider`; bila backend memakai provider cadangan, `useAi` menampilkan toast (fitur tidak
   perlu menangani). Pesan belum diatur: `AI_NOT_CONFIGURED`; kuota habis = `ApiError` status 429.
@@ -318,7 +349,7 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     rujukan Resource Global) **ikut dihapus dari storage** agar tidak jadi sampah/duplikat. Konfirmasi lewat
     `<DeleteWithFilesDialog files shared onConfirm={(keepIds) => …}>` (default semua berkas dihapus; user bisa
     "Pertahankan" satu/lebih berkas → dipindah menjadi **Resource Global** dengan tag konteks), lalu eksekusi
-    `useAttachmentCleanup().release(files, keepIds, { contextTag, exclude?, ownerId? })`. Berkas yang masih dirujuk
+    `useAttachmentCleanup().release(files, keepIds, { contextTag, exclude?, ownerId?, excludeResourceIds? })`. Berkas yang masih dirujuk
     Resource global, lampiran item lain, atau snapshot arsip PARA **tidak pernah dihapus** (`referenced(exclude)` → tampil
     "Dipakai"). Logika murni + test: `attachment-cleanup.ts` (`ownedFiles`, `referencedUploadIds`,
     `planAttachmentCleanup`). Upload yang batal: `AttachmentForm` menghapus berkas yang diunggah lalu dibatalkan/diganti/
@@ -326,6 +357,19 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     ditutup tanpa disimpan (`discardUploads`, pola di `planner/components/schedule-form.tsx`: picu saat dialog ditutup —
     jangan hanya mengandalkan unmount). Melepas lampiran berkas di form yang disimpan eksplisit → keputusan dicatat dan
     dieksekusi **setelah** disimpan (Batal = tidak ada yang terhapus).
+  - **Productivity** menerapkan aturan yang sama (2026-10-11): hapus Project (lampiran project + action, tag "Project"),
+    item Area Sub Area/Kegiatan/Sub Kegiatan (lampiran item + turunan + task, tag "Area") lewat
+    `useParaActions().deleteAttachments/deleteProject(p, keepIds)/deleteActivity(a, keepIds)`; hapus Action/Task
+    (`task-manager.tsx`, tag "Project Action" / "Area Task"). Form berlampiran (form Action/Task, `TaskQuickDialog`,
+    form Project) memakai `useAttachmentEdits({ contextTag, ownerId })` (`features/productivity/use-attachment-edits.tsx`:
+    `trackAdded`, `requestRemove(att, drop)`, `commit()` setelah simpan, `discard()`, `dialog`); dialog induk memasang
+    `<DiscardScope register>` + `discardAll()` saat ditutup (`useDiscardScope`, `useDiscardOnClose`). Hapus **Resource
+    Global** (tab Resources) ikut menghapus berkasnya bila tidak dipakai di tempat lain (`excludeResourceIds`); "Ganti
+    File" di form Resource membuang upload sesi & berkas lama setelah disimpan (`replacedUploadId`). Mengarsipkan TIDAK
+    menghapus berkas (snapshot arsip melindunginya); belum ada hapus arsip permanen di UI.
+  - **Dialog form: `key` per sesi buka** — `useOpenSession(open)` (`hooks/use-retained.ts`) sebagai `key` konten form
+    agar dibuka ulang selalu mulai dari props. Tanpa ini, isi dialog yang belum di-unmount (animasi tutup) memakai ulang
+    state lama → lampiran yang berkasnya sudah dibuang saat Batal ikut tersimpan lagi.
   - Pemakai: Productivity — `resources` di Project/Activity/Action/Task (tag global "Project Action" / "Area Task"); Planner —
     **agenda** `Schedule.resources` = *Dasar Pelaksanaan* (opsional; upload context `schedule`) dan `Schedule.results` =
     *Hasil Agenda* (catatan Notes Space / upload / web link / resource global; context `schedule-result`), tag global
@@ -337,11 +381,11 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   (AI langsung memasang ikon terbaik) di `components/common/icon-picker.tsx`. Saran AI: `useIconSuggestion(context)`
   (`icon-ai.ts`; prompt memuat seluruh key + label + kata kunci, jawaban JSON divalidasi ke registry). Menambah ikon =
   entri baru di registry (impor ikon dari `lucide-react`; jangan impor `Map` tanpa alias — menimpa `Map` bawaan).
-- **Selesai terlambat (todo & task di Planner)**: centang mencatat `completedAt` (`completionPatch()` di
-  `planner-logic.ts`; batal centang menghapusnya). Item yang diselesaikan setelah tanggalnya tampil **tercentang/tercoret di
+- **Selesai terlambat (todo & task di Planner)**: centang mencatat `completedAt` (`completionPatch()` /
+  `completionChangePatch()` di `src/lib/completion.ts`, bersama Planner & Productivity; batal centang menghapusnya). Item yang diselesaikan setelah tanggalnya tampil **tercentang/tercoret di
   bagian Terlambat pada tanggal penyelesaian**, sedangkan di tanggal asalnya tampil **tidak tercentang + "Selesai <tgl>"**
-  (klik → buka tanggal itu). Data tanpa `completedAt` dianggap selesai di tanggalnya. Productivity (`task-manager.tsx`,
-  `task-quick-dialog.tsx`) belum mengisi `completedAt` — sebaiknya memakai `completionPatch` saat centang task.
+  (klik → buka tanggal itu). Data tanpa `completedAt` dianggap selesai di tanggalnya. Productivity mengisinya juga:
+  centang di `task-manager.tsx` dan "Tandai Selesai" di `TaskQuickDialog` (`onSave` sudah membawa `completedAt`).
 - **Kalender Harian** (`planner-calendar.tsx`): sel tinggi tetap 56–64 px (bukan persegi); penanda dari `summarizeDay()`
   (`planner-logic.ts`, sumber sama dengan daftar Harian) — titik penuh = ada yang belum selesai, lingkaran = semua
   selesai (todo/task/rutinitas yang sudah selesai tetap ditandai); hover tanggal → tooltip ringkasan agenda, rutinitas,
@@ -349,8 +393,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 - **Agenda (Planner)**: dibuka lewat `<ScheduleDialogs defaultDate?>` (`features/planner/components/schedule-dialogs.tsx`),
   dipasang di Overview, Planner Harian, dan Jadwal; dikendalikan URL: `?agenda=<id>` = **tampilan lihat** (link meeting
   bisa diklik/disalin, keterangan, dasar pelaksanaan, hasil agenda: ringkasan `outcome`, Notes AI terhubung otomatis
-  lewat `AiNote.linkedScheduleId`, lampiran hasil), `?agenda=new` = agenda baru, `?edit=<id>` = form ubah (viewer →
-  tampilan lihat). Link dari modul lain: `links.schedule(id)` (lihat), `links.scheduleEdit(id)` (ubah),
+  lewat `AiNote.linkedScheduleId`, lampiran hasil), `?agenda=new` = agenda baru, `?edit=<id>` = form ubah (agenda bersama
+  tanpa izin edit → tampilan lihat). Link dari modul lain: `links.schedule(id)` (lihat), `links.scheduleEdit(id)` (ubah),
   `links.newAiNoteForSchedule(id)` → `/notes/ai?note=new&schedule=<id>` (Notes AI baru terisi judul/tanggal/agenda).
   Form agenda: `schedule-form.tsx` (`ScheduleFormDialog`, `emptySchedule`, `MediaLink`).
 - **Komponen umum**: `ConfirmDialog`, `SectionCard`, `RenameDialog`, `SearchableSelect`, `PaginationControl`+`paginate()`,
@@ -426,9 +470,10 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Perbaikan Planner (terlambat, filter & urutan agenda, gaya tipe agenda, hapus berantai, layar sentuh, agenda bisa diklik, paginasi) | ✅ 2026-10-11 — lint, typecheck, unit test, build, dan UI diuji di browser (desktop + mode HP) |
 | Agenda: tampilan lihat (link meeting bisa diklik), dasar pelaksanaan (upload opsional), hasil agenda (ringkasan, Notes Space, upload, web link, Notes AI terhubung) | ✅ 2026-10-11 — lint, typecheck, unit test, build, UI diuji di browser (Overview, Harian, Jadwal, Notes AI); **integrasi ke Action Productivity: dikerjakan user/thread Productivity berikutnya** |
 | Todo selesai terlambat (tetap tercoret di Terlambat, tanggal asal "Selesai <tgl>") + paket ikon bersama (±140 ikon, pemilih + saran AI) | ✅ 2026-10-11 — unit test, typecheck, lint, UI diuji di browser; saran AI diuji dengan provider sungguhan akun admin dev |
-| Hapus agenda/lampiran → berkas ikut dihapus (pilih pertahankan → Resource Global), upload batal dibersihkan, kalender Harian ringkas + hover | ✅ 2026-10-11 — unit test, typecheck, lint, UI + storage diuji (404 setelah dihapus, Resource Global terbentuk); **Productivity belum menerapkan aturan hapus berkas & `completedAt` — prompt handoff sudah diberikan ke user** |
+| Hapus agenda/lampiran → berkas ikut dihapus (pilih pertahankan → Resource Global), upload batal dibersihkan, kalender Harian ringkas + hover | ✅ 2026-10-11 — unit test, typecheck, lint, UI + storage diuji (404 setelah dihapus, Resource Global terbentuk); Productivity menerapkan aturan yang sama + `completedAt` (2026-10-11, diuji UI + storage) |
 | Catatan Bebas: editor teks kaya (Tiptap) + tulisan tangan stylus (halaman penuh & blok Coretan) + ubah ke teks (AI) | ✅ 2026-10-11 — unit test, build, smoke, UI diuji di browser (mouse + event pena sintetis + mode HP), pengenalan AI diuji dengan Gemini sungguhan; **uji S Pen di perangkat Android user belum** |
 | Perbaikan Notes Space (simpan otomatis Catatan, cegah perubahan hilang di Notes AI, cari/sematkan/paginasi, dokumen dibaca backend, prompt AI, List urut ulang & progres) | ✅ 2026-10-11 — lint, typecheck, unit test, build, dan UI diuji di browser (desktop + mode HP); ringkasan/transkrip AI sungguhan belum diuji (butuh API key) |
+| Isolasi data per user (admin tanpa akses data user lain, role viewer dihapus, statistik admin) + **berbagi** item (Project, Area, Resource/arsip, Catatan, Notes AI, List, Agenda; izin Lihat/Komentar/Edit; turunan & berkas ikut; komentar; Pengaturan → Berbagi; File Control tab Dibagikan) | ✅ 2026-10-11 — unit (backend share-graph + frontend sharing), smoke ±45 skenario baru, lint, typecheck, build, UI diuji di browser (bagikan Edit → kolaborator menambah action & komentar; bagikan Lihat → baca-saja; statistik admin). **Belum**: RAG/chatbot mencari item bersama, notifikasi berbagi, tautan publik |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -620,10 +665,30 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   item lain, arsip PARA) dilindungi. Upload yang dibatalkan sebelum disimpan juga dihapus. Komponen bersama:
   `DeleteWithFilesDialog`, `useAttachmentCleanup`, `attachment-cleanup.ts` (+ test). Thread Productivity akan
   menerapkan pola yang sama (prompt handoff disiapkan) + pencatatan `completedAt` saat task dicentang.
+- 2026-10-11 — **Productivity: hapus berkas lampiran & `completedAt`** (lanjutan keputusan pembersihan berkas): hapus
+  Project / item Area / Action/Task dan melepas lampiran berkas di form Project/Action/Task kini menghapus berkasnya dari
+  storage (pilih Pertahankan → Resource Global; tag "Project" / "Area" / "Project Action" / "Area Task"); upload
+  sesi yang tidak disimpan dibuang saat Batal/X/Esc; hapus Resource Global (tab Resources) ikut menghapus berkasnya bila
+  tidak dipakai di tempat lain, "Ganti File" membersihkan berkas lama. `completionPatch` dipindah ke `src/lib/completion.ts`
+  (+ `completionChangePatch`); centang task/action di Productivity mengisi `completedAt`. Ditemukan & diperbaiki: form
+  dialog yang dibuka ulang sebelum unmount memakai state lama → `useOpenSession` sebagai `key`. Hook bersama
+  `useAttachmentCleanup` mendapat opsi kompatibel `excludeResourceIds` (perilaku Planner tidak berubah).
 - 2026-10-11 — **Kalender Harian**: tinggi dikurangi (sel 56–64 px, bukan persegi), hover tanggal → ringkasan agenda/
   rutinitas/to-do. Ketidaksesuaian penanda diperbaiki: sebelumnya todo/task yang sudah selesai tidak ditandai sama sekali
   (tanggal berisi to-do selesai tampak kosong) dan penanda dihitung terpisah dari daftar; kini satu sumber
   (`summarizeDay`) dengan status belum selesai (titik) / semua selesai (lingkaran).
+
+- 2026-10-11 — Thread **Environment System & User** dimulai. Keputusan user: (1) **isolasi data** — admin/super admin
+  hanya mengelola akun + melihat **statistik** pemakaian (bukan isi data); (2) role **viewer dihapus** (akun viewer →
+  member lewat migrasi; hak baca-saja kini per item); (3) **berbagi** dengan izin **Lihat / Komentar / Edit**;
+  (4) cakupan tahap pertama: Productivity (Project, Area, Resource), Notes Space (Catatan, Notes AI, List), Planner
+  (Agenda), File Control (arsip). Desain: tabel `shares` + `record_comments` (migrasi `20261011170000_sharing`), akses
+  dihitung saat request dari relasi payload (turunan ikut izin root; rujukan baca-saja; berkas lewat `uploadId`);
+  hanya pemilik yang membagikan, menghapus item induk, mengarsipkan; kolaborator Edit boleh menambah/menghapus turunan
+  (item baru milik pemilik induk) dan mengunggah ke ruang pemilik. Tag/Resource Global hasil "Pertahankan" oleh
+  kolaborator tidak dibuat atas nama pemilik. Item bersama tampil di modulnya dengan penanda pemilik; File Control
+  memisahkan pengelolaan (milik sendiri) dari tab **Dibagikan**. Seed dev: akun kedua `user@lifeos.com` (member).
+  Ditunda: RAG/chatbot atas item bersama, notifikasi saat dibagikan, tautan publik, berbagi tipe lain (rutinitas, todo).
 
 ## 13. Konvensi Kode
 
@@ -809,6 +874,20 @@ utama tetap < 500 kB (cek output `npm run build`).
   uji lewat `view.someProp("handleTextInput", …)`; instance editor ada di `document.querySelector(".ProseMirror").editor`.
 - oxlint `react(purity)` menandai `Date.now()`/`new Date()` di fungsi bernama dalam komponen walau hanya dipanggil
   dari event handler → pindahkan ke helper level modul (`const nowIso = () => new Date().toISOString()`).
+- Vite dev server bisa menyajikan modul **kosong** bila file terbaca saat sedang ditulis (mis. `prettier --write` pada
+  banyak file sementara halaman terbuka) → error "does not provide an export named …" yang bertahan setelah reload.
+  Cek `curl http://localhost:5173/src/<path>`; perbaiki dengan menyentuh file (`touch`) atau restart dev server.
+- `AttachmentForm` membuang upload yang belum "Tambahkan" hanya saat unmount; reload/tutup tab browser tidak
+  menjalankan cleanup React → berkas itu tertinggal di storage (keterbatasan yang diketahui).
+- Uji upload lewat panel browser Claude: berkas `.txt`/PDF/gambar memicu ringkasan AI sungguhan (`autoSummarize`) dan
+  tombol "Tambahkan" menunggu AI selesai → pakai berkas `.csv` (tidak diringkas) untuk uji alur berkas.
+
+- Bash tool: `node -e "..."` berisi template literal (backtick) / `${...}` dijalankan sebagai command substitution oleh
+  shell → teks rusak diam-diam. Tulis skrip ke scratchpad dengan tool Write (atau heredoc `<<'EOF'`) lalu `node skrip.js`.
+- Item milik user lain di koleksi membawa `share`; jangan menyimpan ulang item bersama tanpa `userId`-nya (server
+  menganggapnya milik sendiri → duplikat). `useCollection` sudah meneruskan `item.userId`.
+- ID record buatan client (timestamp) unik per user, bukan global: item bersama dan item sendiri bisa (sangat jarang)
+  ber-ID sama dan bentrok di cache koleksi — risiko diterima.
 
 ## 16. Memori & Kesinambungan Antar-Chat
 

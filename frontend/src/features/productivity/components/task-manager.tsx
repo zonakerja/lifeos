@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
-import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { DateRangeFilter } from "@/components/common/date-range-filter";
 import { SearchInput } from "@/components/common/search-input";
 import { Badge } from "@/components/ui/badge";
@@ -28,12 +27,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useProjectTasks, useResources } from "@/data/collections";
+import { ownedFiles } from "@/features/resources/attachment-cleanup";
 import { AddAttachmentButton, AttachmentForm } from "@/features/resources/attachment-form";
 import { AttachmentTable } from "@/features/resources/attachment-table";
 import { ResourceAiDialog } from "@/features/resources/resource-ai-dialog";
+import { DeleteWithFilesDialog } from "@/features/resources/delete-with-files-dialog";
 import { attachmentLabel, mergeIntoGlobalResources, openAttachment } from "@/features/resources/resource-utils";
+import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
+import { CommentsPanel } from "@/features/sharing/comments-panel";
+import { ShareButton } from "@/features/sharing/share-dialog";
+import { SharedBadge } from "@/features/sharing/shared-badge";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useToday } from "@/hooks/use-today";
+import { completionPatch } from "@/lib/completion";
 import { DEFAULT_DATE_FILTER, matchesDateFilter } from "@/lib/date-filter";
 import { formatNumericDate } from "@/lib/dates";
 import { generateId } from "@/lib/ids";
@@ -41,6 +47,7 @@ import { cn } from "@/lib/utils";
 import type { Activity, AttachedResource, Priority, Project, ProjectTask } from "@/types/entities";
 import type { AreaLevel } from "../lib/para";
 import { projectTimeProgress, taskProgress } from "../lib/progress";
+import { useAttachmentEdits } from "../use-attachment-edits";
 
 type TaskOwnerType = "Project" | AreaLevel;
 
@@ -70,9 +77,12 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
   const [dateFilter, setDateFilter] = useState(DEFAULT_DATE_FILTER);
   const [editing, setEditing] = useState<ProjectTask | "new" | null>(null);
   const [deleting, setDeleting] = useState<ProjectTask | null>(null);
+  const cleanup = useAttachmentCleanup();
 
   const isProject = ownerType === "Project";
   const label = isProject ? "Action" : "Task";
+  const contextTag = isProject ? "Project Action" : "Area Task";
+  const deletingFiles = ownedFiles(deleting?.resources);
   const ownerTasks = tasks.filter((t) => t.projectId === owner.id);
 
   if (editing) {
@@ -89,6 +99,8 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
               {
                 id: generateId("pt"),
                 projectId: owner.id,
+                // Action/task di item milik user lain (berbagi, izin edit) dimiliki pemilik item itu
+                ...(owner.share ? { userId: owner.userId } : {}),
                 ...values,
                 completed: false,
                 createdAt: new Date().toISOString(),
@@ -123,6 +135,7 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
           <Badge variant="secondary" className="uppercase">
             {ownerType}
           </Badge>
+          <SharedBadge item={owner} recordType={isProject ? "para_project" : undefined} />
           {owner.deadline && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <CalendarDays className="size-3" /> {formatNumericDate(owner.deadline)}
@@ -130,7 +143,10 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
           )}
         </div>
         <div>
-          <h2 className="text-2xl font-extrabold tracking-tight md:text-3xl">{owner.title}</h2>
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-2xl font-extrabold tracking-tight md:text-3xl">{owner.title}</h2>
+            {isProject && <ShareButton item={owner} recordType="para_project" title={owner.title} />}
+          </div>
           {owner.description && <p className="mt-1 text-sm text-muted-foreground">{owner.description}</p>}
         </div>
 
@@ -207,7 +223,7 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
                     type="button"
                     disabled={!canEdit}
                     aria-label={task.completed ? "Tandai belum selesai" : "Tandai selesai"}
-                    onClick={() => updateTask(task.id, { completed: !task.completed })}
+                    onClick={() => updateTask(task.id, completionPatch(!task.completed))}
                     className={cn(
                       "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors",
                       task.completed
@@ -283,6 +299,7 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
             ))}
           </ul>
         )}
+        <CommentsPanel recordType={isProject ? "para_project" : "para_activity"} item={owner} className="mt-5" />
       </div>
 
       {view === "list" && canEdit && (
@@ -297,15 +314,24 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
         </div>
       )}
 
-      <ConfirmDialog
+      <DeleteWithFilesDialog
         open={!!deleting}
         onOpenChange={(open) => !open && setDeleting(null)}
         title={`Hapus ${label}?`}
-        description={`Anda yakin ingin menghapus ${label.toLowerCase()} ini secara permanen?`}
+        description={`${label} ini akan dihapus permanen:`}
         itemName={deleting?.title}
-        confirmLabel="Hapus"
-        onConfirm={() => {
-          if (deleting) setTasks((prev) => prev.filter((t) => t.id !== deleting.id));
+        files={deletingFiles}
+        shared={deleting ? cleanup.referenced(deleting.resources ?? []) : undefined}
+        onConfirm={(keepIds) => {
+          if (deleting) {
+            setTasks((prev) => prev.filter((t) => t.id !== deleting.id));
+            // Berkas lampiran ikut dihapus kecuali dipertahankan (→ Resource Global)
+            cleanup.release(deletingFiles, keepIds, {
+              contextTag,
+              exclude: deleting.resources ?? [],
+              ownerId: deleting.userId,
+            });
+          }
           setDeleting(null);
         }}
       />
@@ -446,7 +472,11 @@ function TaskForm({
   const [adding, setAdding] = useState(false);
   const [aiTarget, setAiTarget] = useState<AttachedResource | null>(null);
   const { setItems: setResources } = useResources();
+  const contextTag = withWeight ? "Project Action" : "Area Task";
+  const edits = useAttachmentEdits({ contextTag, ownerId: task?.userId });
   const patch = (values: Partial<TaskValues>) => setForm((prev) => ({ ...prev, ...values }));
+  const dropAttachment = (id: string) =>
+    setForm((prev) => ({ ...prev, resources: (prev.resources ?? []).filter((r) => r.id !== id) }));
 
   const save = () => {
     if (!form.title.trim()) {
@@ -455,9 +485,14 @@ function TaskForm({
     }
     const attachments = form.resources ?? [];
     if (attachments.some((a) => a.addToGlobal)) {
-      setResources((prev) => mergeIntoGlobalResources(prev, attachments, withWeight ? "Project Action" : "Area Task"));
+      setResources((prev) => mergeIntoGlobalResources(prev, attachments, contextTag));
     }
     onSave({ ...form, title: form.title.trim() });
+    edits.commit();
+  };
+  const cancel = () => {
+    edits.discard(); // buang berkas yang diunggah di sesi ini
+    onCancel();
   };
 
   return (
@@ -465,7 +500,7 @@ function TaskForm({
       <div className="flex items-center justify-between gap-3 border-b p-5 pr-16">
         <h3 className="text-xl font-bold">{task ? `Edit ${label}` : `Buat ${label} Baru`}</h3>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={onCancel}>
+          <Button variant="outline" onClick={cancel}>
             Batal
           </Button>
           <Button onClick={save}>Simpan {label}</Button>
@@ -547,6 +582,7 @@ function TaskForm({
               idPrefix="tr"
               onCancel={() => setAdding(false)}
               onAdd={(att) => {
+                edits.trackAdded(att);
                 patch({ resources: [...(form.resources ?? []), att] });
                 setAdding(false);
               }}
@@ -555,10 +591,14 @@ function TaskForm({
           <AttachmentTable
             resources={form.resources}
             onOpenAi={setAiTarget}
-            onRemove={(id) => patch({ resources: (form.resources ?? []).filter((r) => r.id !== id) })}
+            onRemove={(id) => {
+              const att = form.resources?.find((r) => r.id === id);
+              if (att) edits.requestRemove(att, () => dropAttachment(id));
+            }}
           />
         </section>
       </div>
+      {edits.dialog}
       <ResourceAiDialog
         resource={aiTarget}
         onOpenChange={(open) => !open && setAiTarget(null)}

@@ -27,6 +27,11 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { cn } from "@/lib/utils";
 import type { FreeList, ListItem } from "@/types/entities";
 import { filterLists, listProgress, moveItem, removeCheckedItems } from "../lib/notes-logic";
+import { CommentsButton } from "@/features/sharing/comments-panel";
+import { ShareButton } from "@/features/sharing/share-dialog";
+import { SharedBadge } from "@/features/sharing/shared-badge";
+import { useSearchParam } from "@/hooks/use-search-param";
+import { itemAccess } from "@/lib/sharing";
 
 type ItemRef = { listId: FreeList["id"]; itemId: ListItem["id"] };
 
@@ -46,10 +51,14 @@ export function ListsTab() {
   const [archiving, setArchiving] = useState<FreeList | null>(null);
   const [clearing, setClearing] = useState<FreeList | null>(null);
 
-  const displayed = filterLists(
+  // ?list=<id> (mis. dari Pengaturan → Berbagi): list itu disorot dan ditaruh paling atas
+  const [listParam] = useSearchParam("list");
+  const filteredLists = filterLists(
     lists.filter((l) => (showArchived ? l.archived : !l.archived)),
     query,
   );
+  const highlighted = filteredLists.find((l) => String(l.id) === listParam);
+  const displayed = highlighted ? [highlighted, ...filteredLists.filter((l) => l !== highlighted)] : filteredLists;
   const { pageItems, setPage, controlProps } = usePagination(displayed, 9);
 
   const updateList = (id: FreeList["id"], fn: (l: FreeList) => FreeList) =>
@@ -146,9 +155,17 @@ export function ListsTab() {
           {pageItems.map((list) => {
             const progress = listProgress(list);
             const allDone = progress.total > 0 && progress.done === progress.total;
-            const editable = canEdit && !list.archived;
+            const access = itemAccess(list);
+            const editable = canEdit && !list.archived && access.canEdit;
             return (
-              <Card key={list.id} className={cn("gap-0 py-0", list.archived && "opacity-75 grayscale")}>
+              <Card
+                key={list.id}
+                className={cn(
+                  "gap-0 py-0",
+                  list.archived && "opacity-75 grayscale",
+                  list === highlighted && "ring-2 ring-module",
+                )}
+              >
                 <CardHeader className="flex flex-col gap-2 border-b bg-module-soft/60 py-4">
                   <div className="flex w-full items-center justify-between gap-2">
                     {editingTitle?.id === list.id ? (
@@ -178,31 +195,37 @@ export function ListsTab() {
                         )}
                       </h4>
                     )}
-                    {canEdit && (
-                      <div className="flex shrink-0 gap-0.5">
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          title={list.archived ? "Aktifkan kembali" : "Arsipkan"}
-                          aria-label={list.archived ? "Aktifkan kembali" : "Arsipkan"}
-                          className={list.archived ? "text-success" : "hover:text-warning"}
-                          onClick={() => setArchiving(list)}
-                        >
-                          {list.archived ? <ArchiveRestore /> : <Archive />}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          title="Hapus"
-                          aria-label="Hapus list"
-                          className="hover:text-destructive"
-                          onClick={() => setDeleting(list)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    )}
+                    <div className="flex shrink-0 gap-0.5">
+                      <CommentsButton recordType="list" item={list} title={list.title} />
+                      {/* Bagikan, arsipkan, hapus hanya oleh pemilik list */}
+                      {canEdit && access.isOwner && (
+                        <>
+                          <ShareButton item={list} recordType="list" title={list.title} iconOnly />
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title={list.archived ? "Aktifkan kembali" : "Arsipkan"}
+                            aria-label={list.archived ? "Aktifkan kembali" : "Arsipkan"}
+                            className={list.archived ? "text-success" : "hover:text-warning"}
+                            onClick={() => setArchiving(list)}
+                          >
+                            {list.archived ? <ArchiveRestore /> : <Archive />}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title="Hapus"
+                            aria-label="Hapus list"
+                            className="hover:text-destructive"
+                            onClick={() => setDeleting(list)}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
+                  <SharedBadge item={list} recordType="list" />
                   {progress.total > 0 && (
                     <div className="flex w-full items-center gap-2">
                       <Progress

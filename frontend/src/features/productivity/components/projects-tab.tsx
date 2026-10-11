@@ -1,6 +1,12 @@
 import { Archive, Layers, PencilLine, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { ownedFiles } from "@/features/resources/attachment-cleanup";
+import { DeleteWithFilesDialog } from "@/features/resources/delete-with-files-dialog";
+import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
+import { ShareButton } from "@/features/sharing/share-dialog";
+import { SharedBadge } from "@/features/sharing/shared-badge";
+import { itemAccess } from "@/lib/sharing";
 import { DateRangeFilter } from "@/components/common/date-range-filter";
 import { type PageSize, PaginationControl, paginate } from "@/components/common/pagination-control";
 import { SearchInput } from "@/components/common/search-input";
@@ -27,12 +33,15 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (id: string) => 
   const { items: tasks } = useProjectTasks();
   const { canEdit } = usePermissions();
   const actions = useParaActions();
+  const cleanup = useAttachmentCleanup();
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState(DEFAULT_DATE_FILTER);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(10);
   const [editing, setEditing] = useState<Project | "new" | null>(null);
   const [deleting, setDeleting] = useState<Project | null>(null);
+  // Lampiran project + action yang ikut terhapus (berkasnya dibersihkan dari storage)
+  const deletingAttachments = deleting ? actions.deleteAttachments("project", deleting) : null;
   const [archiving, setArchiving] = useState<Project | null>(null);
 
   const range = dateFilterRange(dateFilter, today);
@@ -73,6 +82,7 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (id: string) => 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {paginate(filtered, page, pageSize).map((p) => {
             const area = areas.find((a) => a.id === p.areaId);
+            const access = itemAccess(p);
             return (
               <div
                 key={p.id}
@@ -84,38 +94,50 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (id: string) => 
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <Badge
-                      className={
-                        area ? "bg-primary/12 text-primary uppercase" : "bg-mod-notes/15 text-mod-notes uppercase"
-                      }
-                    >
-                      {area ? area.title : "Free Project"}
-                    </Badge>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {/* Area project milik user lain tidak ikut terbagi → tidak dilabeli "Free Project" */}
+                      {(area || !p.share) && (
+                        <Badge
+                          className={
+                            area ? "bg-primary/12 text-primary uppercase" : "bg-mod-notes/15 text-mod-notes uppercase"
+                          }
+                        >
+                          {area ? area.title : "Free Project"}
+                        </Badge>
+                      )}
+                      <SharedBadge item={p} recordType="para_project" />
+                    </div>
                     <h4 className="mt-2 truncate text-lg font-bold">{p.title}</h4>
                   </div>
-                  {canEdit && (
+                  {canEdit && access.canEdit && (
                     <div className="flex shrink-0 gap-0.5" onClick={(e) => e.stopPropagation()}>
                       <Button variant="ghost" size="icon-sm" title="Ubah" onClick={() => setEditing(p)}>
                         <PencilLine />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title="Hapus"
-                        className="hover:text-destructive"
-                        onClick={() => setDeleting(p)}
-                      >
-                        <Trash2 />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title="Arsipkan"
-                        className="hover:text-warning"
-                        onClick={() => setArchiving(p)}
-                      >
-                        <Archive />
-                      </Button>
+                      {/* Hapus, arsipkan, dan bagikan hanya oleh pemilik */}
+                      {access.isOwner && (
+                        <>
+                          <ShareButton item={p} recordType="para_project" title={p.title} iconOnly />
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title="Hapus"
+                            className="hover:text-destructive"
+                            onClick={() => setDeleting(p)}
+                          >
+                            <Trash2 />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title="Arsipkan"
+                            className="hover:text-warning"
+                            onClick={() => setArchiving(p)}
+                          >
+                            <Archive />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -139,15 +161,17 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (id: string) => 
       />
 
       <ProjectFormDialog project={editing} onOpenChange={(open) => !open && setEditing(null)} />
-      <ConfirmDialog
+      <DeleteWithFilesDialog
         open={!!deleting}
         onOpenChange={(open) => !open && setDeleting(null)}
         title="Hapus Project?"
         description={deleteDescription("Project", deleting ? actions.deleteImpact(deleting.id) : { taskCount: 0 })}
         itemName={deleting?.title}
+        files={deletingAttachments ? ownedFiles(deletingAttachments) : []}
+        shared={deletingAttachments ? cleanup.referenced(deletingAttachments) : undefined}
         confirmLabel="Konfirmasi Hapus"
-        onConfirm={() => {
-          if (deleting) actions.deleteProject(deleting);
+        onConfirm={(keepIds) => {
+          if (deleting) actions.deleteProject(deleting, keepIds);
           setDeleting(null);
         }}
       />

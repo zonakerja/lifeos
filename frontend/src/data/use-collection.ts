@@ -5,7 +5,7 @@ import { errorMessage } from "@/lib/api/client";
 import { recordsApi } from "@/lib/api/endpoints";
 import { queryKeys } from "@/data/query-keys";
 import { useAuthStore } from "@/stores/auth-store";
-import type { RecordType } from "@/types/api";
+import type { RecordType, ShareMeta } from "@/types/api";
 
 /**
  * ============================================================================
@@ -20,7 +20,7 @@ import type { RecordType } from "@/types/api";
  * ============================================================================
  */
 
-type EntityBase = { id?: string | number; userId?: string };
+type EntityBase = { id?: string | number; userId?: string; share?: ShareMeta };
 
 interface CollectionOptions<T> {
   /** Kunci unik entitas. Default: String(item.id). */
@@ -28,6 +28,8 @@ interface CollectionOptions<T> {
   /** Jeda debounce upsert per item (ms). Default 500. */
   debounceMs?: number;
   enabled?: boolean;
+  /** Hanya item milik sendiri (tanpa item yang dibagikan user lain), mis. untuk tampilan pengelolaan */
+  ownOnly?: boolean;
 }
 
 const EMPTY: never[] = [];
@@ -74,24 +76,27 @@ const handleWriteError = (client: QueryClient, type: RecordType) => (error: unkn
 };
 
 export function useCollection<T extends EntityBase>(type: RecordType, options: CollectionOptions<T> = {}) {
-  const { getId = defaultGetId as (item: T) => string, debounceMs = 500, enabled = true } = options;
+  const { getId = defaultGetId as (item: T) => string, debounceMs = 500, enabled = true, ownOnly = false } = options;
   const client = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const queryKey = useMemo(() => queryKeys.records(type), [type]);
 
-  // Super admin melihat data semua user; role lain hanya miliknya.
-  const ownerFilter = user && user.role !== "super_admin" ? user.id : undefined;
-
+  // Data milik user + item milik user lain yang dibagikan kepadanya (bertanda `share`). Admin tidak punya akses
+  // khusus ke data user lain.
   const query = useQuery({
     queryKey,
     enabled: enabled && !!user,
     queryFn: async () => {
-      const records = await recordsApi.list<T>(type, { userId: ownerFilter });
-      return records.map((record) => ({ ...record.payload, userId: record.userId }) as T);
+      const records = await recordsApi.list<T>(type);
+      return records.map(
+        (record) =>
+          ({ ...record.payload, userId: record.userId, ...(record.share ? { share: record.share } : {}) }) as T,
+      );
     },
   });
 
-  const items = (query.data ?? EMPTY) as T[];
+  const all = (query.data ?? EMPTY) as T[];
+  const items = useMemo(() => (ownOnly ? all.filter((item) => !item.share) : all), [all, ownOnly]);
 
   const scheduleUpsert = useCallback(
     (item: T) => {
@@ -99,10 +104,23 @@ export function useCollection<T extends EntityBase>(type: RecordType, options: C
       const key = `${type}:${id}`;
       const existing = pending.get(key);
       if (existing) clearTimeout(existing.timer);
-      const run = () => recordsApi.upsert(type, id, item, item.userId).catch(handleWriteError(client, type));
+      const { share, ...payload } = item;
+      void share;
+      const run = () =>
+        recordsApi
+          .upsert(type, id, payload, item.userId)
+          .then((saved) => {
+            // Item baru di dalam item bersama dimiliki pemilik induknya (ditentukan server) → simpan pemiliknya
+            // agar ubah/hapus berikutnya diarahkan ke pemilik yang benar
+            if (saved.userId === item.userId) return;
+            client.setQueryData<T[]>(queryKey, (prev) =>
+              prev?.map((p) => (getId(p) === id && !p.userId ? { ...p, userId: saved.userId } : p)),
+            );
+          })
+          .catch(handleWriteError(client, type));
       pending.set(key, { run, timer: setTimeout(() => flushKey(key), debounceMs) });
     },
-    [client, debounceMs, getId, type],
+    [client, debounceMs, getId, queryKey, type],
   );
 
   const scheduleRemove = useCallback(

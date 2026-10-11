@@ -24,7 +24,6 @@ enum UserRole {
   super_admin
   admin
   member
-  viewer
 
   @@map("user_role")
 }
@@ -55,6 +54,15 @@ enum AuditAction {
   deleted
 
   @@map("audit_action")
+}
+
+// Tingkat izin berbagi item (shares): view = baca, comment = baca + komentar, edit = ubah isi & tambah turunan
+enum SharePermission {
+  view
+  comment
+  edit
+
+  @@map("share_permission")
 }
 
 enum AiProvider {
@@ -114,6 +122,10 @@ model User {
 
   // </generated:user-relations>
   archiveAuditLogs ArchiveAuditLog[]
+  sharesOwned      Share[]           @relation("SharesOwned")
+  sharesReceived   Share[]           @relation("SharesReceived")
+  commentsOnOwned  RecordComment[]   @relation("CommentsOnOwned")
+  commentsAuthored RecordComment[]   @relation("CommentsAuthored")
 
   @@map("users")
 }
@@ -208,6 +220,8 @@ model Asset {
   status       AssetStatus      @default(uploaded)
   source       String           @default("upload")
   context      String?
+  // Pengunggah bila berbeda dari pemilik (kolaborator dengan izin edit mengunggah ke item milik user lain)
+  uploadedById String?          @map("uploaded_by_id")
   createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
   user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -244,7 +258,7 @@ model ArchiveAuditLog {
   id         String      @id @default(cuid())
   /// Pemilik data
   userId     String      @map("user_id")
-  /// Pelaku perubahan (bisa admin yang mengubah data user lain)
+  /// Pelaku perubahan (pemilik, atau kolaborator dengan izin edit lewat berbagi)
   actorId    String?     @map("actor_id")
   /// Record type, mis. archive_borrowing / para_resource
   entityType String      @map("entity_type")
@@ -259,6 +273,47 @@ model ArchiveAuditLog {
   @@index([userId, entityType, entityId])
   @@index([createdAt])
   @@map("archive_audit_logs")
+}
+
+// ---------------------------------------------------------------- Berbagi & komentar
+
+/// Item yang dibagikan pemilik ke user lain (src/sharing/). Turunan item (mis. action project) dan berkasnya ikut
+/// dapat diakses; dihitung saat request, tidak disimpan.
+model Share {
+  id          String          @id @default(cuid())
+  ownerId     String          @map("owner_id")
+  recipientId String          @map("recipient_id")
+  /// Record type item induk, mis. para_project
+  recordType  String          @map("record_type")
+  /// clientId item induk milik owner
+  recordId    String          @map("record_id")
+  permission  SharePermission @default(view)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  owner       User            @relation("SharesOwned", fields: [ownerId], references: [id], onDelete: Cascade)
+  recipient   User            @relation("SharesReceived", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, recordType, recordId, recipientId])
+  @@index([recipientId])
+  @@map("shares")
+}
+
+/// Komentar pada item milik owner (pemilik & penerima berbagi dengan izin comment/edit).
+model RecordComment {
+  id         String   @id @default(cuid())
+  /// Pemilik item yang dikomentari
+  ownerId    String   @map("owner_id")
+  recordType String   @map("record_type")
+  recordId   String   @map("record_id")
+  authorId   String   @map("author_id")
+  body       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  owner      User     @relation("CommentsOnOwned", fields: [ownerId], references: [id], onDelete: Cascade)
+  author     User     @relation("CommentsAuthored", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, recordType, recordId, createdAt])
+  @@map("record_comments")
 }
 
 // ---------------------------------------------------------------- Domain (generated)

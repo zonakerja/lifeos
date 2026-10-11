@@ -9,12 +9,16 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useResources } from "@/data/collections";
-import { useRetained } from "@/hooks/use-retained";
+import { useOpenSession, useRetained } from "@/hooks/use-retained";
 import { AddAttachmentButton, AttachmentForm } from "@/features/resources/attachment-form";
 import { AttachmentTable } from "@/features/resources/attachment-table";
 import { ResourceAiDialog } from "@/features/resources/resource-ai-dialog";
 import { mergeIntoGlobalResources } from "@/features/resources/resource-utils";
+import { completionChangePatch } from "@/lib/completion";
 import type { AttachedResource, Priority, ProjectTask } from "@/types/entities";
+import { useAttachmentEdits } from "../use-attachment-edits";
+import { AccessScope } from "@/components/common/access-scope";
+import { usePermissions } from "@/hooks/use-permissions";
 
 export type TaskKind = "action" | "task";
 
@@ -26,11 +30,19 @@ interface TaskQuickDialogProps {
   onSave: (task: ProjectTask) => void;
 }
 
-/** Edit cepat Task/Action produktivitas + lampiran. */
+/**
+ * Edit cepat Task/Action produktivitas + lampiran. `onSave` menerima task dengan `completedAt` yang sudah
+ * disesuaikan bila status selesai berubah. Berkas yang dilepas dihapus/dipertahankan setelah disimpan.
+ */
 export function TaskQuickDialog(props: TaskQuickDialogProps) {
   // Konten dipertahankan saat menutup; remount per task → state form langsung dari props
   const task = useRetained(props.task);
-  return <TaskQuickDialogInner key={task?.id ?? "none"} {...props} task={task} open={!!props.task} />;
+  const session = useOpenSession(!!props.task);
+  return (
+    <AccessScope item={task}>
+      <TaskQuickDialogInner key={`${task?.id ?? "none"}-${session}`} {...props} task={task} open={!!props.task} />
+    </AccessScope>
+  );
 }
 
 function TaskQuickDialogInner({ task, kind, open, onOpenChange, onSave }: TaskQuickDialogProps & { open: boolean }) {
@@ -40,23 +52,36 @@ function TaskQuickDialogInner({ task, kind, open, onOpenChange, onSave }: TaskQu
   const [adding, setAdding] = useState(false);
   const [aiTarget, setAiTarget] = useState<AttachedResource | null>(null);
   const { setItems: setResources } = useResources();
+  // Task dari project/area yang dibagikan tanpa izin edit hanya bisa dilihat
+  const { canEdit } = usePermissions();
 
   const isAction = kind === "action" || form?.type === "project-action";
   const label = isAction ? "Action" : "Task";
+  const contextTag = isAction ? "Project Action" : "Area Task";
+  const edits = useAttachmentEdits({ contextTag, ownerId: task?.userId });
   const patch = (values: Partial<ProjectTask>) => setForm((prev) => (prev ? { ...prev, ...values } : prev));
+  const dropAttachment = (id: string) =>
+    setForm((prev) => (prev ? { ...prev, resources: (prev.resources ?? []).filter((r) => r.id !== id) } : prev));
 
   const submit = () => {
     if (!form) return;
     const attachments = form.resources ?? [];
     if (attachments.some((a) => a.addToGlobal)) {
-      setResources((prev) => mergeIntoGlobalResources(prev, attachments, isAction ? "Project Action" : "Area Task"));
+      setResources((prev) => mergeIntoGlobalResources(prev, attachments, contextTag));
     }
-    onSave(form);
+    onSave({ ...form, ...(task ? completionChangePatch(task, !!form.completed) : {}) });
+    edits.commit();
   };
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) edits.discard(); // Batal / X / Esc: buang berkas yang diunggah di sesi ini
+          onOpenChange(next);
+        }}
+      >
         <DialogContent className="flex max-h-[90svh] flex-col sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -132,6 +157,7 @@ function TaskQuickDialogInner({ task, kind, open, onOpenChange, onSave }: TaskQu
                     uploadContext="task"
                     onCancel={() => setAdding(false)}
                     onAdd={(att) => {
+                      edits.trackAdded(att);
                       patch({ resources: [...(form.resources ?? []), att] });
                       setAdding(false);
                     }}
@@ -140,19 +166,33 @@ function TaskQuickDialogInner({ task, kind, open, onOpenChange, onSave }: TaskQu
                 <AttachmentTable
                   resources={form.resources}
                   onOpenAi={setAiTarget}
-                  onRemove={(id) => patch({ resources: (form.resources ?? []).filter((r) => r.id !== id) })}
+                  onRemove={(id) => {
+                    const att = form.resources?.find((r) => r.id === id);
+                    if (att) edits.requestRemove(att, () => dropAttachment(id));
+                  }}
                 />
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Batal
+            <Button
+              variant="outline"
+              onClick={() => {
+                edits.discard();
+                onOpenChange(false);
+              }}
+            >
+              {canEdit ? "Batal" : "Tutup"}
             </Button>
-            <Button onClick={submit}>Simpan Perubahan</Button>
+            {canEdit ? (
+              <Button onClick={submit}>Simpan Perubahan</Button>
+            ) : (
+              <span className="self-center text-xs text-muted-foreground">Anda hanya memiliki akses lihat.</span>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {edits.dialog}
       <ResourceAiDialog
         resource={aiTarget}
         onOpenChange={(open) => !open && setAiTarget(null)}

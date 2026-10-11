@@ -29,4 +29,5 @@ export const useAuthStore = create<AuthState>()((set) => ({
 }));
 
 export const isAdminRole = (role?: string | null) => role === "super_admin" || role === "admin";
-export const canWrite = (role?: string | null) => !!role && role !== "viewer";
+/** Semua akun login boleh menulis datanya sendiri; izin atas item milik user lain diatur per item (berbagi). */
+export const canWrite = (role?: string | null) => !!role;

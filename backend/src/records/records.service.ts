@@ -1,30 +1,23 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { AuditAction, Prisma, UserRole } from "../generated/prisma/client";
+import { AuditAction, Prisma } from "../generated/prisma/client";
 import { AiIndexQueueService } from "../ai/index/ai-index-queue.service";
 import { isIndexedType } from "../ai/index/index-text";
 import { AuthUser } from "../common/types/auth-user";
 import { PrismaService } from "../prisma/prisma.service";
+import { ShareAccessService } from "../sharing/share-access.service";
+import { type SharePermission, accessKey, atLeast, parentRefsOf } from "../sharing/share-graph";
 import { ListRecordsQueryDto } from "./dto/list-records-query.dto";
 import { RecordOwnerQueryDto } from "./dto/record-owner-query.dto";
 import { UpsertRecordDto } from "./dto/upsert-record.dto";
-import { type DomainRow, type Payload, payloadToRow, rowToPayload, toApiRecord } from "./record-mapper";
+import { domainDelegate } from "./record-delegate";
+import { type Payload, payloadToRow, rowToPayload, toApiRecord } from "./record-mapper";
 import { RECORD_TABLES, type RecordType, type TableSpec, fieldName } from "./record-schema";
 
-/**
- * Bentuk minimal delegate Prisma yang dipakai service generik ini. Semua tabel domain
- * dibuat dari spesifikasi yang sama sehingga punya kolom sistem yang identik
- * (user_id, client_id, extra, timestamps, deleted_at).
- */
-interface DomainDelegate {
-  findMany(args: object): Promise<DomainRow[]>;
-  findUnique(args: object): Promise<DomainRow | null>;
-  upsert(args: object): Promise<DomainRow>;
-  update(args: object): Promise<DomainRow>;
-  updateMany(args: object): Promise<{ count: number }>;
-}
-type Db = Prisma.TransactionClient | PrismaService;
+/** Penanda item milik user lain yang dibagikan (dikirim bersama record). */
+type SharedMeta = { ownerId: string; ownerName: string; permission: SharePermission; root: boolean };
 
-const isAdmin = (user: AuthUser) => user.role === UserRole.super_admin || user.role === UserRole.admin;
+/** Metadata akses yang ditempelkan ke respons (bukan bagian data) — dibuang bila ikut terkirim saat menulis. */
+const META_KEYS = ["share"];
 
 const canonical = (value: unknown): unknown =>
   Array.isArray(value)
@@ -56,12 +49,17 @@ function isArchivalData(type: RecordType, payload?: Payload) {
   return true;
 }
 
+/**
+ * Data domain terisolasi per user: setiap user (termasuk admin) hanya membaca & menulis datanya sendiri, ditambah
+ * item milik user lain yang dibagikan kepadanya (`shares`, lihat `src/sharing/`).
+ */
 @Injectable()
 export class RecordsService {
   constructor(
     private readonly prisma: PrismaService,
     // Perubahan data diindeks ulang untuk RAG di latar belakang (tidak menahan respons)
     private readonly indexQueue: AiIndexQueueService,
+    private readonly shareAccess: ShareAccessService,
   ) {}
 
   parseType(type: string): RecordType {
@@ -71,15 +69,10 @@ export class RecordsService {
     return type as RecordType;
   }
 
+  /** Data milik user + item yang dibagikan kepadanya (bertanda `share`). */
   async findMany(type: RecordType, query: ListRecordsQueryDto, user: AuthUser) {
     const spec: TableSpec = RECORD_TABLES[type];
-    // Admin tanpa filter userId melihat data semua user
-    const userId = isAdmin(user) ? query.userId : user.id;
-    const where: Record<string, unknown> = {
-      deletedAt: null,
-      ...(userId ? { userId } : {}),
-    };
-
+    const where: Record<string, unknown> = { deletedAt: null };
     const dateField = spec.fields.find((f) => f.key === spec.dateKey);
     if (dateField && (query.from || query.to)) {
       where[fieldName(dateField)] = {
@@ -87,23 +80,46 @@ export class RecordsService {
         ...(query.to ? { lte: new Date(query.to) } : {}),
       };
     }
+    const table = domainDelegate(this.prisma, type);
+    const orderBy = [{ createdAt: "asc" }, { id: "asc" }];
 
-    const rows = await this.delegate(this.prisma, type).findMany({
-      where,
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    });
-    return rows.map((row) => toApiRecord(type, spec, row));
+    const own = await table.findMany({ where: { ...where, userId: user.id }, orderBy });
+    const result: (ReturnType<typeof toApiRecord> & { share?: SharedMeta })[] = own.map((row) =>
+      toApiRecord(type, spec, row),
+    );
+
+    for (const access of (await this.shareAccess.forUser(user.id)).values()) {
+      const entries = [...access.records.values()].filter((e) => e.type === type);
+      if (entries.length === 0) continue;
+      const rows = await table.findMany({
+        where: { ...where, userId: access.ownerId, clientId: { in: entries.map((e) => e.id) } },
+        orderBy,
+      });
+      for (const row of rows) {
+        const entry = access.records.get(accessKey(type, row.clientId))!;
+        result.push({
+          ...toApiRecord(type, spec, row),
+          share: {
+            ownerId: access.ownerId,
+            ownerName: access.ownerName,
+            permission: entry.permission,
+            root: entry.root,
+          },
+        });
+      }
+    }
+    return result;
   }
 
   async upsert(type: RecordType, clientId: string, dto: UpsertRecordDto, user: AuthUser) {
-    this.ensureCanWrite(user);
     const spec: TableSpec = RECORD_TABLES[type];
-    const userId = await this.resolveOwner(user, dto.userId ?? dto.payload.userId);
-    const payload = { ...dto.payload, id: dto.payload.id ?? clientId };
+    const payload: Payload = { ...dto.payload, id: dto.payload.id ?? clientId };
+    for (const key of META_KEYS) delete payload[key];
+    const userId = await this.resolveWriteOwner(type, clientId, dto.userId ?? payload.userId, payload, user);
     const data = { ...payloadToRow(spec, payload, clientId), deletedAt: null };
 
     const row = await this.prisma.$transaction(async (tx) => {
-      const table = this.delegate(tx, type);
+      const table = domainDelegate(tx, type);
       const key = { userId_clientId: { userId, clientId } };
       const before = spec.audit ? await table.findUnique({ where: key }) : null;
       const saved = await table.upsert({
@@ -117,45 +133,106 @@ export class RecordsService {
       }
       return saved;
     });
-    if (isIndexedType(type)) void this.indexQueue.enqueueSource(row.userId as string, type, clientId);
+    if (userId !== user.id) this.shareAccess.invalidate();
+    if (isIndexedType(type)) void this.indexQueue.enqueueSource(row.userId, type, clientId);
     return toApiRecord(type, spec, row);
   }
 
   async remove(type: RecordType, clientId: string, query: RecordOwnerQueryDto, user: AuthUser) {
-    this.ensureCanWrite(user);
     const spec: TableSpec = RECORD_TABLES[type];
-    const ownerFilter = isAdmin(user) ? (query.userId ? { userId: query.userId } : {}) : { userId: user.id };
+    const ownerId = query.userId ?? user.id;
+    if (ownerId !== user.id) {
+      const entry = (await this.shareAccess.forOwner(user.id, ownerId))?.records.get(accessKey(type, clientId));
+      if (!entry) throw new NotFoundException("Record tidak ditemukan.");
+      if (!atLeast(entry.permission, "edit")) throw new ForbiddenException("Anda hanya memiliki akses lihat.");
+      if (entry.root) throw new ForbiddenException("Hanya pemilik yang dapat menghapus item yang dibagikan.");
+    }
 
-    const ownerId = await this.prisma.$transaction(async (tx) => {
-      const table = this.delegate(tx, type);
-      const candidates = await table.findMany({
-        where: { clientId, deletedAt: null, ...ownerFilter },
-      });
-      // Admin tanpa userId: prioritaskan record miliknya sendiri
-      const row = candidates.find((c) => c.userId === user.id) ?? candidates[0];
-      if (!row) throw new NotFoundException("Record tidak ditemukan.");
+    await this.prisma.$transaction(async (tx) => {
+      const table = domainDelegate(tx, type);
+      const row = await table.findUnique({ where: { userId_clientId: { userId: ownerId, clientId } } });
+      if (!row || row.deletedAt) throw new NotFoundException("Record tidak ditemukan.");
       await table.update({
         where: { id: row.id },
         data: { deletedAt: new Date() },
       });
       if (spec.audit) await this.audit(tx, type, user, row.userId, clientId, rowToPayload(spec, row), undefined);
-      return row.userId as string;
     });
+    if (ownerId !== user.id) this.shareAccess.invalidate();
     if (isIndexedType(type)) void this.indexQueue.enqueueSource(ownerId, type, clientId);
     return { success: true };
   }
 
-  /** Riwayat audit kearsipan (pemilik data, atau admin untuk semua). */
+  /** Riwayat audit kearsipan atas data milik user sendiri. */
   auditLog(user: AuthUser, query: { entityType?: string; entityId?: string; take?: number }) {
     return this.prisma.archiveAuditLog.findMany({
       where: {
-        ...(isAdmin(user) ? {} : { userId: user.id }),
+        userId: user.id,
         ...(query.entityType ? { entityType: query.entityType } : {}),
         ...(query.entityId ? { entityId: query.entityId } : {}),
       },
       orderBy: { createdAt: "desc" },
       take: Math.min(query.take ?? 100, 500),
     });
+  }
+
+  /**
+   * Pemilik record yang ditulis:
+   * - `userId` user lain → harus punya izin edit atas item itu (atau atas induknya bila item baru);
+   * - tanpa `userId` → milik sendiri, kecuali item BARU yang induknya (project/kegiatan/area) adalah item bersama
+   *   yang boleh diubah → ikut pemilik induk (mis. kolaborator menambah action ke project yang dibagikan).
+   */
+  private async resolveWriteOwner(
+    type: RecordType,
+    clientId: string,
+    requested: unknown,
+    payload: Payload,
+    user: AuthUser,
+  ): Promise<string> {
+    if (typeof requested === "string" && requested && requested !== user.id) {
+      await this.assertCanWrite(user, requested, type, clientId, payload);
+      return requested;
+    }
+    const exists = (t: RecordType, id: string, ownerId: string) =>
+      domainDelegate(this.prisma, t)
+        .findUnique({ where: { userId_clientId: { userId: ownerId, clientId: id } } })
+        .then((row) => !!row);
+    if (await exists(type, clientId, user.id)) return user.id;
+
+    const parents = parentRefsOf(type, payload) as [RecordType, string][];
+    for (const [parentType, parentId] of parents) {
+      if (await exists(parentType, parentId, user.id)) return user.id;
+    }
+    if (parents.length === 0) return user.id;
+    const owners = await this.prisma.share.findMany({
+      where: { recipientId: user.id, permission: "edit" },
+      select: { ownerId: true },
+      distinct: ["ownerId"],
+    });
+    for (const { ownerId } of owners) {
+      const access = await this.shareAccess.forOwner(user.id, ownerId);
+      const editable = parents.some(([t, id]) => atLeast(access?.records.get(accessKey(t, id))?.permission, "edit"));
+      if (editable) return ownerId;
+    }
+    return user.id;
+  }
+
+  private async assertCanWrite(user: AuthUser, ownerId: string, type: RecordType, clientId: string, payload: Payload) {
+    const access = await this.shareAccess.forOwner(user.id, ownerId);
+    const entry = access?.records.get(accessKey(type, clientId));
+    if (entry) {
+      if (atLeast(entry.permission, "edit")) return;
+      throw new ForbiddenException("Anda hanya memiliki akses lihat atas item ini.");
+    }
+    // Item baru di dalam item bersama: induknya harus boleh diubah dan ID belum dipakai pemilik
+    const existing = await domainDelegate(this.prisma, type).findUnique({
+      where: { userId_clientId: { userId: ownerId, clientId } },
+    });
+    const parentEditable = parentRefsOf(type, payload).some(([t, id]) =>
+      atLeast(access?.records.get(accessKey(t, id))?.permission, "edit"),
+    );
+    if ((!existing || existing.deletedAt) && parentEditable) return;
+    throw new ForbiddenException("Anda tidak memiliki akses ke data user lain.");
   }
 
   private async audit(
@@ -194,26 +271,5 @@ export class RecordsService {
         changes,
       },
     });
-  }
-
-  private delegate(db: Db, type: RecordType): DomainDelegate {
-    const model = RECORD_TABLES[type].model;
-    const key = model.charAt(0).toLowerCase() + model.slice(1);
-    return (db as unknown as Record<string, DomainDelegate>)[key];
-  }
-
-  private async resolveOwner(user: AuthUser, requested: unknown) {
-    if (!isAdmin(user) || typeof requested !== "string" || requested === user.id) return user.id;
-    const owner = await this.prisma.user.findUnique({
-      where: { id: requested },
-      select: { id: true },
-    });
-    return owner?.id ?? user.id;
-  }
-
-  private ensureCanWrite(user: AuthUser) {
-    if (user.role === UserRole.viewer) {
-      throw new ForbiddenException("Viewer tidak memiliki akses tulis.");
-    }
   }
 }

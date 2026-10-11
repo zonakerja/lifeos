@@ -7,6 +7,8 @@ import {
   useProjectTasks,
   useResources,
 } from "@/data/collections";
+import { ownedFiles } from "@/features/resources/attachment-cleanup";
+import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
 import { generateId } from "@/lib/ids";
 import { useAuthStore } from "@/stores/auth-store";
 import type { Activity, Area, ParaArchive, Project, Resource } from "@/types/entities";
@@ -19,7 +21,7 @@ import {
   type ParaRemoval,
   restorePlan,
 } from "./lib/para-archive";
-import { activityTreeIds, levelCounts } from "./lib/para";
+import { activityTreeAttachments, activityTreeIds, levelCounts, projectAttachments } from "./lib/para";
 
 /**
  * Operasi arsip/pulihkan PARA.
@@ -35,6 +37,7 @@ export function useParaActions() {
   const archives = useParaArchives();
   const logs = useParaArchiveLogs();
   const actorName = useAuthStore((s) => s.user?.name);
+  const cleanup = useAttachmentCleanup();
 
   const meta = () => ({ id: generateId("arch"), archivedAt: new Date().toISOString() });
   const active = () => ({ projects: projects.items, activities: activities.items, tasks: tasks.items });
@@ -81,17 +84,38 @@ export function useParaActions() {
         taskCount: tasks.items.filter((t) => ids.has(t.projectId)).length,
       };
     },
-    /** Hapus project beserta action-nya (tidak meninggalkan task yatim). */
-    deleteProject(project: Project) {
+    /** Semua lampiran yang ikut terhapus bila project / item area dihapus (untuk dialog konfirmasi berkas). */
+    deleteAttachments(kind: "project" | "activity", item: Project | Activity) {
+      return kind === "project"
+        ? projectAttachments(item as Project, tasks.items)
+        : activityTreeAttachments(activities.items, tasks.items, item.id);
+    },
+    /**
+     * Hapus project beserta action-nya (tidak meninggalkan task yatim). Berkas lampiran project & action ikut dihapus
+     * dari storage kecuali `keepIds` (→ Resource Global "Project") atau masih dipakai di tempat lain.
+     */
+    deleteProject(project: Project, keepIds: string[] = []) {
+      const attachments = projectAttachments(project, tasks.items);
       tasks.setItems((prev) => prev.filter((t) => t.projectId !== project.id));
       projects.setItems(without([project.id]));
+      cleanup.release(ownedFiles(attachments), keepIds, {
+        contextTag: "Project",
+        exclude: attachments,
+        ownerId: project.userId,
+      });
     },
-    /** Hapus item area (Sub Area / Kegiatan / Sub Kegiatan) beserta semua turunan dan task-nya. */
-    deleteActivity(activity: Activity) {
+    /** Hapus item area (Sub Area / Kegiatan / Sub Kegiatan) beserta semua turunan, task, dan berkas lampirannya. */
+    deleteActivity(activity: Activity, keepIds: string[] = []) {
+      const attachments = activityTreeAttachments(activities.items, tasks.items, activity.id);
       const ids = activityTreeIds(activities.items, activity.id);
       const idSet = new Set(ids);
       tasks.setItems((prev) => prev.filter((t) => !idSet.has(t.projectId)));
       activities.setItems(without(ids));
+      cleanup.release(ownedFiles(attachments), keepIds, {
+        contextTag: "Area",
+        exclude: attachments,
+        ownerId: activity.userId,
+      });
     },
     /** Masukkan project (mis. Free Project) ke area, atau lepaskan dari area bila `areaId` kosong. */
     setProjectArea(projectId: string, areaId: string | undefined) {

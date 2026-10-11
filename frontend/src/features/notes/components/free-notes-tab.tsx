@@ -26,6 +26,9 @@ import { InkSurface } from "../ink/ink-surface";
 import { docUploadIds, filterFreeNotes, isFreeNoteEmpty, isHandwritingNote, sortFreeNotes } from "../lib/notes-logic";
 import { removeUploads } from "../lib/remove-uploads";
 import { noteColor } from "../note-colors";
+import { AccessScope } from "@/components/common/access-scope";
+import { SharedBadge } from "@/features/sharing/shared-badge";
+import { itemAccess } from "@/lib/sharing";
 
 // Editor (Tiptap + kanvas stylus) dimuat saat catatan dibuka agar daftar catatan tetap ringan
 const FreeNoteEditor = lazy(() => import("./free-note-editor"));
@@ -78,20 +81,22 @@ export function FreeNotesTab() {
   if (editing) {
     return (
       <Suspense fallback={<PageLoader label="Membuka editor..." />}>
-        <FreeNoteEditor
-          key={noteParam}
-          note={editing}
-          readOnly={!canEdit}
-          onChange={upsert}
-          onClose={(last) => {
-            // Catatan yang dikosongkan dibuang agar tidak ada kartu kosong
-            if (last && isFreeNoteEmpty(last) && notes.some((n) => n.id === last.id)) {
-              setItems((prev) => prev.filter((n) => n.id !== last.id));
-              toast.info("Catatan kosong dibuang.");
-            }
-            setNoteParam(null);
-          }}
-        />
+        <AccessScope item={editing}>
+          <FreeNoteEditor
+            key={noteParam}
+            note={editing}
+            readOnly={!canEdit || !itemAccess(editing).canEdit}
+            onChange={upsert}
+            onClose={(last) => {
+              // Catatan yang dikosongkan dibuang agar tidak ada kartu kosong (catatan bersama tidak dihapus kolaborator)
+              if (last && !last.share && isFreeNoteEmpty(last) && notes.some((n) => n.id === last.id)) {
+                setItems((prev) => prev.filter((n) => n.id !== last.id));
+                toast.info("Catatan kosong dibuang.");
+              }
+              setNoteParam(null);
+            }}
+          />
+        </AccessScope>
       </Suspense>
     );
   }
@@ -156,6 +161,7 @@ export function FreeNotesTab() {
                 {note.pinned && <Pin className="size-3.5 shrink-0 fill-current text-module" aria-label="Disematkan" />}
                 <span className="truncate">{note.title || "Tanpa Judul"}</span>
               </h4>
+              <SharedBadge item={note} recordType="free_note" className="mb-2" />
               {isHandwritingNote(note) ? (
                 <InkPreview note={note} />
               ) : (
@@ -169,7 +175,8 @@ export function FreeNotesTab() {
                 )}
                 {note.updatedAt ? `Diubah ${formatDateTime(note.updatedAt)}` : ""}
               </span>
-              {canEdit && (
+              {/* Sematkan & hapus hanya untuk catatan milik sendiri */}
+              {canEdit && !note.share && (
                 <div className={cn("absolute top-3 right-3 flex gap-0.5", HOVER_ACTIONS)}>
                   <Button
                     variant="ghost"

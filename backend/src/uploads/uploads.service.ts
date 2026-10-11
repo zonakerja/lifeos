@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
-import { AssetStatus, UserRole } from "../generated/prisma/client";
+import { AssetStatus } from "../generated/prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { unlink } from "node:fs/promises";
@@ -10,6 +10,7 @@ import { AuthUser } from "../common/types/auth-user";
 import { ASSET_SOURCE } from "../ai/index/index-text";
 import { ExtractionQueueService } from "../extraction/extraction-queue.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { ShareAccessService } from "../sharing/share-access.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 
 const DOWNLOAD_TOKEN_TTL_SECONDS = 10 * 60;
@@ -35,21 +36,20 @@ export class UploadsService {
     private readonly storage: ObjectStorageService,
     private readonly queue: ExtractionQueueService,
     private readonly jwt: JwtService,
+    private readonly shareAccess: ShareAccessService,
   ) {}
 
-  async upload(file: Express.Multer.File, user: AuthUser, context?: string) {
+  async upload(file: Express.Multer.File, user: AuthUser, context?: string, ownerId?: string) {
     try {
-      return await this.store(file, user, context);
+      return await this.store(file, user, context, ownerId);
     } finally {
       // Berkas sementara dari multer selalu dihapus, sukses maupun gagal
       await unlink(file.path).catch(() => undefined);
     }
   }
 
-  private async store(file: Express.Multer.File, user: AuthUser, context?: string) {
-    if (user.role === UserRole.viewer) {
-      throw new ForbiddenException("Viewer tidak memiliki akses tulis.");
-    }
+  private async store(file: Express.Multer.File, user: AuthUser, context?: string, requestedOwner?: string) {
+    const ownerId = await this.resolveOwner(user, requestedOwner);
 
     // Multer mendekode nama file sebagai latin1; kembalikan ke UTF-8
     const originalName = Buffer.from(file.originalname, "latin1").toString("utf8");
@@ -58,7 +58,7 @@ export class UploadsService {
     const checksum = hasher.digest("hex");
     const now = new Date();
     const objectKey = [
-      user.id,
+      ownerId,
       now.getUTCFullYear(),
       String(now.getUTCMonth() + 1).padStart(2, "0"),
       `${now.getTime()}-${randomUUID()}${extname(originalName).toLowerCase()}`,
@@ -77,7 +77,8 @@ export class UploadsService {
     try {
       asset = await this.prisma.asset.create({
         data: {
-          userId: user.id,
+          userId: ownerId,
+          uploadedById: ownerId === user.id ? null : user.id,
           bucket: this.storage.bucket,
           objectKey,
           originalName,
@@ -157,11 +158,12 @@ export class UploadsService {
     return { asset, stream: await this.storage.getObject(asset.objectKey) };
   }
 
+  /** Hanya pemilik, atau kolaborator yang mengunggahnya (mis. membatalkan upload di item bersama). */
   async remove(id: string, user: AuthUser) {
-    if (user.role === UserRole.viewer) {
-      throw new ForbiddenException("Viewer tidak memiliki akses tulis.");
-    }
     const asset = await this.findAccessible(id, user);
+    if (asset.userId !== user.id && asset.uploadedById !== user.id) {
+      throw new ForbiddenException("Hanya pemilik yang dapat menghapus file ini.");
+    }
     // Potongan indeks AI (RAG) dari isi berkas ikut dihapus
     await this.prisma.$transaction([
       this.prisma.aiChunk.deleteMany({ where: { sourceType: ASSET_SOURCE, sourceId: asset.id } }),
@@ -175,18 +177,31 @@ export class UploadsService {
     return { success: true };
   }
 
+  /**
+   * Berkas dapat dibaca oleh pemiliknya, pengunggahnya, dan penerima berbagi yang dapat mengakses item yang
+   * melampirkan berkas itu (lihat `src/sharing/`). Admin tidak punya akses khusus.
+   */
   private async findAccessible(id: string, user: AuthUser, withExtraction = false) {
     const asset = await this.prisma.asset.findUnique({
       where: { id },
       include: withExtraction ? { extraction: true } : undefined,
     });
     if (!asset) throw new NotFoundException("File tidak ditemukan.");
-
-    const canAccessAll = user.role === UserRole.super_admin || user.role === UserRole.admin;
-    if (!canAccessAll && asset.userId !== user.id) {
-      throw new ForbiddenException("Anda tidak memiliki akses ke file ini.");
-    }
+    if (asset.userId === user.id || asset.uploadedById === user.id) return asset;
+    const shared = (await this.shareAccess.forUser(user.id)).get(asset.userId)?.uploads.has(asset.id);
+    if (!shared) throw new ForbiddenException("Anda tidak memiliki akses ke file ini.");
     return asset;
+  }
+
+  /** Pemilik berkas: diri sendiri, atau pemilik item bersama yang memberi izin edit kepada pengunggah. */
+  private async resolveOwner(user: AuthUser, requested?: string) {
+    if (!requested || requested === user.id) return user.id;
+    const share = await this.prisma.share.findFirst({
+      where: { ownerId: requested, recipientId: user.id, permission: "edit" },
+      select: { id: true },
+    });
+    if (!share) throw new ForbiddenException("Anda tidak memiliki izin edit atas data user tersebut.");
+    return requested;
   }
 
   private toResponse(asset: {

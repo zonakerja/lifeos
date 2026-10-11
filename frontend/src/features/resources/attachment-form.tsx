@@ -17,6 +17,7 @@ import type { AttachedResource, AttachmentType } from "@/types/entities";
 import { emptyAttachment } from "./resource-utils";
 import { SummaryStatusBadge } from "./summary-status-badge";
 import { useFileSummarizer } from "./use-file-summarizer";
+import { usePermissions } from "@/hooks/use-permissions";
 
 const TYPE_LABELS: Record<AttachmentType, string> = {
   link: "Web Link",
@@ -55,6 +56,8 @@ export function AttachmentForm({
   const initialDraft = () => ({ ...emptyAttachment(defaultDate), type: types[0] ?? "link" });
   const [draft, setDraft] = useState<AttachedResource>(initialDraft);
   const [uploading, setUploading] = useState(false);
+  // Di dalam item bersama (izin edit), berkas disimpan atas nama pemilik item
+  const { uploadOwnerId } = usePermissions();
   const summarizer = useFileSummarizer();
   const fileRef = useRef<HTMLInputElement>(null);
   // Berkas yang sudah diunggah tetapi belum "Tambahkan" — dihapus dari storage bila diganti, dibatalkan, atau form
@@ -110,7 +113,7 @@ export function AttachmentForm({
     if (!file) return;
     setUploading(true);
     try {
-      const asset = await uploadsApi.upload(file, uploadContext);
+      const asset = await uploadsApi.upload(file, uploadContext, uploadOwnerId);
       discardPending(); // berkas sebelumnya (Ganti File)
       pendingUploadRef.current = asset.id;
       patch({

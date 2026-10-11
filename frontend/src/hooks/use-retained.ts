@@ -20,3 +20,15 @@ export function useLatchedWhileOpen<T>(open: boolean, value: T): T {
   if (open && !Object.is(kept, value)) setKept(value);
   return open ? value : kept;
 }
+
+/**
+ * Nomor sesi buka dialog: bertambah setiap `open` berubah dari false → true. Dipakai sebagai `key` konten form agar
+ * setiap kali dialog dibuka form mulai dari props (tidak memakai ulang state sesi sebelumnya yang belum sempat
+ * di-unmount karena animasi tutup — mis. lampiran yang sudah dibuang saat Batal).
+ */
+export function useOpenSession(open: boolean) {
+  const [state, setState] = useState({ open, session: 0 });
+  // Derived state saat render (pola resmi React): render diulang langsung dengan state baru
+  if (state.open !== open) setState({ open, session: open ? state.session + 1 : state.session });
+  return state.session;
+}

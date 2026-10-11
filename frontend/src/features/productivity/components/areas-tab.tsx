@@ -6,7 +6,10 @@ import { type PageSize, PaginationControl, paginate } from "@/components/common/
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { useActivities, useAreas, useProjects } from "@/data/collections";
+import { ShareButton } from "@/features/sharing/share-dialog";
+import { SharedBadge } from "@/features/sharing/shared-badge";
 import { usePermissions } from "@/hooks/use-permissions";
+import { itemAccess } from "@/lib/sharing";
 import type { Area } from "@/types/entities";
 import { PARA_INFO } from "../lib/para";
 import { AreaFormDialog } from "./area-dialogs";
@@ -75,30 +78,39 @@ export function AreasTab({
               >
                 <div className="pointer-events-none absolute -top-6 -right-6 size-24 rounded-full bg-module-gradient opacity-25" />
                 <div className="relative mb-2 flex items-start justify-between gap-2">
-                  <h4 className="text-xl font-bold">{area.title}</h4>
-                  {canEdit && (
+                  <div className="min-w-0">
+                    <h4 className="text-xl font-bold">{area.title}</h4>
+                    <SharedBadge item={area} recordType="para_area" className="mt-1" />
+                  </div>
+                  {canEdit && itemAccess(area).canEdit && (
                     <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()}>
                       <Button variant="ghost" size="icon-sm" title="Ubah" onClick={() => setEditing(area)}>
                         <PencilLine />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title="Arsipkan"
-                        className="hover:text-warning"
-                        onClick={() => onArchiveArea(area)}
-                      >
-                        <Archive />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title="Hapus"
-                        className="hover:text-destructive"
-                        onClick={() => requestDelete(area)}
-                      >
-                        <Trash2 />
-                      </Button>
+                      {/* Bagikan, arsipkan, hapus hanya oleh pemilik */}
+                      {!area.share && (
+                        <>
+                          <ShareButton item={area} recordType="para_area" title={area.title} iconOnly />
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title="Arsipkan"
+                            className="hover:text-warning"
+                            onClick={() => onArchiveArea(area)}
+                          >
+                            <Archive />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title="Hapus"
+                            className="hover:text-destructive"
+                            onClick={() => requestDelete(area)}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>

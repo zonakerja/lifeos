@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { Activity, Area, Project, ProjectTask } from "@/types/entities";
 import {
   activityAncestors,
+  activityTreeAttachments,
   activityLevel,
   activityTreeIds,
   childrenOf,
   deleteDescription,
   freeProjectsOf,
   levelCounts,
+  projectAttachments,
+  replacedUploadId,
+  resourceFileAttachment,
   rootActivities,
 } from "./para";
 import { archiveAreaPlan, relatedSummary } from "./para-archive";
@@ -99,5 +103,46 @@ describe("deleteDescription", () => {
     expect(deleteDescription("Sub Kegiatan", { taskCount: 1 })).toContain("Sub Kegiatan ini beserta 1 task");
     expect(deleteDescription("Project", { taskCount: 3 })).toContain("Project ini beserta 3 action");
     expect(deleteDescription("Project", { taskCount: 0 })).toBe("Anda yakin ingin menghapus item ini secara permanen?");
+  });
+});
+
+describe("lampiran yang ikut terhapus", () => {
+  const file = (id: string, uploadId: string) => ({ id, type: "file" as const, uploadId, name: id });
+  const tasks: ProjectTask[] = [
+    { id: "t1", projectId: "p1", title: "Action", resources: [file("a1", "u-a1")] },
+    { id: "t2", projectId: "sk1", title: "Task sub kegiatan", resources: [file("a2", "u-a2")] },
+    { id: "t3", projectId: "lain", title: "Task lain", resources: [file("a3", "u-a3")] },
+  ];
+
+  it("project + action-nya", () => {
+    const project: Project = { id: "p1", title: "P", resources: [file("pb", "u-pb")] };
+    expect(projectAttachments(project, tasks).map((a) => a.id)).toEqual(["pb", "a1"]);
+  });
+
+  it("item area + seluruh turunan + task-nya", () => {
+    const withFiles = activities.map((a) => (a.id === "k1" ? { ...a, resources: [file("kb", "u-kb")] } : a));
+    expect(activityTreeAttachments(withFiles, tasks, "sa1").map((a) => a.id)).toEqual(["kb", "a2"]);
+    expect(activityTreeAttachments(withFiles, tasks, "sa2")).toEqual([]);
+  });
+});
+
+describe("berkas Resource Global", () => {
+  it("resource berkas → lampiran untuk pembersihan", () => {
+    expect(resourceFileAttachment({ id: "r1", title: "SK", uploadId: "u1", mimeType: "application/pdf" })).toEqual({
+      id: "resource-file-r1",
+      type: "file",
+      uploadId: "u1",
+      name: "SK",
+      mimeType: "application/pdf",
+    });
+    expect(resourceFileAttachment({ id: "r2", title: "Link" })).toBeNull();
+  });
+
+  it("berkas lama yang diganti / tidak dipakai lagi", () => {
+    expect(replacedUploadId({ uploadId: "u1" }, { type: "file", uploadId: "u2" })).toBe("u1");
+    expect(replacedUploadId({ uploadId: "u1" }, { type: "file", uploadId: "u1" })).toBeNull();
+    expect(replacedUploadId({ uploadId: "u1" }, { type: "link", uploadId: "u1" })).toBe("u1");
+    expect(replacedUploadId(null, { type: "file", uploadId: "u2" })).toBeNull();
+    expect(replacedUploadId({}, { type: "file", uploadId: "u2" })).toBeNull();
   });
 });

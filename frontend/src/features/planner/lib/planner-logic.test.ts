@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectTask, Routine, Schedule, Todo } from "@/types/entities";
 import {
-  completionPatch,
   doneOn,
   filterSchedules,
   indicatorState,
@@ -197,14 +196,6 @@ describe("todo diselesaikan terlambat", () => {
     expect(isDoneLate(todos[3], "2026-10-09")).toBe(false);
     expect(doneOn(todos[4], "2026-10-07")).toBe("2026-10-07");
     expect(isDoneLate(todos[0], "2026-10-08")).toBe(false);
-  });
-
-  it("completionPatch mencatat dan menghapus waktu selesai", () => {
-    expect(completionPatch(true, new Date("2026-10-11T03:00:00Z"))).toEqual({
-      completed: true,
-      completedAt: "2026-10-11T03:00:00.000Z",
-    });
-    expect(completionPatch(false)).toEqual({ completed: false, completedAt: undefined });
   });
 });
 

@@ -5,7 +5,7 @@ export class UpsertRecordDto {
   @IsObject()
   payload: Record<string, unknown>;
 
-  /** Pemilik record (hanya admin/super_admin). Default: user yang login. */
+  /** Pemilik record bila item milik user lain yang dibagikan (izin edit). Default: user yang login. */
   @IsOptional()
   @IsString()
   userId?: string;

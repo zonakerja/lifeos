@@ -19,8 +19,9 @@ NestJS API ──── PostgreSQL (+pgvector)      data domain, user, aset, aud
 Prinsip:
 - **Satu kontrak data domain** `/records/:type` — frontend menulis per item (upsert/soft delete) dengan ID buatan client;
   backend menyimpannya ke tabel terstruktur per domain.
-- **Data milik user** — setiap baris domain punya `user_id`; role `super_admin`/`admin` dapat melihat data semua user,
-  `viewer` read-only.
+- **Data terisolasi per user** — setiap baris domain punya `user_id`; setiap user (termasuk `admin`/`super_admin`)
+  hanya membaca & menulis datanya sendiri. Akses ke data user lain hanya lewat **berbagi** per item (§3.3) dengan izin
+  Lihat / Komentar / Edit. Role hanya mengatur pengelolaan akun & aplikasi (admin melihat statistik, bukan isi data).
 - **Secret di server** — tidak ada token/kredensial di storage browser. API key AI milik user disimpan terenkripsi
   di server dan hanya dipakai backend; browser tidak pernah memanggil provider AI secara langsung (§3.1).
 
@@ -104,7 +105,8 @@ NestJS (CommonJS), prefix `api/v1`, port 4000.
 | `redis` | koneksi ioredis & opsi BullMQ |
 | `storage` | klien S3 + pembuatan bucket |
 | `auth` | login, refresh token berotasi via cookie httpOnly, profil `/auth/me`, ganti password |
-| `users` | manajemen user (admin/super_admin) |
+| `users` | manajemen akun (admin/super_admin), statistik pemakaian tanpa isi data, direktori penerima berbagi |
+| `sharing` | berbagi item antar-user + komentar; `ShareAccessService` menghitung akses untuk `records` & `uploads` (§3.3) |
 | `settings` | branding aplikasi (`GET` publik) |
 | `records` | API domain generik + audit kearsipan |
 | `uploads` / `extraction` | upload berkas, link unduh bertanda tangan, job ekstraksi teks (§3.2) |
@@ -182,6 +184,39 @@ berkas (`sourceType = "asset"`) — dengan embedding `gemini-embedding-2` 768 di
   GIN berupa indeks ekspresi `to_tsvector('simple', title || ' ' || content)`.
 - Tahap berikutnya (belum): chatbot `POST /ai/chat` memakai pencarian ini + riwayat chat permanen di database.
 
+### 3.3 Isolasi data & berbagi (`src/sharing/`)
+
+- **Role**: `super_admin`, `admin`, `member` (role `viewer` dihapus di migrasi `20261011170000_sharing`; akun viewer
+  menjadi member). Role tidak memberi akses ke data user lain: `/records`, `/uploads`, `/archive-audit` hanya data
+  sendiri + item yang dibagikan. Admin mengelola akun dan melihat `GET /users/stats` (jumlah data, berkas & ukurannya,
+  berbagi, aktif terakhir — tanpa isi). Menghapus user ikut menghapus berkasnya dari object storage.
+- **Tabel**: `shares` (`owner_id`, `recipient_id`, `record_type`, `record_id` = clientId item induk, `permission`
+  `view | comment | edit`, unik per item+penerima) dan `record_comments` (`owner_id` = pemilik item, `author_id`,
+  `body`). `assets.uploaded_by_id` = kolaborator yang mengunggah ke ruang pemilik.
+- **Item induk yang bisa dibagikan**: `para_project`, `para_area`, `para_resource` (termasuk arsip File Control),
+  `free_note`, `ai_note`, `list`, `schedule`. Akses dihitung saat request (logika murni `share-graph.ts` + test):
+  1. **Turunan** ikut dengan izin yang sama: project → action; area → sub area/kegiatan/sub kegiatan, project di area,
+     dan semua task-nya; agenda → Notes AI terhubung.
+  2. **Rujukan** (catatan/resource yang dilampirkan, klasifikasi/JRA/wadah arsip beserta induk wadahnya, agenda dari
+     Notes AI) ikut **baca-saja** dan tidak menurunkan turunannya.
+  3. **Berkas**: semua `uploadId` (key berakhiran `uploadId`, termasuk gambar editor & berita acara) di payload item yang
+     dapat diakses.
+- **Records API**: `GET /records/:type` = milik sendiri + item bersama bertanda `share: { ownerId, ownerName,
+  permission, root }`. Tulis ke item milik user lain wajib menyebut `userId` pemilik (atau diturunkan dari induk untuk
+  item baru: task di project/kegiatan, kegiatan di sub area/area, project di area) dan butuh izin `edit`; item induk
+  hanya bisa dihapus pemiliknya. Key `share` yang ikut terkirim dibuang server.
+- **Uploads**: baca = pemilik, pengunggah, atau penerima yang dapat mengakses item yang merujuk berkas. Unggah dengan
+  `ownerId` (izin edit dari pemilik itu) → berkas milik pemilik item; hapus hanya oleh pemilik atau pengunggahnya.
+- **Endpoint**: `GET /shares?recordType=&recordId=` (penerima satu item, pemilik saja), `GET /shares/outgoing`,
+  `GET /shares/incoming`, `POST /shares` `{ recordType, recordId, email, permission }`, `PATCH /shares/:id`
+  `{ permission }`, `DELETE /shares/:id` (pemilik mencabut / penerima keluar), `GET|POST /comments`
+  (`recordType, recordId, ownerId?`; menulis butuh `comment`/`edit`), `PATCH|DELETE /comments/:id` (penulis; pemilik
+  item boleh menghapus), `GET /users/directory?q=` (min. 3 huruf, nama + email saja).
+- **Cache**: akses baca disimpan 3 detik per user (beberapa koleksi dimuat bersamaan); pemeriksaan tulis selalu
+  dihitung ulang; perubahan berbagi mengosongkan cache.
+- **Belum**: indeks RAG/chatbot hanya mencari data milik sendiri (item bersama tidak ikut); notifikasi saat item
+  dibagikan; tautan publik.
+
 ### Keamanan
 - **Access token** JWT 15 menit, dikirim via header `Authorization`, hanya disimpan di memori frontend.
 - **Refresh token** JWT (`jti` = `refresh_tokens.id`, DB hanya menyimpan hash SHA-256) dikirim sebagai cookie
@@ -201,8 +236,9 @@ Konvensi: model Prisma PascalCase, **tabel & kolom snake_case**, timestamp `time
 dengan `ON DELETE CASCADE`, soft delete `deleted_at` pada tabel domain.
 
 ### 4.1 Tabel inti
-`users` (+ `ai_provider`, `ai_fallback`, `ai_index_enabled`), `refresh_tokens`, `app_settings`, `assets`,
-`asset_extractions`, `archive_audit_logs`, `ai_credentials` (§3.1), `ai_chunks` (pgvector, §3.2).
+`users` (+ `ai_provider`, `ai_fallback`, `ai_index_enabled`), `refresh_tokens`, `app_settings`, `assets` (+ `uploaded_by_id`),
+`asset_extractions`, `archive_audit_logs`, `ai_credentials` (§3.1), `ai_chunks` (pgvector, §3.2),
+`shares` & `record_comments` (§3.3).
 
 ### 4.2 Tabel domain (20)
 

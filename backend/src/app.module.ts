@@ -13,6 +13,7 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { RecordsModule } from "./records/records.module";
 import { RedisModule } from "./redis/redis.module";
 import { SettingsModule } from "./settings/settings.module";
+import { SharingModule } from "./sharing/sharing.module";
 import { ObjectStorageModule } from "./storage/object-storage.module";
 import { UploadsModule } from "./uploads/uploads.module";
 import { UsersModule } from "./users/users.module";
@@ -30,6 +31,7 @@ import { UsersModule } from "./users/users.module";
     AuthModule,
     UsersModule,
     SettingsModule,
+    SharingModule,
     RecordsModule,
     ExtractionModule,
     UploadsModule,

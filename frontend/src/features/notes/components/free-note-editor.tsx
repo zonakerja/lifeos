@@ -3,6 +3,9 @@ import { Check, ChevronLeft, Copy, ScanText } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { CommentsPanel } from "@/features/sharing/comments-panel";
+import { ShareButton } from "@/features/sharing/share-dialog";
+import { SharedBadge } from "@/features/sharing/shared-badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
@@ -154,12 +157,16 @@ export default function FreeNoteEditor({
               </div>
             )}
           </div>
-          {!readOnly && (
-            <div className="flex items-center gap-3">
-              <span className="hidden text-xs text-muted-foreground sm:inline">Tersimpan otomatis</span>
-              <Button onClick={close}>Selesai</Button>
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            <SharedBadge item={note} recordType="free_note" />
+            <ShareButton item={note} recordType="free_note" title={draft.title} iconOnly />
+            {!readOnly && (
+              <>
+                <span className="hidden text-xs text-muted-foreground sm:inline">Tersimpan otomatis</span>
+                <Button onClick={close}>Selesai</Button>
+              </>
+            )}
+          </div>
         </div>
         <input
           placeholder="Judul Catatan..."
@@ -232,6 +239,7 @@ export default function FreeNoteEditor({
             onUploaded={(id) => sessionUploadsRef.current.add(id)}
           />
         )}
+        <CommentsPanel recordType="free_note" item={note} />
       </CardContent>
     </Card>
   );
