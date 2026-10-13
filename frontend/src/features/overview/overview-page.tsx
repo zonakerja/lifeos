@@ -91,7 +91,7 @@ export function Component() {
     .sort((a, b) => a.sort - b.sort)
     .slice(0, 3);
 
-  const runningProjects = projects.filter((p) => p.status !== "archived").slice(0, 4);
+  const runningProjects = projects.slice(0, 4);
   const agendaToday = schedules.filter((s) => isScheduleOnDate(s, todayYmd)).sort(compareScheduleTime);
 
   return (

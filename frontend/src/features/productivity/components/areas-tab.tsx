@@ -10,9 +10,11 @@ import { ShareButton } from "@/features/sharing/share-dialog";
 import { SharedBadge } from "@/features/sharing/shared-badge";
 import { usePermissions } from "@/hooks/use-permissions";
 import { itemAccess } from "@/lib/sharing";
+import { cn } from "@/lib/utils";
 import type { Area } from "@/types/entities";
 import { PARA_INFO } from "../lib/para";
 import { AreaFormDialog } from "./area-dialogs";
+import { CARD_ACTION_CLASS } from "./overview-tab";
 import { ParaInfo } from "./para-info";
 
 export function AreasTab({
@@ -64,9 +66,10 @@ export function AreasTab({
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {paginate(areas, page, pageSize).map((area) => {
             const projectCount = projects.filter((p) => p.areaId === area.id).length;
+            const subAreaCount = activities.filter((a) => a.areaId === area.id && !a.parentId).length;
             return (
               <div
                 key={area.id}
@@ -74,28 +77,43 @@ export function AreasTab({
                 tabIndex={0}
                 onClick={() => onOpenArea(area.id)}
                 onKeyDown={(e) => e.key === "Enter" && onOpenArea(area.id)}
-                className="group relative flex cursor-pointer flex-col overflow-hidden rounded-3xl border bg-card p-6 transition-transform hover:scale-[1.02] hover:shadow-xl"
+                className="group relative flex min-w-0 cursor-pointer flex-col gap-2 overflow-hidden rounded-2xl border bg-card p-4 transition-all hover:border-module/40 hover:shadow-md"
               >
-                <div className="pointer-events-none absolute -top-6 -right-6 size-24 rounded-full bg-module-gradient opacity-25" />
-                <div className="relative mb-2 flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h4 className="text-xl font-bold">{area.title}</h4>
-                    <SharedBadge item={area} recordType="para_area" className="mt-1" />
+                <div className="pointer-events-none absolute -top-8 -left-8 size-20 rounded-full bg-module-gradient opacity-20" />
+                {/* Baris atas: penanda | tombol aksi — judul di baris sendiri agar tidak tertimpa */}
+                <div className="relative flex min-h-7 items-center justify-between gap-2">
+                  <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-module-soft text-module">
+                      <Grid2x2 className="size-3.5" />
+                    </span>
+                    <SharedBadge item={area} recordType="para_area" className="min-w-0 shrink truncate" />
                   </div>
                   {canEdit && itemAccess(area).canEdit && (
-                    <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()}>
-                      <Button variant="ghost" size="icon-sm" title="Ubah" onClick={() => setEditing(area)}>
+                    <div className="-my-1 -mr-1.5 flex shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        title="Ubah"
+                        className={CARD_ACTION_CLASS}
+                        onClick={() => setEditing(area)}
+                      >
                         <PencilLine />
                       </Button>
                       {/* Bagikan, arsipkan, hapus hanya oleh pemilik */}
                       {!area.share && (
                         <>
-                          <ShareButton item={area} recordType="para_area" title={area.title} iconOnly />
+                          <ShareButton
+                            item={area}
+                            recordType="para_area"
+                            title={area.title}
+                            iconOnly
+                            className={CARD_ACTION_CLASS}
+                          />
                           <Button
                             variant="ghost"
                             size="icon-sm"
                             title="Arsipkan"
-                            className="hover:text-warning"
+                            className={cn(CARD_ACTION_CLASS, "hover:text-warning")}
                             onClick={() => onArchiveArea(area)}
                           >
                             <Archive />
@@ -104,7 +122,7 @@ export function AreasTab({
                             variant="ghost"
                             size="icon-sm"
                             title="Hapus"
-                            className="hover:text-destructive"
+                            className={cn(CARD_ACTION_CLASS, "hover:text-destructive")}
                             onClick={() => requestDelete(area)}
                           >
                             <Trash2 />
@@ -114,12 +132,15 @@ export function AreasTab({
                     </div>
                   )}
                 </div>
-                <p className="relative mb-6 line-clamp-2 text-xs text-muted-foreground">
+                <h4 className="relative line-clamp-2 text-base leading-snug font-bold" title={area.title}>
+                  {area.title}
+                </h4>
+                <p className="relative line-clamp-2 text-xs text-muted-foreground">
                   {area.description || "Area tanggung jawab utama."}
                 </p>
-                <div className="relative mt-auto flex items-end justify-between">
-                  <span className="text-3xl font-extrabold text-module">{projectCount}</span>
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Active Projects</span>
+                <div className="relative mt-auto flex flex-wrap items-center gap-1.5 pt-1 text-[11px] font-semibold">
+                  <span className="rounded-md bg-module-soft px-2 py-0.5 text-module">{subAreaCount} sub area</span>
+                  <span className="rounded-md bg-muted px-2 py-0.5 text-muted-foreground">{projectCount} project</span>
                 </div>
               </div>
             );

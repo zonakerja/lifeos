@@ -1,3 +1,4 @@
+import { parseLocalYMD } from "@/lib/dates";
 import type { Project, ProjectTask } from "@/types/entities";
 
 /**
@@ -19,8 +20,9 @@ export const projectTaskProgress = (project: Project, tasks: ProjectTask[]) =>
 /** Persentase waktu berjalan antara startDate dan deadline. 0–100. */
 export const projectTimeProgress = (project: Project, now: Date) => {
   if (!project.startDate || !project.deadline) return 0;
-  const start = new Date(project.startDate).getTime();
-  const end = new Date(project.deadline).getTime();
+  // Dari awal hari mulai sampai akhir hari deadline (YMD dibaca sebagai tanggal lokal)
+  const start = parseLocalYMD(project.startDate).getTime();
+  const end = parseLocalYMD(project.deadline).getTime() + 24 * 60 * 60 * 1000 - 1;
   if (end <= start) return 100;
   return Math.min(100, Math.max(0, ((now.getTime() - start) / (end - start)) * 100));
 };

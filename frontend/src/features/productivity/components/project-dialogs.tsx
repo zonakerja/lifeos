@@ -121,7 +121,7 @@ function ProjectForm({
       setProjects((prev) => prev.map((p) => (p.id === form.id ? { ...p, ...data } : p)));
       onSaved(data);
     } else {
-      const created: Project = { ...data, id: generateId("proj"), progress: 0, createdAt: new Date().toISOString() };
+      const created: Project = { ...data, id: generateId("proj"), createdAt: new Date().toISOString() };
       setProjects((prev) => [...prev, created]);
       onSaved(created);
     }
@@ -261,7 +261,7 @@ export function ProjectDetailDialog({
         onOpenChange(open);
       }}
     >
-      <DialogContent className="flex h-[90svh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
+      <DialogContent className="flex h-[92svh] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
         <DialogTitle className="sr-only">{project?.title ?? "Detail Project"}</DialogTitle>
         {project && (
           <AccessScope item={project}>

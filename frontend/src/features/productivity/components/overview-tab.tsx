@@ -117,6 +117,9 @@ export function OverviewTab({ onOpenProject }: { onOpenProject: (id: string) => 
   );
 }
 
+/** Tombol aksi ikon di kartu Project/Area: lebih kecil dari icon-sm agar tidak mendesak judul. */
+export const CARD_ACTION_CLASS = "size-7 [&_svg:not([class*='size-'])]:size-3.5";
+
 export function MiniProgress({ label, value, className }: { label: string; value: number; className: string }) {
   return (
     <div>

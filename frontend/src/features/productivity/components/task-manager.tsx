@@ -45,13 +45,18 @@ import { DEFAULT_DATE_FILTER, matchesDateFilter } from "@/lib/date-filter";
 import { formatLocalYMD, formatNumericDate } from "@/lib/dates";
 import { generateId } from "@/lib/ids";
 import { cn } from "@/lib/utils";
-import { scheduleDateRangeLabel, scheduleStart, scheduleTimeLabel } from "@/features/planner/lib/planner-logic";
+import {
+  scheduleDateRangeLabel,
+  scheduleEnd,
+  scheduleStart,
+  scheduleTimeLabel,
+} from "@/features/planner/lib/planner-logic";
 import { useSetSearchParams } from "@/hooks/use-search-param";
 import type { Activity, AttachedResource, Priority, Project, ProjectTask, Schedule } from "@/types/entities";
 import { type AreaLevel, completionDefaults } from "../lib/para";
 import { projectTimeProgress, taskProgress } from "../lib/progress";
 import { useAttachmentEdits } from "../use-attachment-edits";
-import { AgendaList } from "./agenda-list";
+import { AgendaDeleteDialog, AgendaItem, ITEM_TAG_STYLE } from "./agenda-item";
 import { CompleteTaskDialog } from "./complete-task-dialog";
 
 type TaskOwnerType = "Project" | AreaLevel;
@@ -83,7 +88,10 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
   const [editing, setEditing] = useState<ProjectTask | "new" | null>(null);
   const [deleting, setDeleting] = useState<ProjectTask | null>(null);
   const [completing, setCompleting] = useState<ProjectTask | null>(null);
-  const [section, setSection] = useState<"actions" | "agenda">("actions");
+  // Daftar gabungan action/task + agenda; tag pembeda bisa dipakai sebagai filter
+  const [kindFilter, setKindFilter] = useState<"all" | "task" | "agenda">("all");
+  const [deletingAgenda, setDeletingAgenda] = useState<Schedule | null>(null);
+  const setParams = useSetSearchParams();
   const { items: schedules } = useSchedules();
   const cleanup = useAttachmentCleanup();
 
@@ -124,56 +132,206 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
     );
   }
 
-  const filtered = ownerTasks
-    .filter((t) => !search || t.title.toLowerCase().includes(search.toLowerCase()))
-    .filter((t) => matchesDateFilter(t.dueDate, dateFilter, today))
-    .sort((a, b) => new Date(a.dueDate || 0).getTime() - new Date(b.dueDate || 0).getTime());
+  const query = search.toLowerCase();
+  // Action/task & agenda berjalan beriringan, urut tanggal (YMD + jam); tanpa tanggal di akhir
+  const entries = [
+    ...(kindFilter === "agenda" ? [] : ownerTasks)
+      .filter((t) => !query || t.title.toLowerCase().includes(query))
+      .filter((t) => matchesDateFilter(t.dueDate, dateFilter, today))
+      .map((task) => ({ kind: "task" as const, key: `t-${task.id}`, sortKey: task.dueDate || "9999", task })),
+    ...(kindFilter === "task" ? [] : ownerSchedules)
+      .filter((sc) => !query || sc.title.toLowerCase().includes(query))
+      // Agenda multi-hari ikut bila tanggal mulai atau selesainya masuk rentang filter
+      .filter(
+        (sc) =>
+          matchesDateFilter(scheduleStart(sc), dateFilter, today) ||
+          matchesDateFilter(scheduleEnd(sc), dateFilter, today),
+      )
+      .map((schedule) => ({
+        kind: "agenda" as const,
+        key: `s-${schedule.id}`,
+        sortKey: `${scheduleStart(schedule) || "9999"} ${schedule.startTime ?? ""}`,
+        schedule,
+      })),
+  ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
 
   const updateTask = (id: string, values: Partial<ProjectTask>) =>
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...values } : t)));
 
   const taskPct = taskProgress(ownerTasks);
+  const totalWeight = ownerTasks.reduce((sum, t) => sum + (Number(t.weight) || 0), 0);
   const timePct = isProject ? projectTimeProgress(owner as Project, today) : 0;
   const ownerResources = (owner as Project).resources ?? [];
 
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* Header */}
-      <div className="flex flex-col gap-4 border-b p-5 md:p-7">
-        <div className="flex flex-wrap items-center gap-2 pr-10">
-          <Badge variant="secondary" className="uppercase">
-            {ownerType}
-          </Badge>
-          <SharedBadge item={owner} recordType={isProject ? "para_project" : undefined} />
-          {owner.deadline && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <CalendarDays className="size-3" /> {formatNumericDate(owner.deadline)}
-            </span>
+  // Render function (bukan komponen bersarang) agar tidak di-remount tiap render
+  const renderTask = (task: ProjectTask, key: string) => (
+    <li
+      key={key}
+      className={cn(
+        "group flex flex-col rounded-2xl border p-4 transition-shadow hover:shadow-md",
+        task.completed ? "bg-muted/50 opacity-70" : "bg-card",
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <button
+          type="button"
+          disabled={!canEdit}
+          aria-label={task.completed ? "Tandai belum selesai" : "Tandai selesai"}
+          // Centang → dialog isian (tanggal, prioritas, bobot); batal centang langsung
+          onClick={() => (task.completed ? updateTask(task.id, completionPatch(false)) : setCompleting(task))}
+          className={cn(
+            "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors",
+            task.completed ? "border-success bg-success text-white" : "border-muted-foreground/40 hover:border-success",
           )}
-        </div>
-        <div>
-          <div className="flex items-start justify-between gap-3">
-            <h2 className="text-2xl font-extrabold tracking-tight md:text-3xl">{owner.title}</h2>
-            {isProject && <ShareButton item={owner} recordType="para_project" title={owner.title} />}
+        >
+          {task.completed && <Check className="size-3.5" strokeWidth={4} />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className={ITEM_TAG_STYLE.task}>{label}</Badge>
+            <h4 className={cn("text-sm font-bold", task.completed && "text-muted-foreground line-through")}>
+              {task.title}
+            </h4>
           </div>
-          {owner.description && <p className="mt-1 text-sm text-muted-foreground">{owner.description}</p>}
+          {task.description && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.description}</p>}
+          <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+            {task.dueDate && (
+              <span className="flex items-center gap-1">
+                <CalendarDays className="size-3" /> {formatNumericDate(task.dueDate)}
+              </span>
+            )}
+            <span className={cn("capitalize", task.priority === "high" && "font-bold text-destructive")}>
+              {task.priority ?? "medium"} Priority
+            </span>
+            {!!task.resources?.length && (
+              <span className="flex items-center gap-1 text-module">
+                <Paperclip className="size-3" /> {task.resources.length} Lampiran
+              </span>
+            )}
+          </div>
+        </div>
+        {isProject && (
+          <label className="flex flex-col items-end gap-1">
+            <span className="text-[10px] font-bold text-muted-foreground uppercase">Bobot</span>
+            <Input
+              type="number"
+              disabled={!canEdit}
+              className="h-7 w-14 px-1 text-center text-xs font-bold"
+              value={task.weight ?? 0}
+              onChange={(e) => updateTask(task.id, { weight: parseFloat(e.target.value) || 0 })}
+            />
+          </label>
+        )}
+        {canEdit && (
+          <div className="flex gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+            <Button variant="ghost" size="icon-sm" title="Ubah" onClick={() => setEditing(task)}>
+              <PencilLine />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title="Hapus"
+              className="hover:text-destructive"
+              onClick={() => setDeleting(task)}
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        )}
+      </div>
+      {!!task.resources?.length && (
+        <div className="mt-3 border-t pt-3">
+          <p className="mb-2 text-[10px] font-bold text-muted-foreground uppercase">Lampiran:</p>
+          <div className="flex flex-wrap gap-2">
+            {task.resources.map((res, i) => (
+              <AttachmentChip key={`${res.id}-${i}`} res={res} prefix={res.number || `#${i + 1}`} />
+            ))}
+          </div>
+        </div>
+      )}
+    </li>
+  );
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-x-hidden max-md:overflow-y-auto">
+      {/* Header */}
+      {/* Header ringkas (tetap di atas) — sengaja padat agar ruang daftar/timeline lebih leluasa */}
+      <div className="flex shrink-0 flex-col gap-2.5 border-b px-4 py-3 md:px-6">
+        <div className="flex items-start justify-between gap-3 pr-8">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <Badge variant="secondary" className="uppercase">
+                {ownerType}
+              </Badge>
+              <SharedBadge item={owner} recordType={isProject ? "para_project" : undefined} />
+              {owner.deadline && (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <CalendarDays className="size-3" /> {formatNumericDate(owner.deadline)}
+                </span>
+              )}
+            </div>
+            <h2
+              className="mt-1 line-clamp-2 text-lg font-extrabold tracking-tight md:line-clamp-1 md:text-xl"
+              title={owner.title}
+            >
+              {owner.title}
+            </h2>
+            {owner.description && (
+              <p className="line-clamp-1 text-xs text-muted-foreground" title={owner.description}>
+                {owner.description}
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {canEdit && (
+              <>
+                <Button
+                  size="sm"
+                  className="bg-module text-module-foreground hover:bg-module/90"
+                  title={`Tambah ${label}`}
+                  onClick={() => setEditing("new")}
+                >
+                  <Plus /> <span className="max-sm:sr-only">{label}</span>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="bg-info/10 text-info hover:bg-info/15"
+                  title="Tambah Agenda"
+                  onClick={() => setParams({ agenda: "new", agendaParent: owner.id }, { replace: false })}
+                >
+                  <Plus /> <span className="max-sm:sr-only">Agenda</span>
+                </Button>
+              </>
+            )}
+            {isProject && <ShareButton item={owner} recordType="para_project" title={owner.title} iconOnly />}
+          </div>
         </div>
 
         {headerExtra}
 
         {isProject && (
-          <div className="grid gap-3 md:grid-cols-2">
-            <ProgressBox label="Task Completion (Weighted)" value={taskPct} className="bg-success" />
-            <ProgressBox label="Time Elapsed" value={timePct} className="bg-info" />
+          <div className="grid gap-x-6 gap-y-1.5 md:grid-cols-2">
+            <ProgressLine label="Task (berbobot)" value={taskPct} className="bg-success" />
+            <ProgressLine label="Waktu berjalan" value={timePct} className="bg-info" />
+            {totalWeight > 0 && totalWeight !== 100 && (
+              <p className="text-[11px] font-medium text-warning md:col-span-2">
+                Total bobot action {totalWeight}% — sebaiknya 100% agar progres berbobot akurat.
+              </p>
+            )}
           </div>
         )}
 
         {ownerResources.length > 0 && (
-          <div>
-            <p className="mb-2 flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase">
-              <BookOpen className="size-3" /> Dasar Pelaksanaan / Resources
-            </p>
-            <div className="flex flex-wrap gap-2">
+          // Satu baris yang bisa digeser horizontal (tidak menambah tinggi header)
+          <div className="flex items-center gap-2">
+            <span
+              className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-muted-foreground uppercase"
+              title="Dasar Pelaksanaan / Resources"
+            >
+              <BookOpen className="size-3" /> Dasar
+            </span>
+            <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-0.5">
               {ownerResources.map((res, i) => (
                 <AttachmentChip key={`${res.id}-${i}`} res={res} />
               ))}
@@ -181,174 +339,83 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
           </div>
         )}
 
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          className="w-full md:w-auto"
-          value={section}
-          onValueChange={(v) => v && setSection(v as "actions" | "agenda")}
-        >
-          <ToggleGroupItem value="actions">
-            <CheckSquare /> {label} ({ownerTasks.length})
-          </ToggleGroupItem>
-          <ToggleGroupItem value="agenda">
-            <CalendarRange /> Agenda ({ownerSchedules.length})
-          </ToggleGroupItem>
-        </ToggleGroup>
-
-        {section === "actions" && (
-          <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              value={view}
-              onValueChange={(v) => v && setView(v as "list" | "timeline")}
-            >
-              <ToggleGroupItem value="list">
-                <List /> List
-              </ToggleGroupItem>
-              <ToggleGroupItem value="timeline">
-                <Clock /> Timeline
-              </ToggleGroupItem>
-            </ToggleGroup>
-            {view === "list" && (
-              <div className="flex flex-col gap-2 md:flex-row md:items-center">
-                <SearchInput value={search} onChange={setSearch} className="md:w-48" />
-                <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
-              </div>
-            )}
-          </div>
-        )}
+        {/* Toolbar: tampilan, filter tag, cari, dan rentang tanggal dalam satu baris (tombol tambah di baris judul) */}
+        <div className="flex flex-wrap items-center gap-2">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={view}
+            onValueChange={(v) => v && setView(v as "list" | "timeline")}
+          >
+            <ToggleGroupItem value="list" title="Daftar">
+              <List /> <span className="hidden sm:inline">List</span>
+            </ToggleGroupItem>
+            <ToggleGroupItem value="timeline" title="Timeline">
+              <Clock /> <span className="hidden sm:inline">Timeline</span>
+            </ToggleGroupItem>
+          </ToggleGroup>
+          {view === "list" && (
+            <>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                value={kindFilter}
+                onValueChange={(v) => v && setKindFilter(v as "all" | "task" | "agenda")}
+              >
+                <ToggleGroupItem value="all">Semua ({ownerTasks.length + ownerSchedules.length})</ToggleGroupItem>
+                <ToggleGroupItem value="task" title={label}>
+                  <CheckSquare /> {ownerTasks.length}
+                </ToggleGroupItem>
+                <ToggleGroupItem value="agenda" title="Agenda">
+                  <CalendarRange /> {ownerSchedules.length}
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <SearchInput
+                value={search}
+                onChange={setSearch}
+                className="h-8 w-auto min-w-36 flex-1 md:w-40 md:flex-none"
+              />
+              <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
+            </>
+          )}
+        </div>
       </div>
 
-      {section === "agenda" ? (
-        <AgendaList owner={owner} />
-      ) : (
-        <>
-          {/* Konten */}
-          <div className="flex-1 overflow-y-auto p-5 md:p-7">
-            {view === "timeline" ? (
-              <TimelineView owner={owner} tasks={ownerTasks} schedules={ownerSchedules} taskLabel={label} />
-            ) : filtered.length === 0 ? (
-              <Empty className="border border-dashed">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon" className="bg-module-soft text-module">
-                    <CheckSquare />
-                  </EmptyMedia>
-                  <EmptyDescription>Belum ada {label.toLowerCase()} yang sesuai filter.</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              <ul className="flex flex-col gap-2.5">
-                {filtered.map((task) => (
-                  <li
-                    key={task.id}
-                    className={cn(
-                      "group flex flex-col rounded-2xl border p-4 transition-shadow hover:shadow-md",
-                      task.completed ? "bg-muted/50 opacity-70" : "bg-card",
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <button
-                        type="button"
-                        disabled={!canEdit}
-                        aria-label={task.completed ? "Tandai belum selesai" : "Tandai selesai"}
-                        // Centang → dialog isian (tanggal, prioritas, bobot); batal centang langsung
-                        onClick={() =>
-                          task.completed ? updateTask(task.id, completionPatch(false)) : setCompleting(task)
-                        }
-                        className={cn(
-                          "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors",
-                          task.completed
-                            ? "border-success bg-success text-white"
-                            : "border-muted-foreground/40 hover:border-success",
-                        )}
-                      >
-                        {task.completed && <Check className="size-3.5" strokeWidth={4} />}
-                      </button>
-                      <div className="min-w-0 flex-1">
-                        <h4 className={cn("text-sm font-bold", task.completed && "text-muted-foreground line-through")}>
-                          {task.title}
-                        </h4>
-                        {task.description && (
-                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.description}</p>
-                        )}
-                        <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                          {task.dueDate && (
-                            <span className="flex items-center gap-1">
-                              <CalendarDays className="size-3" /> {formatNumericDate(task.dueDate)}
-                            </span>
-                          )}
-                          <span className={cn("capitalize", task.priority === "high" && "font-bold text-destructive")}>
-                            {task.priority ?? "medium"} Priority
-                          </span>
-                          {!!task.resources?.length && (
-                            <span className="flex items-center gap-1 text-module">
-                              <Paperclip className="size-3" /> {task.resources.length} Lampiran
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      {isProject && (
-                        <label className="flex flex-col items-end gap-1">
-                          <span className="text-[10px] font-bold text-muted-foreground uppercase">Bobot</span>
-                          <Input
-                            type="number"
-                            disabled={!canEdit}
-                            className="h-7 w-14 px-1 text-center text-xs font-bold"
-                            value={task.weight ?? 0}
-                            onChange={(e) => updateTask(task.id, { weight: parseFloat(e.target.value) || 0 })}
-                          />
-                        </label>
-                      )}
-                      {canEdit && (
-                        <div className="flex gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
-                          <Button variant="ghost" size="icon-sm" title="Ubah" onClick={() => setEditing(task)}>
-                            <PencilLine />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            title="Hapus"
-                            className="hover:text-destructive"
-                            onClick={() => setDeleting(task)}
-                          >
-                            <Trash2 />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    {!!task.resources?.length && (
-                      <div className="mt-3 border-t pt-3">
-                        <p className="mb-2 text-[10px] font-bold text-muted-foreground uppercase">Lampiran:</p>
-                        <div className="flex flex-wrap gap-2">
-                          {task.resources.map((res, i) => (
-                            <AttachmentChip key={`${res.id}-${i}`} res={res} prefix={res.number || `#${i + 1}`} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+      {/* Konten */}
+      <div className="px-4 py-4 md:flex-1 md:overflow-y-auto md:px-6">
+        {view === "timeline" ? (
+          <TimelineView owner={owner} tasks={ownerTasks} schedules={ownerSchedules} taskLabel={label} />
+        ) : entries.length === 0 ? (
+          <Empty className="border border-dashed">
+            <EmptyHeader>
+              <EmptyMedia variant="icon" className="bg-module-soft text-module">
+                <CheckSquare />
+              </EmptyMedia>
+              <EmptyDescription>Belum ada {label.toLowerCase()} atau agenda yang sesuai filter.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <ul className="flex flex-col gap-2.5">
+            {entries.map((entry) =>
+              entry.kind === "task" ? (
+                renderTask(entry.task, entry.key)
+              ) : (
+                <AgendaItem
+                  key={entry.key}
+                  schedule={entry.schedule}
+                  today={formatLocalYMD(today)}
+                  onDelete={setDeletingAgenda}
+                />
+              ),
             )}
-            <CommentsPanel recordType={isProject ? "para_project" : "para_activity"} item={owner} className="mt-5" />
-          </div>
+          </ul>
+        )}
+        <CommentsPanel recordType={isProject ? "para_project" : "para_activity"} item={owner} className="mt-5" />
+      </div>
 
-          {view === "list" && canEdit && (
-            <div className="border-t p-4">
-              <Button
-                variant="secondary"
-                className="h-12 w-full bg-module-soft text-module hover:bg-module/15"
-                onClick={() => setEditing("new")}
-              >
-                <Plus /> Tambah {label} Baru
-              </Button>
-            </div>
-          )}
-        </>
-      )}
-
+      <AgendaDeleteDialog schedule={deletingAgenda} onOpenChange={(open) => !open && setDeletingAgenda(null)} />
       <CompleteTaskDialog
         task={completing}
         label={label}
@@ -386,14 +453,13 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
   );
 }
 
-function ProgressBox({ label, value, className }: { label: string; value: number; className: string }) {
+/** Progres satu baris: label · bar · persen (ringkas untuk header yang tetap di atas). */
+function ProgressLine({ label, value, className }: { label: string; value: number; className: string }) {
   return (
-    <div className="rounded-xl border bg-muted/40 p-3">
-      <div className="mb-2 flex justify-between text-xs font-bold text-muted-foreground">
-        <span>{label}</span>
-        <span>{value.toFixed(0)}%</span>
-      </div>
-      <Progress value={value} className="h-2" indicatorClassName={className} />
+    <div className="flex items-center gap-2 text-[11px] font-bold text-muted-foreground">
+      <span className="w-24 shrink-0">{label}</span>
+      <Progress value={value} className="h-1.5 flex-1" indicatorClassName={className} />
+      <span className="w-9 shrink-0 text-right text-foreground">{value.toFixed(0)}%</span>
     </div>
   );
 }
@@ -403,11 +469,12 @@ function AttachmentChip({ res, prefix }: { res: AttachedResource; prefix?: strin
     <button
       type="button"
       onClick={() => void openAttachment(res)}
-      className="flex items-center gap-1.5 rounded-lg border bg-card px-2.5 py-1 text-xs font-medium text-module transition-colors hover:bg-module-soft"
+      title={attachmentLabel(res)}
+      className="flex max-w-60 shrink-0 items-center gap-1.5 rounded-lg border bg-card whitespace-nowrap px-2.5 py-1 text-xs font-medium text-module transition-colors hover:bg-module-soft"
     >
       {prefix && <span className="font-mono text-[10px] text-muted-foreground">{prefix}</span>}
-      {res.type === "file" ? <FileText className="size-3" /> : <ExternalLink className="size-3" />}
-      {attachmentLabel(res)}
+      {res.type === "file" ? <FileText className="size-3 shrink-0" /> : <ExternalLink className="size-3 shrink-0" />}
+      <span className="truncate">{attachmentLabel(res)}</span>
     </button>
   );
 }

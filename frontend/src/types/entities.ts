@@ -191,8 +191,6 @@ export interface Project extends Owned {
   startDate?: string;
   deadline?: string;
   status?: ParaStatus;
-  progress?: number;
-  linkedNotes?: string[];
   resources?: AttachedResource[];
   createdAt?: string;
 }

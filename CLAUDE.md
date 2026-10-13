@@ -400,6 +400,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   bagian Terlambat pada tanggal penyelesaian**, sedangkan di tanggal asalnya tampil **tidak tercentang + "Selesai <tgl>"**
   (klik → buka tanggal itu). Data tanpa `completedAt` dianggap selesai di tanggalnya. Productivity mengisinya juga:
   centang di `task-manager.tsx` dan "Tandai Selesai" di `TaskQuickDialog` (`onSave` sudah membawa `completedAt`).
+  Centang action/task (Productivity **dan** Planner Harian) membuka `CompleteTaskDialog` (tanggal, prioritas, bobot
+  terisi otomatis — `completionDefaults`); batal centang langsung; "Ubah" tetap `TaskQuickDialog`.
 - **Kalender Harian** (`planner-calendar.tsx`): sel tinggi tetap 56–64 px (bukan persegi); penanda dari `summarizeDay()`
   (`planner-logic.ts`, sumber sama dengan daftar Harian) — titik penuh = ada yang belum selesai, lingkaran = semua
   selesai (todo/task/rutinitas yang sudah selesai tetap ditandai); hover tanggal → tooltip ringkasan agenda, rutinitas,
@@ -415,8 +417,13 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     `ProjectTask.projectId`; kolom `schedules.project_id`). `?agenda=new&agendaParent=<id>` membuat agenda baru milik item
     itu (di item bersama izin edit → `userId` pemilik item);
     tampilan lihat menampilkan "Bagian dari <Project/tingkat>" (`paraParentOf`, tautan ke project/area).
-    `ScheduleDialogs` juga dipasang di halaman Productivity; daftar per item = tab **Agenda** di `TaskManager`
-    (`features/productivity/components/agenda-list.tsx`: status, dasar pelaksanaan, penanda Hasil, hapus + berkas).
+    `ScheduleDialogs` juga dipasang di halaman Productivity. Di `TaskManager` action/task dan agenda **satu daftar
+    berurutan tanggal** dengan **tag** pembeda (`ITEM_TAG_STYLE`: Action/Task hijau, Agenda biru) + filter tag (Semua /
+    Action|Task / Agenda) + tombol "+ Action|Task" & "+ Agenda" (di baris judul). **Header TaskManager sengaja ringkas**
+    (judul 1 baris, progres satu baris `ProgressLine`, Dasar & turunan item area = satu baris geser horizontal, toolbar
+    satu baris, tanpa footer) agar ruang daftar luas; di layar < md header ikut tergulir (tidak dibekukan) dan sidebar
+    dialog Area dibatasi `max-h-[30svh]` — jangan menambah blok tinggi di header. Baris agenda & dialog hapusnya di
+    `features/productivity/components/agenda-item.tsx` (status, rentang tanggal, dasar pelaksanaan, penanda Hasil).
     Agenda ikut diarsipkan (`related.schedules`) / dipulihkan / dihapus berantai bersama induknya, dan **ikut dibagikan**
     sebagai turunan project/item area (`share-graph.ts`; Notes AI terhubung ikut). Di Productivity agenda multi-hari tampil
     **sekali** dengan rentang tanggal (`scheduleDateRangeLabel`: "14 Okt – 16 Okt 2026"), juga di tampilan **Timeline**
@@ -447,7 +454,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   tingkat dari rantai `parentId`, maks. 3, semuanya menyimpan `areaId`); task boleh melekat di tingkat mana pun;
   helper di `features/productivity/lib/para.ts` (`AREA_LEVELS`, `activityLevel`, `activityTreeIds`, …); area juga
   memuat project — Free Project = project tanpa area yang valid, bisa diambil ke area dari dialog Area atau dilepas;
-  Project & item Area punya **Action/Task** dan **Agenda** (tab di detail item). Centang Action/Task membuka dialog
+  Project & item Area punya **Action/Task** dan **Agenda** (satu daftar & timeline bertag di detail item). Centang
+  Action/Task membuka dialog
   **Tandai Selesai** (`complete-task-dialog.tsx`): Tanggal (hari ini bila kosong), Prioritas (medium bila kosong), Bobot
   action project (bila kosong: sisa 100 − bobot action lain) terisi otomatis — `completionDefaults`; batal centang
   langsung),
@@ -715,6 +723,31 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   agenda sebagai turunan project/item area (penerima melihat agenda + berkas + Notes AI terhubung; agenda baru dari
   kolaborator izin edit menjadi milik pemilik). Agenda multi-hari tampil sekali dengan rentang tanggal di daftar &
   Timeline Productivity; "??:??" diganti "Tanpa jam" (juga di Planner).
+- 2026-10-12 — **Lampiran saat Tandai Selesai & daftar terpadu** (permintaan user): dialog Tandai Selesai (Productivity &
+  Planner Harian) punya bagian **Lampiran Hasil (opsional)** — mekanisme lampiran yang sama (`AttachmentForm`,
+  `useAttachmentEdits`: Batal/X/Esc membuang upload sesi, lampiran baru digabung ke `resources` task saat dikonfirmasi).
+  Tab Action | Agenda di detail Project/Area diganti **daftar gabungan** action/task + agenda urut tanggal dengan tag
+  pembeda dan filter tag; timeline sudah gabungan. Diuji dengan data demo (batal → berkas 404; konfirmasi → lampiran
+  tersimpan, progres 20% → 45%).
+- 2026-10-12 — **Modal Project/Area lebih lega** (permintaan user): header TaskManager dirapatkan (progres satu baris,
+  lampiran Dasar & kartu turunan item area dalam satu baris geser, toolbar satu baris, tombol tambah pindah ke baris
+  judul, footer dihapus), sidebar Area lebih sempit (w-64/72). Ruang daftar di layar 1366×768: 227 px → 504 px. Di HP
+  header ikut tergulir bersama daftar. Ditemukan & diperbaiki: grid kartu tab Projects/Areas tanpa `grid-cols-1` membuat
+  halaman melebar di HP. Kartu Project & Area (tab Projects/Areas) dibuat ringkas: tombol aksi kecil
+  (`CARD_ACTION_CLASS`) di baris atas bersama label pendek, judul & nama area di baris sendiri (sebelumnya tombol aksi
+  menimpa judul), footer deadline + jumlah action / jumlah sub area + project.
+  Pertanyaan user "resource selain PDF tidak muncul di Gantung": File Control memang hanya memuat Resource Global
+  bertipe **berkas** (format apa pun) + arsip PARA bertipe berkas; Resource **link/catatan** dan **lampiran**
+  Project/Action/Agenda (yang tidak dicentang "Tambahkan ke Resource Global") bukan arsip sehingga tidak masuk.
+- 2026-10-11 — **Evaluasi & pembersihan Productivity + uji data realistis**: kode — field peninggalan tidak lagi
+  ditulis/dibaca (`Project.progress`, `linkedNotes`, `Area.color`), filter mati `status !== "archived"` dihapus (project
+  yang diarsipkan sudah keluar dari koleksi), tanggal YMD di progres/filter/notifikasi dibaca lokal (`parseLocalYMD`, bukan
+  UTC), urutan YMD dibandingkan sebagai string. Alur — centang task Productivity di Planner Harian kini juga membuka
+  dialog Tandai Selesai; peringatan bila total bobot action project ≠ 100%. Data dev: tidak ada task/agenda/kegiatan yatim;
+  2 berkas tidak dirujuk (`Mohammad_Yusuf_CV.pdf`, unggahan user) dibiarkan. Uji realistis: 11 dokumen hasil generator
+  (PDF teks, DOCX, XLSX, CSV; konten instansi pemerintah fiktif "Kota Sukamaju") + data demo berawalan `demo-` (2 area
+  bertingkat, 2 project, action berbobot, agenda + hasil, resource global, berbagi, arsip) — ekstraksi 11/11 `completed`,
+  DOCX rusak → `failed` tanpa menjatuhkan worker, indeks RAG menemukan isi dokumen, berbagi & unduh berkas benar.
 - 2026-10-11 — **Kalender Harian**: tinggi dikurangi (sel 56–64 px, bukan persegi), hover tanggal → ringkasan agenda/
   rutinitas/to-do. Ketidaksesuaian penanda diperbaiki: sebelumnya todo/task yang sudah selesai tidak ditandai sama sekali
   (tanggal berisi to-do selesai tampak kosong) dan penanda dihitung terpisah dari daftar; kini satu sumber
@@ -933,6 +966,10 @@ utama tetap < 500 kB (cek output `npm run build`).
 - WSL/Docker bisa **macet** (bukan berhenti): `wsl -e …`/`docker ps` menggantung, port 5432 tetap terbuka tetapi
   backend `/health` timeout & sesi browser ter-logout. Pulihkan (dengan izin user): `wsl --shutdown` → `wsl -e sh -c
   "sleep infinity"` (latar) → `docker compose up -d --wait`; data volume aman.
+- DOCX yang merujuk gaya (`w:tblStyle`/`w:pStyle`) tanpa `word/styles.xml` membuat `mammoth` melempar TypeError → ekstraksi
+  berstatus `failed` (worker tetap jalan). Dokumen Word asli selalu punya styles.xml; generator DOCX uji jangan merujuk gaya.
+- Tool Write dengan path relatif (`....Users...`) dihitung dari folder kerja (drive D:) → file tertulis ke
+  `D:Users...`, bukan scratchpad. Selalu pakai path absolut scratchpad.
 
 ## 16. Memori & Kesinambungan Antar-Chat
 

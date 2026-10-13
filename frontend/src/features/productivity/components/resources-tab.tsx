@@ -73,7 +73,7 @@ export function ResourcesTab() {
   const filtered = resources
     .filter((r) => !search || (r.title ?? "").toLowerCase().includes(search.toLowerCase()))
     .filter((r) => matchesDateFilter(r.date, dateFilter, today))
-    .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
   return (
     <div className="flex flex-col gap-5">

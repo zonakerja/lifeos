@@ -1,3 +1,4 @@
+import { parseLocalYMD } from "@/lib/dates";
 import type { Activity, Area, AttachedResource, Project, ProjectTask, Resource, Schedule } from "@/types/entities";
 
 /** Palet warna proyek (token desain) — dipilih stabil berdasarkan hash ID. */
@@ -49,7 +50,8 @@ export const isProjectRunningOn = (p: Project, ymd: string) =>
 export const isProjectActiveIn = (project: Project, rangeStart: Date, rangeEnd: Date, now: Date) => {
   const safe = (d?: string) => {
     if (!d) return null;
-    const date = new Date(d);
+    // YMD dibaca sebagai tanggal lokal; createdAt (ISO lengkap) apa adanya
+    const date = /^d{4}-d{2}-d{2}$/.test(d) ? parseLocalYMD(d) : new Date(d);
     return Number.isNaN(date.getTime()) ? null : date;
   };
   const start = safe(project.startDate) ?? safe(project.createdAt) ?? new Date(now);

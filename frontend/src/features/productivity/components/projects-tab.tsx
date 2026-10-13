@@ -1,4 +1,4 @@
-import { Archive, Layers, PencilLine, Plus, Trash2 } from "lucide-react";
+import { Archive, CalendarDays, CheckSquare, Grid2x2, Layers, PencilLine, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { ownedFiles } from "@/features/resources/attachment-cleanup";
@@ -7,6 +7,7 @@ import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanu
 import { ShareButton } from "@/features/sharing/share-dialog";
 import { SharedBadge } from "@/features/sharing/shared-badge";
 import { itemAccess } from "@/lib/sharing";
+import { cn } from "@/lib/utils";
 import { DateRangeFilter } from "@/components/common/date-range-filter";
 import { type PageSize, PaginationControl, paginate } from "@/components/common/pagination-control";
 import { SearchInput } from "@/components/common/search-input";
@@ -22,7 +23,7 @@ import type { Project } from "@/types/entities";
 import { deleteDescription, isProjectActiveIn, PARA_INFO } from "../lib/para";
 import { projectTaskProgress, projectTimeProgress } from "../lib/progress";
 import { useParaActions } from "../use-para-actions";
-import { MiniProgress } from "./overview-tab";
+import { CARD_ACTION_CLASS, MiniProgress } from "./overview-tab";
 import { ParaInfo } from "./para-info";
 import { ProjectFormDialog } from "./project-dialogs";
 
@@ -79,10 +80,12 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (id: string) => 
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {paginate(filtered, page, pageSize).map((p) => {
             const area = areas.find((a) => a.id === p.areaId);
             const access = itemAccess(p);
+            const own = tasks.filter((t) => t.projectId === p.id);
+            const done = own.filter((t) => t.completed).length;
             return (
               <div
                 key={p.id}
@@ -90,62 +93,86 @@ export function ProjectsTab({ onOpenProject }: { onOpenProject: (id: string) => 
                 tabIndex={0}
                 onClick={() => onOpenProject(p.id)}
                 onKeyDown={(e) => e.key === "Enter" && onOpenProject(p.id)}
-                className="group flex cursor-pointer flex-col gap-3 rounded-3xl border bg-card p-5 transition-all hover:border-module/40 hover:shadow-lg"
+                className="group flex min-w-0 cursor-pointer flex-col gap-2.5 rounded-2xl border bg-card p-4 transition-all hover:border-module/40 hover:shadow-md"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {/* Area project milik user lain tidak ikut terbagi → tidak dilabeli "Free Project" */}
-                      {(area || !p.share) && (
-                        <Badge
-                          className={
-                            area ? "bg-primary/12 text-primary uppercase" : "bg-mod-notes/15 text-mod-notes uppercase"
-                          }
-                        >
-                          {area ? area.title : "Free Project"}
-                        </Badge>
-                      )}
-                      <SharedBadge item={p} recordType="para_project" />
-                    </div>
-                    <h4 className="mt-2 truncate text-lg font-bold">{p.title}</h4>
+                {/* Baris atas: label pendek | tombol aksi — judul & nama area di baris sendiri agar tidak tertimpa */}
+                <div className="flex min-h-7 items-center justify-between gap-2">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                    {/* Area project milik user lain tidak ikut terbagi → tidak dilabeli "Free Project" */}
+                    {!area && !p.share && (
+                      <Badge title="Project tanpa area" className="bg-mod-notes/15 text-mod-notes uppercase">
+                        Free Project
+                      </Badge>
+                    )}
+                    <SharedBadge item={p} recordType="para_project" />
                   </div>
                   {canEdit && access.canEdit && (
-                    <div className="flex shrink-0 gap-0.5" onClick={(e) => e.stopPropagation()}>
-                      <Button variant="ghost" size="icon-sm" title="Ubah" onClick={() => setEditing(p)}>
+                    <div className="-my-1 -mr-1.5 flex shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        title="Ubah"
+                        className={CARD_ACTION_CLASS}
+                        onClick={() => setEditing(p)}
+                      >
                         <PencilLine />
                       </Button>
                       {/* Hapus, arsipkan, dan bagikan hanya oleh pemilik */}
                       {access.isOwner && (
                         <>
-                          <ShareButton item={p} recordType="para_project" title={p.title} iconOnly />
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            title="Hapus"
-                            className="hover:text-destructive"
-                            onClick={() => setDeleting(p)}
-                          >
-                            <Trash2 />
-                          </Button>
+                          <ShareButton
+                            item={p}
+                            recordType="para_project"
+                            title={p.title}
+                            iconOnly
+                            className={CARD_ACTION_CLASS}
+                          />
                           <Button
                             variant="ghost"
                             size="icon-sm"
                             title="Arsipkan"
-                            className="hover:text-warning"
+                            className={cn(CARD_ACTION_CLASS, "hover:text-warning")}
                             onClick={() => setArchiving(p)}
                           >
                             <Archive />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title="Hapus"
+                            className={cn(CARD_ACTION_CLASS, "hover:text-destructive")}
+                            onClick={() => setDeleting(p)}
+                          >
+                            <Trash2 />
                           </Button>
                         </>
                       )}
                     </div>
                   )}
                 </div>
-                <MiniProgress label="Task" value={projectTaskProgress(p, tasks)} className="bg-primary" />
-                <MiniProgress label="Waktu" value={projectTimeProgress(p, today)} className="bg-info" />
-                <p className="text-xs text-muted-foreground">
-                  Deadline: {p.deadline ? formatNumericDate(p.deadline) : "-"}
-                </p>
+                <h4 className="line-clamp-2 text-base leading-snug font-bold" title={p.title}>
+                  {p.title}
+                </h4>
+                {area && (
+                  <p
+                    className="-mt-1.5 flex items-center gap-1 text-xs font-semibold text-primary"
+                    title={`Area: ${area.title}`}
+                  >
+                    <Grid2x2 className="size-3 shrink-0" /> <span className="truncate">{area.title}</span>
+                  </p>
+                )}
+                <div className="flex flex-col gap-1.5">
+                  <MiniProgress label="Task" value={projectTaskProgress(p, tasks)} className="bg-primary" />
+                  <MiniProgress label="Waktu" value={projectTimeProgress(p, today)} className="bg-info" />
+                </div>
+                <div className="mt-auto flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <CalendarDays className="size-3" /> {p.deadline ? formatNumericDate(p.deadline) : "Tanpa deadline"}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <CheckSquare className="size-3" /> {done}/{own.length} action
+                  </span>
+                </div>
               </div>
             );
           })}

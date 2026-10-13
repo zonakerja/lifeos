@@ -107,7 +107,7 @@ export function buildLifeosContext(data: LifeosData, variant: "search" | "chat")
     [
       "PROJECTS",
       section(
-        data.projects.filter((p) => p.status !== "archived"),
+        data.projects,
         (p) =>
           isSearch
             ? `- ID: app:project:${p.id} | ${p.title} (Deadline: ${p.deadline})`

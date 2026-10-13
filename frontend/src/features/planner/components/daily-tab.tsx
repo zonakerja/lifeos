@@ -32,7 +32,9 @@ import {
   useSchedules,
   useTodos,
 } from "@/data/collections";
+import { CompleteTaskDialog } from "@/features/productivity/components/complete-task-dialog";
 import { TaskQuickDialog, type TaskKind } from "@/features/productivity/components/task-quick-dialog";
+import { completionDefaults } from "@/features/productivity/lib/para";
 import { ownedFiles } from "@/features/resources/attachment-cleanup";
 import { DeleteWithFilesDialog } from "@/features/resources/delete-with-files-dialog";
 import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
@@ -112,6 +114,7 @@ export function DailyTab() {
 
   const [logRoutine, setLogRoutine] = useState<{ id: string; title: string } | null>(null);
   const [editingTask, setEditingTask] = useState<{ task: ProjectTask; kind: TaskKind } | null>(null);
+  const [completingTask, setCompletingTask] = useState<{ task: ProjectTask; kind: TaskKind } | null>(null);
   const [deleting, setDeleting] = useState<CombinedItem | null>(null);
   const cleanup = useAttachmentCleanup();
   const deletingFiles = deleting?.isProd ? ownedFiles(deleting.resources) : [];
@@ -179,8 +182,10 @@ export function DailyTab() {
   const toggleItem = (item: CombinedItem, late = false) => {
     if (!canEdit) return;
     if (item.isProd) {
-      // Centang task produktivitas membuka dialog update
-      setEditingTask({ task: stripCombined(item), kind: item.kind });
+      // Sama dengan Productivity: centang → dialog Tandai Selesai (tanggal, prioritas, bobot); batal centang langsung
+      if (item.completed)
+        setTasks((prev) => prev.map((t) => (t.id === item.id ? { ...t, ...completionPatch(false) } : t)));
+      else setCompletingTask({ task: stripCombined(item), kind: item.kind });
     } else {
       const completing = !item.completed;
       setTodos((prev) => prev.map((t) => (t.id === item.id ? { ...t, ...completionPatch(completing) } : t)));
@@ -570,6 +575,19 @@ export function DailyTab() {
         scheduledDate={currentDate}
         onOpenChange={(open) => !open && setLogRoutine(null)}
         onSave={saveLog}
+      />
+      <CompleteTaskDialog
+        task={completingTask?.task ?? null}
+        label={completingTask?.kind === "action" ? "Action" : "Task"}
+        withWeight={completingTask?.kind === "action"}
+        defaults={completingTask ? completionDefaults(completingTask.task, tasks, todayYmd) : null}
+        onOpenChange={(open) => !open && setCompletingTask(null)}
+        onConfirm={(values) => {
+          const id = completingTask?.task.id;
+          if (id)
+            setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...values, ...completionPatch(true) } : t)));
+          setCompletingTask(null);
+        }}
       />
       <TaskQuickDialog
         task={editingTask?.task ?? null}

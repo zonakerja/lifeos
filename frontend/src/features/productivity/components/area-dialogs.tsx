@@ -105,7 +105,6 @@ function AreaForm({ area, onDone }: { area: Area | null; onDone: () => void }) {
           id: generateId("area"),
           title: title.trim(),
           description,
-          color: "bg-slate-100",
           createdAt: new Date().toISOString(),
         },
       ]);
@@ -392,7 +391,7 @@ export function AreaDetailDialog({
         onOpenChange(open);
       }}
     >
-      <DialogContent className="flex h-[90svh] flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl md:flex-row">
+      <DialogContent className="flex h-[90svh] flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl md:h-[92svh] md:flex-row">
         <DialogTitle className="sr-only">{area?.title ?? "Detail Area"}</DialogTitle>
         {area && (
           <AccessScope item={area}>
@@ -595,7 +594,7 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
     const childLabel = depth < MAX_AREA_DEPTH ? AREA_LEVELS[depth + 1] : null;
     const children = childLabel ? childrenOf(activities, activity.id) : [];
     return (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1.5">
         {ancestors.length > 0 && (
           <nav aria-label="Jalur induk" className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
             <span>Bagian dari</span>
@@ -610,44 +609,52 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
           </nav>
         )}
         {childLabel && (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold tracking-wider text-muted-foreground uppercase">
-                {childLabel} ({children.length})
-              </p>
-              {canEdit && (
-                <Button variant="outline" size="xs" onClick={() => setActivityForm({ item: "new", parent: activity })}>
-                  <Plus /> {childLabel}
-                </Button>
+          // Turunan dalam satu baris kartu kecil yang bisa digeser horizontal (tinggi header tetap)
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 text-[11px] font-bold tracking-wider text-muted-foreground uppercase">
+              {childLabel} ({children.length})
+            </span>
+            <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5">
+              {children.length === 0 && (
+                <span
+                  className="truncate text-xs text-muted-foreground italic"
+                  title={`Task di bawah ini melekat langsung pada ${level.toLowerCase()}.`}
+                >
+                  Belum ada — task melekat langsung pada {level.toLowerCase()}.
+                </span>
               )}
-            </div>
-            {children.length === 0 ? (
-              <p className="text-xs text-muted-foreground italic">
-                Belum ada {childLabel.toLowerCase()}. Task di bawah ini melekat langsung pada {level.toLowerCase()}.
-              </p>
-            ) : (
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {children.map((child) => {
-                  const branch = new Set(activityTreeIds(activities, child.id));
-                  const branchTasks = tasks.filter((t) => branch.has(t.projectId));
-                  const grandChildren = childrenOf(activities, child.id).length;
-                  return (
-                    <button
-                      key={child.id}
-                      type="button"
-                      onClick={() => selectActivity(child.id)}
-                      className="flex flex-col gap-1.5 rounded-xl border bg-card p-3 text-left transition-shadow hover:shadow-md"
-                    >
-                      <span className="truncate text-sm font-bold">{child.title}</span>
-                      <span className="text-[11px] text-muted-foreground">
-                        {grandChildren > 0 && `${grandChildren} ${AREA_LEVELS[depth + 2]?.toLowerCase()} · `}
-                        {branchTasks.filter((t) => t.completed).length}/{branchTasks.length} task selesai
+              {children.map((child) => {
+                const branch = new Set(activityTreeIds(activities, child.id));
+                const branchTasks = tasks.filter((t) => branch.has(t.projectId));
+                const grandChildren = childrenOf(activities, child.id).length;
+                return (
+                  <button
+                    key={child.id}
+                    type="button"
+                    onClick={() => selectActivity(child.id)}
+                    title={`${child.title}${grandChildren > 0 ? ` · ${grandChildren} ${AREA_LEVELS[depth + 2]?.toLowerCase()}` : ""}`}
+                    className="flex w-44 shrink-0 flex-col gap-1 rounded-lg border bg-card px-2.5 py-1.5 text-left transition-shadow hover:shadow-md"
+                  >
+                    <span className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate font-bold">{child.title}</span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        {branchTasks.filter((t) => t.completed).length}/{branchTasks.length}
                       </span>
-                      <Progress value={taskProgress(branchTasks)} className="h-1.5" indicatorClassName="bg-primary" />
-                    </button>
-                  );
-                })}
-              </div>
+                    </span>
+                    <Progress value={taskProgress(branchTasks)} className="h-1" indicatorClassName="bg-primary" />
+                  </button>
+                );
+              })}
+            </div>
+            {canEdit && (
+              <Button
+                variant="outline"
+                size="xs"
+                className="shrink-0"
+                onClick={() => setActivityForm({ item: "new", parent: activity })}
+              >
+                <Plus /> {childLabel}
+              </Button>
             )}
           </div>
         )}
@@ -658,7 +665,7 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
   return (
     <>
       {/* Sidebar */}
-      <aside className="flex w-full flex-col gap-5 border-b bg-module-soft/50 p-5 md:w-80 md:border-r md:border-b-0">
+      <aside className="flex max-h-[30svh] w-full shrink-0 flex-col gap-3 border-b bg-module-soft/50 p-4 md:max-h-none md:w-64 md:border-r md:border-b-0 lg:w-72">
         {editingTitle ? (
           <div className="flex flex-col gap-2 pr-8">
             <Input
@@ -680,7 +687,9 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
         ) : (
           <div className="flex flex-col gap-1.5 pr-8 md:pr-0">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="truncate text-xl font-bold">{area.title}</h3>
+              <h3 className="truncate text-lg font-bold" title={area.title}>
+                {area.title}
+              </h3>
               {canEdit && (
                 <div className="flex gap-0.5">
                   <Button
@@ -713,7 +722,7 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
           </div>
         )}
 
-        <div className="flex flex-1 flex-col gap-5 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
           <section className="flex flex-col gap-1">
             <div className="mb-1 flex items-center justify-between pl-2">
               <span className="text-xs font-bold tracking-wider text-muted-foreground uppercase">Daftar Sub Area</span>
@@ -743,7 +752,7 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
             {subAreas.length === 0 && <p className="pl-2 text-xs text-muted-foreground italic">Belum ada sub area.</p>}
             {subAreas.map((subArea) => renderTree(subArea, 0))}
           </section>
-          <section className="flex flex-col gap-1 border-t pt-4">
+          <section className="flex flex-col gap-1 border-t pt-3">
             <div className="mb-1 flex items-center justify-between pl-2">
               <span className="text-xs font-bold tracking-wider text-muted-foreground uppercase">Daftar Project</span>
               {canEdit && (

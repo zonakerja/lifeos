@@ -1,4 +1,4 @@
-import { addDays, diffInDays, formatLocalYMD } from "@/lib/dates";
+import { addDays, diffInDays, formatLocalYMD, parseLocalYMD } from "@/lib/dates";
 import { projectTaskProgress } from "@/features/productivity/lib/progress";
 import { scheduleEnd, scheduleStart } from "@/features/planner/lib/planner-logic";
 import type { Project, ProjectTask, Schedule } from "@/types/entities";
@@ -26,9 +26,9 @@ export const upcomingSchedules = (schedules: Schedule[], today: Date) => {
  */
 export const projectReminders = (projects: Project[], tasks: ProjectTask[], today: Date): ProjectReminder[] =>
   projects
-    .filter((p) => p.status !== "archived" && p.deadline)
+    .filter((p) => !!p.deadline)
     .flatMap((p) => {
-      const daysLeft = diffInDays(today, new Date(p.deadline!));
+      const daysLeft = diffInDays(today, parseLocalYMD(p.deadline!));
       let reminderType = "";
       if (daysLeft < 0) reminderType = "Overdue";
       else if (daysLeft === 0) reminderType = "Deadline Hari Ini";
