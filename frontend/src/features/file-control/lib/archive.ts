@@ -1,9 +1,11 @@
 import { formatLocalYMD, parseLocalYMD, startOfDay } from "@/lib/dates";
 import type {
+  ArchiveBorrowing,
   ArchiveClassification,
   ArchiveItemRef,
   ArchiveJra,
   ArchiveResource,
+  DispositionType,
   DynamicStatus,
   PhysicalReference,
   PhysRefType,
@@ -61,15 +63,6 @@ export const STATUS_TONE: Record<DynamicStatus, string> = {
   destroyed: "border-border bg-muted text-muted-foreground",
 };
 
-/** Arsip yang masa inaktifnya sudah selesai (hari ini ≥ tanggal inaktif) dan belum disusutkan. */
-export function isAwaitingDisposition(r: ArchiveResource, today: Date) {
-  if (!r.archivalStatus || r.archivalStatus === "pending" || r.archivalStatus === "none") return false;
-  const status = String(r.status || "").toLowerCase();
-  if (status === "destroyed" || status === "static") return false;
-  const inactive = parseDate(r.retentionInactiveDate);
-  return !!inactive && startOfDay(today) >= inactive;
-}
-
 /** Arsip sudah diberkaskan (fisik/digital) dan belum statis/musnah. */
 export const isManagedArchive = (r: ArchiveResource) =>
   !!r.archivalStatus && r.archivalStatus !== "pending" && r.archivalStatus !== "none";
@@ -108,6 +101,31 @@ export function generateArchiveRegId(docDate?: string) {
 
 export const isPermanent = (jra?: ArchiveJra) => jra?.keterangan === "Permanen";
 
+/** ID arsip yang sedang dipinjam (peminjaman berstatus aktif). */
+export const borrowedArchiveIds = (borrowings: Pick<ArchiveBorrowing, "status" | "items">[]) =>
+  new Set(borrowings.filter((b) => b.status === "active").flatMap((b) => (b.items ?? []).map((i) => i.id)));
+
+/**
+ * Alasan arsip tidak boleh disusutkan dengan jenis `type` (null = boleh). Satu aturan untuk penyusutan dari daftar
+ * arsip maupun BAP manual: hanya arsip terkelola yang "Perlu Tindak Lanjut", bukan vital, tidak sedang dipinjam;
+ * pemusnahan hanya untuk JRA non-Permanen, penyerahan statis hanya untuk JRA Permanen.
+ */
+export function dispositionBlockReason(
+  r: ArchiveFile,
+  type: DispositionType,
+  jra: ArchiveJra | undefined,
+  borrowed: Set<string>,
+): string | null {
+  if (!isManagedArchive(r)) return "belum diberkaskan";
+  if (isFinalStatus(r)) return "sudah berstatus Statis/Musnah";
+  if (r.isVital) return "arsip vital tidak dapat disusutkan";
+  if (r.dynamicStatus !== "expired") return "masa retensi inaktif belum selesai";
+  if (type === "destroy" && isPermanent(jra)) return "JRA Permanen harus diserahkan (statis), bukan dimusnahkan";
+  if (type === "transfer" && !isPermanent(jra)) return "hanya arsip dengan JRA Permanen yang diserahkan";
+  if (borrowed.has(r.id)) return "sedang dipinjam — selesaikan peminjamannya dulu";
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Referensi
 // ---------------------------------------------------------------------------
@@ -116,6 +134,42 @@ export const classificationCode = (c?: ArchiveClassification) =>
   c ? `${c.kodePokok}.${c.kodeSub}.${c.kodeItem}` : "---";
 
 export const archiveTitle = (r: { title?: string; name?: string }) => r.title || r.name || "Tanpa Judul";
+
+/** Kunci keunikan klasifikasi = kode lengkap P.S.I (tanpa peka huruf besar/kecil). */
+export const classificationKey = (c: Pick<ArchiveClassification, "kodePokok" | "kodeSub" | "kodeItem">) =>
+  `${c.kodePokok}.${c.kodeSub}.${c.kodeItem}`.trim().toUpperCase();
+
+/** Kunci keunikan JRA = kategori utama + sub kategori + jenis arsip. */
+export const jraKey = (j: Pick<ArchiveJra, "kategoriUtama" | "subKategori" | "jenisArsip">) =>
+  [j.kategoriUtama, j.subKategori, j.jenisArsip]
+    .map((s) =>
+      String(s ?? "")
+        .trim()
+        .toLowerCase(),
+    )
+    .join("|");
+
+/** Jumlah arsip (termasuk yang sudah statis/musnah) yang merujuk klasifikasi/JRA tertentu. */
+export const countArchivesUsing = (
+  files: Pick<ArchiveResource, "classificationId" | "jraId">[],
+  field: "classificationId" | "jraId",
+  id: string,
+) => files.filter((f) => f[field] === id).length;
+
+/** Lokasi fisik lengkap "Gedung / Rak / Box / Folder" ("" = belum ditata). */
+export const locationPath = (r: ArchiveResource, refs: PhysicalReference[]) =>
+  [r.physLocationId, r.physRackId, r.physBoxId, r.physFolderId]
+    .map((id) => (id ? refs.find((x) => x.id === id)?.name : undefined))
+    .filter(Boolean)
+    .join(" / ");
+
+/** Hari keterlambatan peminjaman aktif terhadap target kembali (0 = belum terlambat / sudah selesai). */
+export function borrowingOverdueDays(b: Pick<ArchiveBorrowing, "status" | "returnDate">, today: Date) {
+  const due = parseDate(b.returnDate);
+  if (b.status !== "active" || !due) return 0;
+  const diff = Math.round((startOfDay(today).getTime() - startOfDay(due).getTime()) / 86_400_000);
+  return Math.max(0, diff);
+}
 
 export const toItemRef = (r: ArchiveResource): ArchiveItemRef => ({
   id: r.id,
@@ -221,14 +275,21 @@ export function descendantIds(refs: PhysicalReference[], parentId: string): stri
   return refs.filter((r) => r.parentId === parentId).flatMap((child) => [child.id, ...descendantIds(refs, child.id)]);
 }
 
-/** Wadah (atau sub-wadahnya) masih berisi arsip? */
+/**
+ * Arsip yang ditata di wadah fisik. Arsip digital tidak punya lokasi fisik (lokasi lama yang mungkin tersimpan
+ * diabaikan) sehingga tidak tampil di Penataan dan tidak dihitung sebagai isi wadah.
+ */
+export const isPhysicalArchive = (r: Pick<ArchiveResource, "archivalStatus">) => r.archivalStatus === "physical";
+
+/** Wadah (atau sub-wadahnya) masih berisi arsip fisik? */
 export function containerHasFiles(containerId: string, refs: PhysicalReference[], files: ArchiveResource[]): boolean {
   const direct = files.some(
     (r) =>
-      r.physLocationId === containerId ||
-      r.physRackId === containerId ||
-      r.physBoxId === containerId ||
-      r.physFolderId === containerId,
+      isPhysicalArchive(r) &&
+      (r.physLocationId === containerId ||
+        r.physRackId === containerId ||
+        r.physBoxId === containerId ||
+        r.physFolderId === containerId),
   );
   if (direct) return true;
   return refs.filter((r) => r.parentId === containerId).some((child) => containerHasFiles(child.id, refs, files));

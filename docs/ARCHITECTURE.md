@@ -45,6 +45,7 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 | | `@aws-sdk/client-s3` | 3.x | Object storage S3-compatible |
 | | `@google/genai` / `@anthropic-ai/sdk` / `openai` | 2.28 / 0.133 / 7.32 | SDK resmi provider AI (dipanggil hanya dari backend, §3.1) |
 | | `unpdf` / `mammoth` / `read-excel-file` | 1.8 / 1.13 / 9.3 | Ekstraksi teks PDF / DOCX / XLSX (pure JS, aman ARM64; §3.2) |
+| | `@mozilla/readability` / `linkedom` | 0.6 / 0.18 | Teks utama halaman web untuk sumber My Notebook (pure JS; §3.4) |
 | | dotenv | 18.0 | Env untuk CLI Prisma & seed (aplikasi memakai `@nestjs/config`) |
 | | tsx (esbuild 0.28) | 4.23 | Menjalankan seed TypeScript di development (`prisma db seed`); produksi memakai `dist/` |
 | | ESLint / typescript-eslint / Vitest | 10.12 / 8.71 / 5.0 | Lint & unit test |
@@ -54,7 +55,7 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 | | react-hook-form / zod | 7.89 / 4.6 | Form & validasi skema |
 | | Tailwind CSS / shadcn CLI (Radix, lucide) | 4.3 / 4.21 | Design system berbasis token |
 | | react-markdown / KaTeX | 10.1 / **0.18.9** | Render Markdown & matematika (dimuat malas) |
-| | Tiptap (`@tiptap/*`, MIT) / perfect-freehand | **3.31** / 1.2 | Editor teks kaya + tulisan tangan stylus di Catatan Bebas (dimuat malas) |
+| | Tiptap (`@tiptap/*` + `@tiptap/markdown`, MIT) / perfect-freehand | **3.31** / 1.2 | Editor teks kaya + tulisan tangan stylus di Catatan Bebas (dimuat malas); Markdown → dokumen editor (salin dari My Notebook) |
 | | oxlint / Vitest | 1.87 / 5.0 | Lint (0 warning) & unit test |
 | Data | PostgreSQL + pgvector | **18** (18.6) + 0.8.7 (`pgvector/pgvector:0.8.7-pg18`, Debian 12; volume `postgres18-data` di `/var/lib/postgresql`) | Data relasional + vector search (RAG) |
 | | Redis | **8.10** (`redis:8.10-alpine`) | Antrian BullMQ; cache/rate-limit/sesi chat (rencana) |
@@ -182,7 +183,36 @@ berkas (`sourceType = "asset"`) — dengan embedding `gemini-embedding-2` 768 di
 - **Indeks khusus di migrasi SQL** (tidak bisa dinyatakan di Prisma): HNSW dibuat sebagai **indeks parsial**
   (`WHERE embedding IS NOT NULL`) agar tidak dianggap drift oleh Prisma — query vektor wajib menyertakan kondisi itu;
   GIN berupa indeks ekspresi `to_tsvector('simple', title || ' ' || content)`.
-- Tahap berikutnya (belum): chatbot `POST /ai/chat` memakai pencarian ini + riwayat chat permanen di database.
+- Pencarian bisa dibatasi ke daftar sumber `(sourceType, sourceId)` (`search(userId, q, limit, only)`) — dipakai My
+  Notebook (§3.4). Sumber teks/web notebook diindeks dengan `sourceType = "notebook_source"`.
+- Tahap berikutnya (belum): chatbot global `POST /ai/chat` atas seluruh data user + riwayat chat permanen (My Notebook
+  sudah menerapkan pola ini per notebook).
+
+### 3.4 My Notebook (`src/notebooks/`, RAG ala NotebookLM)
+
+Tabel `notebooks`, `notebook_sources`, `notebook_messages`, `notebook_notes` (migrasi `20261014130000_notebooks`); semua
+milik satu user (tanpa berbagi — tahap berikutnya). Endpoint `/notebooks` (CRUD), `/:id/sources` (tambah/ubah aktif/
+muat ulang web/hapus), `/:id/chat` + `/:id/messages` (riwayat permanen), `/:id/summary` (Studio), `/:id/notes`.
+- **Sumber**: `upload` (asset + `asset_extractions`, status ikut ekstraksi), `record` (item milik sendiri: `free_note`,
+  `ai_note`, `list`, `para_resource` — resource berkas ikut membaca isi berkasnya), `text` (tempel, ≤ 500 rb karakter),
+  `web` (diambil server saat ditambahkan, isi disimpan di `content`).
+- **Pengambilan web aman** (`web-source.ts`): http/https saja, tanpa kredensial; IP tujuan diperiksa di lookup DNS saat
+  koneksi (tahan DNS rebinding) dan di setiap redirect — loopback, jaringan privat, link-local/metadata cloud, CGNAT,
+  multicast ditolak (`net.BlockList`); batas 15 detik, 5 MB, 4 redirect; HTML → Readability + linkedom, PDF lewat
+  ekstraktor, teks polos.
+- **Chat hibrida** (`notebook-context.ts`, logika murni + test): total teks sumber aktif ≤ 150 rb karakter → semua
+  potongan dikirim (mode `full`); lebih besar → 14 potongan terbaik (mode `rag`) dari gabungan RRF pencarian indeks
+  (vektor + kata, dibatasi ke sumber notebook) dan peringkat kata kunci di memori (tetap jalan bila indeks dimatikan /
+  tanpa key Gemini). Potongan bernomor `[n]`; AI wajib menjawab hanya dari sumber dengan sitasi; nomor yang dikutip
+  disimpan sebagai `citations` (sumber + cuplikan). 8 pesan terakhir ikut sebagai riwayat.
+- **Lampiran chat**: `fileIds` (maks. 4, milik sendiri): gambar (≤ 10 MB) dikirim ke AI; dokumen (≤ 20 MB) dibaca dari
+  teks ekstraksi server (dibatasi 100 rb karakter, tag `<lampiran_pengguna>`), PDF tanpa teks dikirim ke AI sebagai berkas;
+  lampiran tidak diberi nomor sitasi. Tersimpan di `notebook_messages.attachments` dan ikut dihapus saat chat dibersihkan /
+  notebook dihapus.
+- **Kepemilikan berkas sumber**: berkas yang diunggah lewat notebook (context `notebook`) ikut terhapus bersama sumber /
+  notebook; berkas LifeOS lain yang dipilih sebagai sumber hanya dirujuk dan tidak pernah dihapus notebook.
+- **Studio**: ringkasan JSON (`overview`, `keyPoints`, `questions`) dengan sidik jari sumber → `summaryStale` bila sumber
+  ditambah/diubah/dinonaktifkan. Hapus sumber unggahan / notebook → berkasnya ikut dihapus dari storage.
 
 ### 3.3 Isolasi data & berbagi (`src/sharing/`)
 

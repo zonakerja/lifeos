@@ -126,6 +126,7 @@ model User {
   sharesReceived   Share[]           @relation("SharesReceived")
   commentsOnOwned  RecordComment[]   @relation("CommentsOnOwned")
   commentsAuthored RecordComment[]   @relation("CommentsAuthored")
+  notebooks        Notebook[]
 
   @@map("users")
 }
@@ -183,6 +184,98 @@ model AppSettings {
 
 // Potongan teks data user + embedding untuk RAG (src/ai/index/). Indeks HNSW (vector) dan GIN (full-text) dibuat
 // dengan SQL di migrasi karena tidak bisa dinyatakan di skema Prisma.
+// ---------------------------------------------------------------- My Notebook (RAG ala NotebookLM, src/notebooks/)
+
+enum NotebookSourceKind {
+  /// Berkas yang diunggah (asset; teks dari asset_extractions)
+  upload
+  /// Item LifeOS milik user (record_type + record_id)
+  record
+  /// Teks yang ditempel user
+  text
+  /// Halaman web yang diambil server
+  web
+}
+
+/// Notebook: kumpulan sumber + percakapan + catatan hasil.
+model Notebook {
+  id          String            @id @default(cuid())
+  userId      String            @map("user_id")
+  title       String
+  description String?
+  icon        String?
+  /// Ringkasan Studio: { overview, keyPoints[], questions[] }
+  summary     Json?
+  /// Sidik jari sumber saat ringkasan dibuat (beda ⇒ ringkasan usang)
+  summaryHash String?           @map("summary_hash")
+  summaryAt   DateTime?         @map("summary_at") @db.Timestamptz(3)
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sources     NotebookSource[]
+  messages    NotebookMessage[]
+  notes       NotebookNote[]
+
+  @@index([userId, updatedAt])
+  @@map("notebooks")
+}
+
+model NotebookSource {
+  id         String             @id @default(cuid())
+  notebookId String             @map("notebook_id")
+  kind       NotebookSourceKind
+  title      String
+  /// Dipakai saat chat/ringkasan (bisa dimatikan sementara)
+  enabled    Boolean            @default(true)
+  assetId    String?            @map("asset_id")
+  recordType String?            @map("record_type")
+  recordId   String?            @map("record_id")
+  url        String?
+  /// Isi teks (jenis text & web)
+  content    String?
+  /// Error terakhir (mis. halaman web gagal diambil)
+  error      String?
+  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  notebook   Notebook           @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+
+  @@index([notebookId])
+  @@map("notebook_sources")
+}
+
+model NotebookMessage {
+  id          String   @id @default(cuid())
+  notebookId  String   @map("notebook_id")
+  /// user | assistant
+  role        String
+  content     String
+  /// Sitasi jawaban: [{ n, sourceId, title, excerpt }]
+  citations   Json?
+  /// Gambar yang dilampirkan pengguna: [{ uploadId, name, mimeType }]
+  attachments Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  notebook    Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+
+  @@index([notebookId, createdAt])
+  @@map("notebook_messages")
+}
+
+/// Catatan hasil di dalam notebook (disimpan dari chat/ringkasan atau ditulis manual), Markdown.
+model NotebookNote {
+  id         String   @id @default(cuid())
+  notebookId String   @map("notebook_id")
+  title      String
+  content    String
+  /// chat | summary | manual
+  origin     String   @default("manual")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  notebook   Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+
+  @@index([notebookId, updatedAt])
+  @@map("notebook_notes")
+}
+
 model AiChunk {
   id          String                      @id @default(cuid())
   userId      String                      @map("user_id")

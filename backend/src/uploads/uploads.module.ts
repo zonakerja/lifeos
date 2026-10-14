@@ -34,5 +34,6 @@ import { UploadsService } from "./uploads.service";
   ],
   controllers: [UploadsController],
   providers: [UploadsService],
+  exports: [UploadsService],
 })
 export class UploadsModule {}

@@ -214,6 +214,16 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   (catatan/resource terlampir, klasifikasi/JRA/wadah arsip) baca-saja, berkas = semua key `*uploadId` di payload item
   yang dapat diakses. Turunan baru menambah relasi → ubah `expandDescendants`/`parentRefsOf`; rujukan baru →
   `referencesOf`. Endpoint `/shares`, `/shares/outgoing|incoming`, `/comments`.
+- **My Notebook** (`src/notebooks/`, detail: `docs/ARCHITECTURE.md` §3.4): notebook milik user berisi sumber (`upload`,
+  `record`, `text`, `web`), chat RAG bersitasi dengan riwayat permanen (`POST /notebooks/:id/chat`, hibrida: ≤ 150 rb
+  karakter dikirim utuh, lebih besar → potongan relevan), ringkasan Studio, catatan notebook. Logika murni di
+  `notebook-context.ts`, pengambilan web aman di `web-source.ts` (keduanya + test). Item sumber hanya milik sendiri.
+  `AiIndexService.search(..., only)` membatasi pencarian ke sumber tertentu. Sumber `upload` bisa berkas baru (context
+  `notebook` → **ikut terhapus** bersama sumber/notebook) atau **berkas yang sudah ada di LifeOS** (lampiran, dsb. →
+  hanya dirujuk, tidak pernah dihapus); respons sumber membawa `mimeType` & `ownedByNotebook`. Chat menerima `fileIds`
+  (maks. 4 milik sendiri, context `notebook_chat`; gambar ≤ 10 MB dikirim ke AI, dokumen ≤ 20 MB dibaca dari teks
+  ekstraksi server — PDF tanpa teks dikirim ke AI sebagai berkas; masih diproses / tak terbaca → 400); disimpan di
+  `notebook_messages.attachments`; bersihkan chat / hapus notebook ikut menghapus lampirannya.
 - **Settings**: `GET /settings/app` publik (branding login); `PATCH` admin.
 - **AI** (`src/ai/`, detail: `docs/ARCHITECTURE.md` §3.1): `GET/PATCH /ai/settings`, `PUT/DELETE /ai/settings/:provider`,
   `POST /ai/settings/:provider/test`, `POST /ai/generate` (multipart `prompt` + `files[]`, maks. 5 / 20 MB). Katalog
@@ -244,7 +254,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     `20261011130000_para_archive_log` + `20261011140000_ai_credentials` +
     `20261011150000_ai_fallback` + `20261011160000_ai_chunks` + `20261011170000_sharing` (viewer → member, `shares`,
     `record_comments`, `assets.uploaded_by_id`) + `20261011180000_schedule_project` (`schedules.project_id`, data lama dari
-    `extra` dipindah) + `20261014120000_file_control_opt_in` (resource berkas lama → `archival_status = 'pending'`). Migrasi baru → lihat docs/SETUP.md §10
+    `extra` dipindah) + `20261014120000_file_control_opt_in` (resource berkas lama → `archival_status = 'pending'`) +
+  `20261014130000_notebooks` (My Notebook) + `20261014140000_notebook_message_attachments` (gambar di pesan chat). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
@@ -286,8 +297,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   status `success | warning | info | destructive`. Font Figtree. Setiap halaman memakai `<ModulePage module="...">`.
   Pakai komponen shadcn; jangan membuat modal/tombol custom.
 - **Bundle**: rute, halaman login, `Markdown` (react-markdown + KaTeX, `markdown-renderer.tsx`), `html5-qrcode`, dan
-  editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±460 kB; tanpa
-  peringatan ukuran chunk.
+  editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±390 kB; tanpa
+  peringatan ukuran chunk. Tab My Notebook = chunk `notebook-tab` (±42 kB).
 - **CSP produksi** (`nginx.conf`): `script-src 'self'`, `connect-src 'self'` (AI lewat backend), `style-src 'self'
   'unsafe-inline'`, `img/media blob: data:`. Domain eksternal baru → tambahkan di sini (lebih baik lewat backend).
 
@@ -339,6 +350,35 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   - Pengenalan tulisan tangan: `useHandwritingRecognition` → PNG per halaman (`ink-to-image.ts`, maks. 10) →
     `useAi().generate(HANDWRITING_PROMPT, gambar)`.
   - Node view Tiptap interaktif: `ReactNodeViewRenderer(View, { stopEvent: () => true, ignoreMutation: () => true })`.
+- **My Notebook** (`features/notes/notebook/`, tab ke-4 Notes Space, `?notebook=<id>`, `links.notebook(id)`):
+  hook di `src/data/use-notebooks.ts`, API `notebooksApi`. Tata letak (keputusan user): **2 kolom mulai 1024 px** —
+  kiri dua panel terpisah **Sumber** (atas) dan **Studio** = catatan notebook (bawah), masing-masing dengan scroll sendiri,
+  dibuat **padat** (header 1 baris berikon; item 1 baris ± 34 px: ikon jenis · judul terpotong · status sumber / tanggal catatan;
+  jumlah karakter terbaca tidak ditampilkan ke user; **klik sumber = buka dokumen aslinya**: berkas → modal pratinjau,
+  web → tab baru, item LifeOS → menu asalnya (resource berkas/link langsung dibuka), hanya teks tempelan tampil di dialog; kolom grid wajib `min-w-0` agar judul panjang tidak melebarkan kolom)
+  (`fill`, baris grid 11:9) dan tinggi area kerja `100svh − 13.25rem` + gulir otomatis ke judul notebook
+  (`scroll-mt-[9.5rem]` = header + tab modul sticky) sehingga semuanya terlihat di laptop 1366×768; kanan **Chat lebar**
+  dengan **kartu Ringkasan** di atas percakapan (`SummaryCard` di `notebook-panels.tsx`, bisa dilipat, terbuka otomatis
+  saat chat kosong; saran pertanyaan hanya di kartu ini). Di bawah 1024 px: tab Chat | Sumber & Catatan (`useMediaQuery`)
+  — **hanya satu tata letak yang dirender** (panel chat tidak boleh terpasang dua kali). Pertanyaan dikirim lewat satu
+  `useNotebookAsker` (kotak chat & klik saran ringkasan). Lampiran chat = gambar **dan berkas** (PDF, DOCX, XLSX, teks):
+  tombol 📎, **tempel (Ctrl+V)**, seret-lepas (`chat-attachments.tsx`: `useChatAttachments` mengunggah segera +
+  `trackPendingUpload`, dokumen ditunggu sampai teksnya dibaca server lewat `waitForExtraction`, baki pratinjau, lampiran
+  di gelembung pesan → modal pratinjau). Baris input: kotak prompt satu baris setinggi tombol (36 px, placeholder pendek,
+  bantuan pintasan di baris kecil di bawahnya) + ruang kanan untuk tombol chatbot melayang. **Salin jawaban** (tombol &
+  Ctrl+C) membuang nomor rujukan `[n]` (`stripCitations`). Tab Item LifeOS juga menampilkan **berkas LifeOS** (`GET
+  /uploads`, kecuali upload notebook & berkas milik resource yang sudah terwakili resource-nya). Sitasi `[n]` tampil sebagai chip berisi
+  cuplikan; "Sorot sumber" menandai sumbernya. Simpan jawaban/ringkasan → catatan notebook (Markdown); "Salin ke Catatan
+  Bebas" mengubah Markdown menjadi dokumen Tiptap (`editor/markdown-to-doc.ts`, `@tiptap/markdown`, dimuat dinamis;
+  extension editor bersama di `editor/note-extensions.ts`). Upload sumber dicatat `trackPendingUpload` sampai menjadi sumber.
+- **Pratinjau berkas (modal, bersama semua fitur)**: `previewFile({ uploadId, name, mimeType })` dari
+  `components/common/file-preview.tsx` (`FilePreviewHost` dipasang di `AppShell`). PDF (iframe) & gambar ditampilkan
+  dari blob lokal (header `CSP: sandbox` berkas tidak menghalangi penampil PDF; CSP produksi `frame-src blob:`), SVG tidak
+  dipratinjau; jenis lain (DOCX/XLSX/PPTX) menampilkan Unduh/Tab baru — pratinjaunya menyusul bersama **ONLYOFFICE**.
+  Dipakai semua fitur: `openAttachment()` (lampiran Productivity/Planner/Notes AI, Resource Global, File Control) membuka
+  berkas di modal ini — nama/jenis yang tidak dibawa lampiran dilengkapi dari `GET /uploads/:id/metadata`; web link tetap
+  di tab baru. Tata letak (keputusan user 2026-10-14): bingkai tipis (padding 6 px, header satu baris 28 px: ikon · nama ·
+  jenis · Unduh · Tab baru · tutup), modal `96svh` × maks. `min(96vw, 1400px)` agar dokumen tampil selebar mungkin.
 - **Lampiran** (dipakai bersama **Productivity** dan **Planner** — ubah dengan hati-hati, kedua thread bergantung):
   `features/resources/` (`AttachmentForm`, `AttachmentTable`, `ResourceAiDialog`, `openAttachment()`,
   `mergeIntoGlobalResources()`, `noteAttachmentPath()`, `useFileSummarizer()`). Format data tunggal
@@ -528,7 +568,10 @@ VPS, CI, dokumentasi). Berikutnya:
    Notes AI, ringkasan resource) di atas fondasi baru.
 2. RAG: ~~tahap 1 ekstraksi + indeks pgvector~~ ✅ 2026-10-11 → **tahap 2** chatbot `POST /ai/chat` di backend memakai
    `AiIndexService.search` + riwayat chat **permanen** di PostgreSQL (keputusan user) → tahap 3 Redis (cache embedding
-   pertanyaan, batas pemakaian harian, throttler).
+   pertanyaan, batas pemakaian harian, throttler). **My Notebook** (2026-10-14) sudah menerapkan chat RAG bersitasi +
+   riwayat permanen per notebook; chatbot global tinggal memakai pola yang sama (`notebook-context.ts`) atas semua data.
+   Lanjutan My Notebook: berbagi notebook, sumber item bersama, Studio lain (FAQ, panduan belajar, briefing, timeline,
+   ringkasan audio).
 3. (Opsional) tampilan riwayat audit arsip di UI (`GET /archive-audit` sudah tersedia).
 4. **Dokumen dibuat di aplikasi** (jenis resource baru) dengan editor berbasis **ONLYOFFICE** — dikerjakan user di
    thread & **branch baru**. Titik sambung: Resource Global (`para_resource`, berkas = `uploadId` Asset backend), centang
@@ -562,7 +605,9 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Jadwal ulang agenda (majukan/mundurkan, alasan, cek bentrok, kembalikan; juga satu pertemuan seri) | ✅ 2026-10-14 — unit test, lint, typecheck, build, UI diuji di browser (pindah kuliah 27→29 Okt dengan bentrok terdeteksi, baris "Dipindah ke" di tanggal asal, kembalikan) |
 | Catatan Bebas: editor teks kaya (Tiptap) + tulisan tangan stylus (halaman penuh & blok Coretan) + ubah ke teks (AI) | ✅ 2026-10-11 — unit test, build, smoke, UI diuji di browser (mouse + event pena sintetis + mode HP), pengenalan AI diuji dengan Gemini sungguhan; **uji S Pen di perangkat Android user belum** |
 | Perbaikan Notes Space (simpan otomatis Catatan, cegah perubahan hilang di Notes AI, cari/sematkan/paginasi, dokumen dibaca backend, prompt AI, List urut ulang & progres) | ✅ 2026-10-11 — lint, typecheck, unit test, build, dan UI diuji di browser (desktop + mode HP); ringkasan/transkrip AI sungguhan belum diuji (butuh API key) |
+| **My Notebook** (RAG ala NotebookLM: sumber berkas/item LifeOS/teks/web, chat hibrida bersitasi + riwayat permanen, ringkasan Studio, catatan notebook → Catatan Bebas) + urutan tab Notes (Catatan Bebas, List Bebas, Notes AI, My Notebook) | ✅ 2026-10-14 — unit backend (notebook-context, web-source: 19) & frontend, smoke (+20), lint, typecheck, build, UI diuji di browser (desktop + HP); chat & ringkasan diuji dengan Gemini sungguhan (akun admin dev; Gemini sempat 503 kelebihan beban → jalur error teruji) |
 | Isolasi data per user (admin tanpa akses data user lain, role viewer dihapus, statistik admin) + **berbagi** item (Project, Area, Resource/arsip, Catatan, Notes AI, List, Agenda; izin Lihat/Komentar/Edit; turunan & berkas ikut; komentar; Pengaturan → Berbagi; File Control tab Dibagikan) | ✅ 2026-10-11 — unit (backend share-graph + frontend sharing), smoke ±45 skenario baru, lint, typecheck, build, UI diuji di browser (bagikan Edit → kolaborator menambah action & komentar; bagikan Lihat → baca-saja; statistik admin). **Belum**: RAG/chatbot mencari item bersama, notifikasi berbagi, tautan publik |
+| File Control: uji menyeluruh + perbaikan aturan penyusutan, peminjaman, referensi, penataan & tampilan detail/kartu (11 temuan prioritas tinggi & sedang) | ✅ 2026-10-14 — unit test (`archive.test.ts` +6), lint, typecheck, build, UI diuji di browser dengan data `[UJI]`. Lanjutan: konfirmasi Restore, BA auto-dispose (tanggal lokal + pelaksana), Penataan khusus fisik, Lihat Dokumen seragam, pratinjau cetak layar penuh, modal pratinjau berkas lebih besar — diuji di browser |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -845,11 +890,45 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   judul di Berbagi, izin lihat, cabut), dan UI. Hapus agenda di Productivity kini memakai dialog Planner dengan pilihan
   cakupan seri. Catatan: pertemuan baru dari pemilik terlihat penerima setelah cache akses baca (3 detik) — sama seperti
   turunan bersama lain.
+- 2026-10-14 — Thread **Notes Space** lanjutan: urutan tab menjadi **Catatan Bebas → List Bebas → Notes AI → My Notebook**
+  (permintaan user). **My Notebook** ala NotebookLM (keputusan user): sumber = upload berkas, item LifeOS, teks tempel, dan
+  **link web** (diambil server dengan perlindungan SSRF); cara baca **hibrida** (sumber kecil dikirim utuh, besar → RAG
+  dalam sumber notebook, sitasi wajib); Studio tahap 1 = **ringkasan & poin kunci + saran pertanyaan** (FAQ, panduan
+  belajar, briefing, timeline, audio ditunda); hasil disimpan ke **catatan notebook** dan bisa disalin ke **Catatan
+  Bebas**. Desain: tabel sendiri (bukan record type) karena chat & sitasi relasional dan tidak perlu sinkron per item;
+  potongan memakai `chunkText` yang sama dengan indeks AI sehingga hasil pencarian vektor bisa dicocokkan per potongan;
+  peringkat kata kunci di memori sebagai cadangan bila indeks dimatikan. Sumber item LifeOS hanya milik sendiri (item
+  bersama ditunda). Paket baru: `@mozilla/readability` + `linkedom` (backend), `@tiptap/markdown` (frontend).
+  Revisi tata letak (permintaan user): ringkasan digabung ke chat agar chat lebar & lega; panel Studio (catatan) pindah
+  ke bawah sumber; daftar sumber & catatan dibatasi tinggi lalu digulir. Revisi berikutnya: Sumber & Studio = dua panel
+  dengan scroll masing-masing yang selalu terlihat di laptop biasa; chat bisa melampirkan / menempel gambar (maks. 4,
+  ≤ 10 MB, dibaca AI bersama sumber; tanpa sumber pun boleh bertanya tentang gambar). Lanjutan (keputusan user):
+  sumber Item LifeOS mencakup **berkas LifeOS (mis. PDF lampiran)** yang hanya dirujuk — menghapus notebook tidak menghapus
+  item/berkas LifeOS, sedangkan berkas dari "Upload berkas" ikut terhapus; lampiran chat diperluas ke berkas (dokumen
+  dibaca dari teks ekstraksi); salin jawaban tanpa rujukan [n]; **modal pratinjau berkas** bersama (PDF & gambar; DOCX/
+  XLSX/PPTX menunggu ONLYOFFICE).
 - 2026-10-14 — **Jadwal ulang agenda** (permintaan user: kuliah berulang bisa dimajukan/dimundurkan; berlaku untuk semua
   agenda). Desain: tanggal/jam agenda diganti langsung (bukan pengecualian virtual) + riwayat `reschedules` di `extra`
   (tanpa migrasi), sehingga Harian, kalender, Overview, notifikasi, Productivity, dan berbagi otomatis memakai jadwal baru;
   jadwal semula & alasan tetap terlihat dan bisa dikembalikan. Ditemukan & diperbaiki: label tanggal tab Jadwal membaca
   YMD sebagai UTC (`formatDayMonth("YYYY-MM-DD")` → kini `parseLocalYMD`).
+- 2026-10-14 — **File Control: uji menyeluruh + perbaikan** (thread File Control; tanpa perubahan backend/migrasi). Uji
+  dengan data `[UJI]`/`fct-` (semua tahap siklus, wadah bertingkat, arsip PARA, berbagi). Diperbaiki: (1) BAP manual
+  menawarkan arsip vital & Permanen untuk dimusnahkan → satu aturan `dispositionBlockReason` untuk semua jalur
+  penyusutan; (2) arsip yang sedang dipinjam bisa dimusnahkan/dipindah → ditolak (penyusutan, Penataan, pemindahan
+  massal) + penanda "Dipinjam"; (3) klasifikasi/JRA yang dipakai arsip bisa dihapus → ditolak; (4) arsip digital
+  musnah/statis masih tampil & bisa ditata → disembunyikan/ditolak untuk semua media; (5) impor CSV / form membuat
+  referensi kembar → dicegah (`classificationKey`/`jraKey`); (6) target kembali < tanggal pinjam diterima → ditolak +
+  penanda Terlambat; (7–8) detail arsip Gantung berlabel "Aktif · NON PERMANEN · DIGITAL" & banner hijau untuk arsip
+  Perlu Tindak Lanjut → banner/label per status (`RetentionBadge`); (9–10) kartu: lokasi "?/?" & kode "001" → lokasi
+  lengkap / "Belum ditata" & kode `P.S.I`; (11) peminjaman hanya arsip fisik. `isAwaitingDisposition` dihapus (diganti).
+  Lanjutan (permintaan user): Restore dengan dialog konfirmasi; BA auto-dispose memakai tanggal lokal + mencatat pelaksana
+  (`user`), cetak BA menandatangankan pelaksana tercatat; **Penataan khusus arsip fisik** (keputusan user) — arsip
+  digital tidak ditata/dihitung sebagai isi wadah (`isPhysicalArchive`), form pemberkasan digital tanpa lokasi fisik
+  (dikosongkan saat simpan) tetapi tetap ada Catatan, filter Media di pemindahan massal dihapus; **Lihat Dokumen**
+  seragam di semua tempat (`lib/archive-document.ts`, termasuk arsip digital yang hanya punya tautan); pratinjau cetak A4
+  (BA & Daftar Isi) layar penuh; modal pratinjau berkas bersama (`file-preview.tsx`) dibuat berbingkai tipis dan
+  hampir selebar/setinggi layar.
 
 ## 13. Konvensi Kode
 
@@ -1054,6 +1133,14 @@ utama tetap < 500 kB (cek output `npm run build`).
   "sleep infinity"` (latar) → `docker compose up -d --wait`; data volume aman.
 - DOCX yang merujuk gaya (`w:tblStyle`/`w:pStyle`) tanpa `word/styles.xml` membuat `mammoth` melempar TypeError → ekstraksi
   berstatus `failed` (worker tetap jalan). Dokumen Word asli selalu punya styles.xml; generator DOCX uji jangan merujuk gaya.
+- Provider AI sungguhan bisa menjawab 503 "high demand" (Gemini) atau menggantung sampai `AI_TIMEOUT_MS` (3 menit) —
+  bukan bug aplikasi. Saat uji UI tunggu lebih lama / coba ulang; jalur error (toast + pertanyaan kembali ke input) ikut
+  teruji. Panel browser tersembunyi memperlambat `setTimeout` → batasi loop tunggu per panggilan `javascript_tool`.
+- Setelah `prisma generate` (kolom/tabel baru), backend `nest start --watch` yang sedang berjalan bisa tetap memakai
+  Prisma Client **lama** di `dist/generated` (watch tidak meng-emit ulang berkas hasil generate) → query ke kolom baru
+  gagal 500. Cek `grep -c <kolom> dist/generated/prisma/internal/class.js`; perbaiki dengan restart `npm run dev`.
+- Import dinamis paket yang belum pernah dimuat (mis. `@tiptap/markdown` lewat `markdown-to-doc`) membuat Vite dev
+  mengoptimasi ulang dependensi dan me-reload halaman sekali — normal, ulangi aksinya.
 - Tool Write dengan path relatif (`....Users...`) dihitung dari folder kerja (drive D:) → file tertulis ke
   `D:Users...`, bukan scratchpad. Selalu pakai path absolut scratchpad.
 

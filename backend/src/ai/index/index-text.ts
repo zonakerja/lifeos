@@ -7,6 +7,8 @@ export const EMBEDDING_DIMENSIONS = 768;
 
 /** `sourceType` untuk isi berkas (asset); sumber lain memakai nama record type. */
 export const ASSET_SOURCE = "asset";
+/** `sourceType` untuk sumber notebook berupa teks tempel / halaman web (`notebook_sources.content`). */
+export const NOTEBOOK_SOURCE = "notebook_source";
 
 /** Record type yang diindeks beserta labelnya untuk konteks AI. Tipe teknis (log, completion) tidak diindeks. */
 export const INDEXED_TYPES: Partial<Record<RecordType, string>> = {

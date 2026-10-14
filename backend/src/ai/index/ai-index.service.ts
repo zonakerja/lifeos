@@ -21,6 +21,7 @@ import {
   INDEXED_TYPES,
   isIndexedType,
   MAX_SOURCE_CHARS,
+  NOTEBOOK_SOURCE,
   queryEmbeddingText,
   reciprocalRankFusion,
   renderRecord,
@@ -37,6 +38,12 @@ interface SourceDocument {
 interface FindManyDelegate {
   findMany(args: object): Promise<DomainRow[]>;
   findUnique(args: object): Promise<DomainRow | null>;
+}
+
+/** Batasi pencarian ke sumber tertentu (mis. sumber satu notebook). */
+export interface SourceRef {
+  sourceType: string;
+  sourceId: string;
 }
 
 export interface SearchHit {
@@ -195,6 +202,14 @@ export class AiIndexService {
   // ---------------------------------------------------------------- Sumber data
 
   private async loadSource(userId: string, sourceType: string, sourceId: string): Promise<SourceDocument | null> {
+    if (sourceType === NOTEBOOK_SOURCE) {
+      const source = await this.prisma.notebookSource.findFirst({
+        where: { id: sourceId, notebook: { userId }, content: { not: null } },
+      });
+      return source?.content?.trim()
+        ? { sourceType, sourceId, title: `Sumber notebook: ${source.title}`, text: source.content }
+        : null;
+    }
     if (sourceType === ASSET_SOURCE) {
       const asset = await this.prisma.asset.findFirst({
         where: { id: sourceId, userId },
@@ -234,6 +249,19 @@ export class AiIndexService {
       const text = asset.extraction?.extractedText;
       if (text?.trim()) {
         docs.push({ sourceType: ASSET_SOURCE, sourceId: asset.id, title: `Berkas: ${asset.originalName}`, text });
+      }
+    }
+    const notebookSources = await this.prisma.notebookSource.findMany({
+      where: { notebook: { userId }, content: { not: null } },
+    });
+    for (const source of notebookSources) {
+      if (source.content?.trim()) {
+        docs.push({
+          sourceType: NOTEBOOK_SOURCE,
+          sourceId: source.id,
+          title: `Sumber notebook: ${source.title}`,
+          text: source.content,
+        });
       }
     }
     return docs;
@@ -294,14 +322,21 @@ export class AiIndexService {
    * Pencarian gabungan: kemiripan makna (pgvector, cosine) + kata persis (full-text PostgreSQL, penting untuk nomor
    * arsip/kode), digabung dengan Reciprocal Rank Fusion. Tanpa key Gemini hanya pencarian kata.
    */
-  async search(userId: string, query: string, limit = 8): Promise<SearchHit[]> {
+  async search(userId: string, query: string, limit = 8, only?: SourceRef[]): Promise<SearchHit[]> {
+    if (only && only.length === 0) return [];
     const candidates = Math.max(limit * 3, 20);
+    // Filter sumber (notebook): pasangan (source_type, source_id)
+    const scope = only
+      ? Prisma.sql`AND (source_type, source_id) IN (${Prisma.join(
+          only.map((ref) => Prisma.sql`(${ref.sourceType}, ${ref.sourceId})`),
+        )})`
+      : Prisma.empty;
     type Row = Omit<SearchHit, "score"> & { contentHash: string };
     const keyword = await this.prisma.$queryRaw<Row[]>`
       SELECT id, source_type AS "sourceType", source_id AS "sourceId", chunk_index AS "chunkIndex", title, content,
              content_hash AS "contentHash"
       FROM ai_chunks
-      WHERE user_id = ${userId}
+      WHERE user_id = ${userId} ${scope}
         AND to_tsvector('simple', title || ' ' || content) @@ websearch_to_tsquery('simple', ${query})
       ORDER BY ts_rank(to_tsvector('simple', title || ' ' || content), websearch_to_tsquery('simple', ${query})) DESC
       LIMIT ${candidates}`;
@@ -316,7 +351,7 @@ export class AiIndexService {
         SELECT id, source_type AS "sourceType", source_id AS "sourceId", chunk_index AS "chunkIndex", title, content,
              content_hash AS "contentHash"
         FROM ai_chunks
-        WHERE user_id = ${userId} AND embedding IS NOT NULL
+        WHERE user_id = ${userId} AND embedding IS NOT NULL ${scope}
         ORDER BY embedding <=> ${literal}::vector
         LIMIT ${candidates}`);
     }

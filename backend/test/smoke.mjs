@@ -671,6 +671,140 @@ try {
   );
   r = await j("DELETE", `/shares/${seriesShareId}`, null, at);
   ok("revoke series share", r.s === 200, r);
+  // ---------------------------------------------------------------- My Notebook
+  r = await j("POST", "/notebooks", { title: "Smoke Notebook", description: "uji" }, at);
+  ok("notebook create", r.s === 201 && r.d.title === "Smoke Notebook", r);
+  const nb = r.d.id;
+  r = await j("POST", "/notebooks", { title: "" }, at);
+  ok("notebook empty title 400", r.s === 400, r);
+  r = await j("GET", `/notebooks/${nb}`, null, pt);
+  ok("notebook isolated from other user 404", r.s === 404, r);
+  r = await j(
+    "POST",
+    `/notebooks/${nb}/sources`,
+    { kind: "text", title: "Notulen", content: "Keputusan rapat: anggaran kearsipan 2027 naik sepuluh persen." },
+    at,
+  );
+  ok("notebook text source ready", r.s === 201 && r.d.status === "ready" && r.d.chars > 20, r);
+  const nbText = r.d.id;
+  r = await j("POST", `/notebooks/${nb}/sources`, { kind: "text", content: "pendek" }, at);
+  ok("notebook text source too short 400", r.s === 400, r);
+  await j(
+    "PUT",
+    "/records/free_note/sm-nb-note",
+    { payload: { id: "sm-nb-note", title: "Catatan NB", content: "isi catatan notebook" } },
+    at,
+  );
+  r = await j(
+    "POST",
+    `/notebooks/${nb}/sources`,
+    { kind: "record", recordType: "free_note", recordId: "sm-nb-note" },
+    at,
+  );
+  ok("notebook record source", r.s === 201 && r.d.title === "Catatan NB" && r.d.status === "ready", r);
+  r = await j(
+    "POST",
+    `/notebooks/${nb}/sources`,
+    { kind: "record", recordType: "free_note", recordId: "sm-nb-note" },
+    at,
+  );
+  ok("notebook duplicate record source 400", r.s === 400, r);
+  r = await j("POST", `/notebooks/${nb}/sources`, { kind: "record", recordType: "todo", recordId: "x" }, at);
+  ok("notebook unsupported record type 400", r.s === 400, r);
+  r = await j("POST", `/notebooks/${nb}/sources`, { kind: "web", url: "http://127.0.0.1:4000/api/v1/health" }, at);
+  ok("notebook web source blocks local address 422", r.s === 422, r);
+  r = await j("POST", `/notebooks/${nb}/sources`, { kind: "web", url: "http://169.254.169.254/latest/meta-data" }, at);
+  ok("notebook web source blocks cloud metadata 422", r.s === 422, r);
+  const nbForm = new FormData();
+  nbForm.append(
+    "file",
+    new Blob(["Surat edaran: arsiparis ditunjuk sebelum 1 November 2026."], { type: "text/plain" }),
+    "se.txt",
+  );
+  nbForm.append("context", "notebook");
+  const nbAsset = await j("POST", "/uploads", nbForm, at);
+  r = await j("POST", `/notebooks/${nb}/sources`, { kind: "upload", assetId: nbAsset.d.id }, at);
+  ok("notebook upload source", r.s === 201 && ["processing", "ready"].includes(r.d.status) && r.d.ownedByNotebook, r);
+  // Berkas yang sudah ada di LifeOS (mis. lampiran) dipakai sebagai sumber → tidak ikut terhapus bersama notebook
+  const linkedForm = new FormData();
+  linkedForm.append("file", new Blob(["Lampiran project: rencana kerja 2027."], { type: "text/plain" }), "rk.txt");
+  linkedForm.append("context", "para_task");
+  const linkedAsset = await j("POST", "/uploads", linkedForm, at);
+  r = await j("POST", `/notebooks/${nb}/sources`, { kind: "upload", assetId: linkedAsset.d.id }, at);
+  ok(
+    "notebook linked LifeOS file source",
+    r.s === 201 && r.d.ownedByNotebook === false && r.d.mimeType === "text/plain",
+    r,
+  );
+  r = await j("PATCH", `/notebooks/${nb}/sources/${nbText}`, { enabled: false }, at);
+  ok("notebook disable source", r.s === 200 && r.d.enabled === false, r);
+  r = await j("GET", `/notebooks/${nb}`, null, at);
+  ok("notebook detail lists sources", r.s === 200 && r.d.sources.length === 4 && r.d.summaryStale === false, r);
+  r = await j("GET", "/ai/settings", null, at);
+  if (r.d?.activeProvider) console.log("SKIP notebook chat tanpa AI (user uji punya provider aktif)");
+  else {
+    r = await j("POST", `/notebooks/${nb}/chat`, { message: "Berapa kenaikan anggaran?" }, at);
+    ok("notebook chat without AI provider 400", r.s === 400, r);
+  }
+  // Gambar lampiran chat (divalidasi sebelum AI dipanggil)
+  const pngBytes = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const imgForm = new FormData();
+  imgForm.append("file", new Blob([pngBytes], { type: "image/png" }), "titik.png");
+  imgForm.append("context", "notebook_chat");
+  const chatImg = await j("POST", "/uploads", imgForm, at);
+  r = await j("POST", `/notebooks/${nb}/chat`, { message: "", fileIds: [] }, at);
+  ok("notebook chat empty message without attachment 400", r.s === 400, r);
+  r = await j("POST", `/notebooks/${nb}/chat`, { message: "x", fileIds: ["a", "b", "c", "d", "e"] }, at);
+  ok("notebook chat max 4 attachments 400", r.s === 400, r);
+  r = await j("POST", `/notebooks/${nb}/chat`, { message: "x", fileIds: [chatImg.d.id] }, pt);
+  ok("notebook chat other user's attachment 404", r.s === 404, r);
+  // Berkas biner yang tidak bisa dibaca (bukan gambar/PDF/dokumen teks) ditolak sebelum AI dipanggil
+  const binForm = new FormData();
+  binForm.append("file", new Blob([Buffer.from([0, 1, 2, 3])], { type: "application/octet-stream" }), "data.bin");
+  binForm.append("context", "notebook_chat");
+  const binAsset = await j("POST", "/uploads", binForm, at);
+  for (let i = 0; i < 20; i++) {
+    const meta = await j("GET", `/uploads/${binAsset.d.id}/metadata`, null, at);
+    if (!["pending", "extracting"].includes(meta.d?.extraction?.status)) break;
+    await new Promise((res) => setTimeout(res, 300));
+  }
+  r = await j("POST", `/notebooks/${nb}/chat`, { message: "x", fileIds: [binAsset.d.id] }, at);
+  ok("notebook chat unreadable attachment 400", r.s === 400 && /tidak bisa dibaca/.test(JSON.stringify(r.d)), r);
+  await j("DELETE", `/uploads/${binAsset.d.id}`, null, at);
+  r = await j("GET", "/ai/settings", null, at);
+  if (!r.d?.activeProvider) {
+    // Dokumen teks (diekstrak server) + gambar sama-sama diterima → sampai ke tahap AI
+    r = await j("POST", `/notebooks/${nb}/chat`, { message: "", fileIds: [chatImg.d.id, nbAsset.d.id] }, at);
+    ok(
+      "notebook chat image + document reaches AI step (no provider 400)",
+      r.s === 400 && /AI belum diatur/.test(JSON.stringify(r.d)),
+      r,
+    );
+  }
+  await j("DELETE", `/uploads/${chatImg.d.id}`, null, at);
+  r = await j("POST", `/notebooks/${nb}/notes`, { title: "Catatan hasil", content: "**poin**", origin: "manual" }, at);
+  ok("notebook note create", r.s === 201, r);
+  r = await j("GET", `/notebooks/${nb}/notes`, null, at);
+  ok("notebook notes list", r.s === 200 && r.d.length === 1, r);
+  r = await j("GET", "/notebooks", null, at);
+  ok(
+    "notebook list counts",
+    r.d.some((n) => n.id === nb && n._count.sources === 4 && n._count.notes === 1),
+    r,
+  );
+  r = await j("DELETE", `/notebooks/${nb}`, null, pt);
+  ok("notebook delete by other user 404", r.s === 404, r);
+  r = await j("DELETE", `/notebooks/${nb}`, null, at);
+  ok("notebook delete", r.s === 200, r);
+  r = await j("GET", `/uploads/${nbAsset.d.id}/metadata`, null, at);
+  ok("notebook upload removed with notebook", r.s === 404, r);
+  r = await j("GET", `/uploads/${linkedAsset.d.id}/metadata`, null, at);
+  ok("notebook keeps LifeOS file after notebook delete", r.s === 200, r);
+  await j("DELETE", `/uploads/${linkedAsset.d.id}`, null, at);
+  await j("DELETE", "/records/free_note/sm-nb-note", null, at);
   r = await j("POST", "/auth/change-password", { currentPassword: "salah", newPassword: "1234" }, pt);
   ok("change pw wrong 400", r.s === 400, r);
   r = await j("POST", "/auth/logout", null, null, "x".repeat(30));

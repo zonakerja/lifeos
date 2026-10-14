@@ -4,6 +4,7 @@ import {
   CheckSquare,
   Eye,
   FileText,
+  Handshake,
   HardDrive,
   History,
   Info,
@@ -19,12 +20,12 @@ import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { openAttachment } from "@/features/resources/resource-utils";
+import { hasArchiveDocument, openArchiveDocument } from "../lib/archive-document";
 import { formatNumericDate, parseLocalYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { ArchiveClassification, ArchiveJra, PhysicalReference } from "@/types/entities";
-import { type ArchiveFile, archiveTitle, isPermanent } from "../lib/archive";
-import { StatusBadge } from "./archive-ui";
+import { type ArchiveFile, archiveTitle, classificationCode, isPermanent, locationPath } from "../lib/archive";
+import { RetentionBadge, StatusBadge } from "./archive-ui";
 
 function IconAction({
   label,
@@ -58,8 +59,6 @@ function IconAction({
   );
 }
 
-const hasAttachment = (r: ArchiveFile) => !!(r.uploadId || r.url);
-
 /** Kartu arsip yang belum diberkaskan (tab Gantung). */
 export function PendingArchiveCard({
   file,
@@ -79,8 +78,8 @@ export function PendingArchiveCard({
             <FileText className="size-6" />
           </span>
           <div className="flex items-center gap-2">
-            {hasAttachment(file) && (
-              <IconAction label="Lihat File" onClick={() => void openAttachment(file)}>
+            {hasArchiveDocument(file) && (
+              <IconAction label="Lihat Dokumen" onClick={() => void openArchiveDocument(file)}>
                 <Eye />
               </IconAction>
             )}
@@ -118,6 +117,8 @@ interface ArchiveCardProps {
   classifications: ArchiveClassification[];
   jraList: ArchiveJra[];
   physRefs: PhysicalReference[];
+  /** Arsip sedang dipinjam (peminjaman aktif) */
+  borrowed?: boolean;
   canEdit: boolean;
   bulkActive: boolean;
   selected: boolean;
@@ -136,6 +137,7 @@ export function ArchiveCard({
   classifications,
   jraList,
   physRefs,
+  borrowed = false,
   canEdit,
   bulkActive,
   selected,
@@ -149,7 +151,8 @@ export function ArchiveCard({
   const status = file.dynamicStatus;
   const isFinal = status === "destroyed" || status === "static";
   const permanent = isPermanent(jra);
-  const refName = (id?: string) => physRefs.find((r) => r.id === id)?.name || "?";
+  const location = locationPath(file, physRefs);
+  const cls = classifications.find((c) => c.id === file.classificationId);
 
   return (
     <div
@@ -179,8 +182,8 @@ export function ArchiveCard({
             <span className="rounded bg-muted px-1 font-mono text-[10px] text-muted-foreground">{file.number}</span>
           )}
           {file.classificationId && (
-            <Badge variant="secondary" className="h-5 text-[10px]">
-              {classifications.find((c) => c.id === file.classificationId)?.kodeItem || "CODE"}
+            <Badge variant="secondary" className="h-5 font-mono text-[10px]" title={cls?.namaItem}>
+              {cls ? classificationCode(cls) : "Klasifikasi tidak ditemukan"}
             </Badge>
           )}
           {file.isVital && (
@@ -198,21 +201,13 @@ export function ArchiveCard({
         </p>
         <div className="mt-2 flex flex-wrap gap-2">
           <StatusBadge status={status} className="h-5 text-[10px]" />
-          {jra ? (
+          <RetentionBadge jra={jra} isVital={file.isVital} className="h-5 text-[10px]" />
+          {borrowed && (
             <Badge
               variant="outline"
-              className={cn(
-                "h-5 text-[10px]",
-                permanent
-                  ? "border-info/30 bg-info/10 text-info"
-                  : "border-destructive/30 bg-destructive/10 text-destructive",
-              )}
+              className="h-5 border-warning/40 bg-warning/15 text-[10px] text-warning-foreground dark:text-warning"
             >
-              {jra.keterangan === "Musnah" ? "Non Permanen" : jra.keterangan}
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="h-5 text-[10px] text-muted-foreground">
-              Belum Diset
+              <Handshake /> Dipinjam
             </Badge>
           )}
           {!isFinal && (
@@ -225,7 +220,7 @@ export function ArchiveCard({
           )}
           {tab === "physical" && (
             <span className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[10px] font-bold text-module">
-              <MapPin className="size-3" /> {refName(file.physLocationId)}/{refName(file.physBoxId)}
+              <MapPin className="size-3" /> {location || "Belum ditata"}
             </span>
           )}
           {tab === "digital" && (
@@ -251,8 +246,8 @@ export function ArchiveCard({
               <PencilLine />
             </IconAction>
           )}
-          {hasAttachment(file) && (
-            <IconAction label="Buka File" onClick={() => void openAttachment(file)}>
+          {hasArchiveDocument(file) && (
+            <IconAction label="Lihat Dokumen" onClick={() => void openArchiveDocument(file)}>
               <Eye />
             </IconAction>
           )}

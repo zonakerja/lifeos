@@ -1,6 +1,14 @@
 import { apiUrl, request } from "@/lib/api/client";
 import type {
+  AddNotebookSourceInput,
   AiGenerateResult,
+  NotebookChatResult,
+  NotebookDetail,
+  NotebookListItem,
+  NotebookMessage,
+  NotebookNote,
+  NotebookSource,
+  NotebookSummary,
   AiIndexStatus,
   AiSearchHit,
   AiProviderId,
@@ -153,4 +161,41 @@ export const aiApi = {
     files.forEach((file, i) => form.append("files", file, file instanceof File ? file.name : `lampiran-${i + 1}`));
     return request<AiGenerateResult>("/ai/generate", { method: "POST", body: form });
   },
+};
+
+/** My Notebook: sumber + chat RAG bersitasi + ringkasan Studio + catatan notebook. */
+export const notebooksApi = {
+  list: () => request<NotebookListItem[]>("/notebooks"),
+  create: (input: { title: string; description?: string; icon?: string }) =>
+    request<NotebookDetail>("/notebooks", { method: "POST", body: input }),
+  get: (id: string) => request<NotebookDetail>(`/notebooks/${id}`),
+  update: (id: string, input: { title?: string; description?: string | null; icon?: string | null }) =>
+    request<NotebookDetail>(`/notebooks/${id}`, { method: "PATCH", body: input }),
+  remove: (id: string) => request<{ success: boolean }>(`/notebooks/${id}`, { method: "DELETE" }),
+  addSource: (id: string, input: AddNotebookSourceInput) =>
+    request<NotebookSource>(`/notebooks/${id}/sources`, { method: "POST", body: input }),
+  updateSource: (id: string, sourceId: string, input: { enabled?: boolean; title?: string }) =>
+    request<NotebookSource>(`/notebooks/${id}/sources/${sourceId}`, { method: "PATCH", body: input }),
+  refreshSource: (id: string, sourceId: string) =>
+    request<NotebookSource>(`/notebooks/${id}/sources/${sourceId}/refresh`, { method: "POST" }),
+  removeSource: (id: string, sourceId: string) =>
+    request<{ success: boolean }>(`/notebooks/${id}/sources/${sourceId}`, { method: "DELETE" }),
+  messages: (id: string) => request<NotebookMessage[]>(`/notebooks/${id}/messages`),
+  clearMessages: (id: string) => request<{ success: boolean }>(`/notebooks/${id}/messages`, { method: "DELETE" }),
+  chat: (id: string, message: string, fileIds: string[] = []) =>
+    request<NotebookChatResult>(`/notebooks/${id}/chat`, { method: "POST", body: { message, fileIds } }),
+  summarize: (id: string) =>
+    request<{
+      summary: NotebookSummary;
+      summaryAt: string;
+      summaryStale: boolean;
+      fallback: AiGenerateResult["fallback"];
+    }>(`/notebooks/${id}/summary`, { method: "POST" }),
+  notes: (id: string) => request<NotebookNote[]>(`/notebooks/${id}/notes`),
+  createNote: (id: string, input: { title: string; content: string; origin?: NotebookNote["origin"] }) =>
+    request<NotebookNote>(`/notebooks/${id}/notes`, { method: "POST", body: input }),
+  updateNote: (id: string, noteId: string, input: { title?: string; content?: string }) =>
+    request<NotebookNote>(`/notebooks/${id}/notes/${noteId}`, { method: "PATCH", body: input }),
+  removeNote: (id: string, noteId: string) =>
+    request<{ success: boolean }>(`/notebooks/${id}/notes/${noteId}`, { method: "DELETE" }),
 };

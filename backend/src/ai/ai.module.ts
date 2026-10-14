@@ -11,6 +11,6 @@ import { AiIndexService } from "./index/ai-index.service";
   imports: [forwardRef(() => ExtractionModule)],
   controllers: [AiController],
   providers: [AiService, AiIndexQueueService, AiIndexService, AiIndexWorkerService],
-  exports: [AiService, AiIndexQueueService],
+  exports: [AiService, AiIndexQueueService, AiIndexService],
 })
 export class AiModule {}

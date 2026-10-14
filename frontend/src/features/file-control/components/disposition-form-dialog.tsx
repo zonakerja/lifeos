@@ -23,7 +23,8 @@ import { uploadsApi } from "@/lib/api/endpoints";
 import { formatLocalYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { DispositionData, DispositionType } from "@/types/entities";
-import { type ArchiveFile, archiveTitle, isAwaitingDisposition } from "../lib/archive";
+import { useBorrowings, useJraList } from "@/data/collections";
+import { type ArchiveFile, archiveTitle, borrowedArchiveIds, dispositionBlockReason } from "../lib/archive";
 
 interface DispositionFormDialogProps {
   /** null = tertutup */
@@ -71,9 +72,22 @@ function DispositionForm({
   const searchRef = useRef<HTMLInputElement>(null);
   const patch = (values: Partial<DispositionData>) => setForm((prev) => ({ ...prev, ...values }));
 
+  const { items: jraList } = useJraList();
+  const { items: borrowings } = useBorrowings();
+  /** Alasan arsip tidak boleh diproses dengan jenis BAP ini (null = boleh) — aturan sama dengan daftar arsip. */
+  const blockReason = useMemo(() => {
+    const borrowed = borrowedArchiveIds(borrowings);
+    return (r: ArchiveFile) =>
+      dispositionBlockReason(
+        r,
+        type,
+        jraList.find((j) => j.id === r.jraId),
+        borrowed,
+      );
+  }, [borrowings, jraList, type]);
   const eligible = useMemo(
-    () => (manualCandidates ?? []).filter((r) => isAwaitingDisposition(r, today)),
-    [manualCandidates, today],
+    () => (manualCandidates ?? []).filter((r) => blockReason(r) === null),
+    [manualCandidates, blockReason],
   );
   const matches = query
     ? eligible.filter(
@@ -94,10 +108,13 @@ function DispositionForm({
   const handleScan = () => {
     const q = query.trim().toLowerCase();
     if (!q) return;
-    const found = eligible.find((r) => (r.archiveRegId ?? "").toLowerCase() === q || r.id.toLowerCase() === q);
-    if (found) addItem(found);
+    const found = (manualCandidates ?? []).find(
+      (r) => (r.archiveRegId ?? "").toLowerCase() === q || r.id.toLowerCase() === q,
+    );
+    const reason = found ? blockReason(found) : null;
+    if (found && !reason) addItem(found);
     else {
-      toast.error(`Gagal: Arsip "${q}" tidak ditemukan atau masa retensi inaktifnya belum selesai.`);
+      toast.error(found ? `Ditolak: "${archiveTitle(found)}" ${reason}.` : `Gagal: Arsip "${q}" tidak ditemukan.`);
       setQuery("");
     }
   };
@@ -149,7 +166,10 @@ function DispositionForm({
         <FieldGroup className="gap-4">
           {isManual && (
             <Field>
-              <FieldLabel htmlFor="disp-scan">Scan / Cari Arsip (Hanya status Perlu Tindak Lanjut)</FieldLabel>
+              <FieldLabel htmlFor="disp-scan">
+                Scan / Cari Arsip (Perlu Tindak Lanjut, {isDestroy ? "JRA non-Permanen" : "JRA Permanen"}, tidak
+                dipinjam)
+              </FieldLabel>
               <div className="relative">
                 <InputGroup>
                   <InputGroupAddon>

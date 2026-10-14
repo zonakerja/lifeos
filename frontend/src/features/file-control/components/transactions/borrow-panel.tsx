@@ -1,4 +1,4 @@
-import { Briefcase, CheckCircle2, Handshake, Plus, Printer, Search, Send, User, X } from "lucide-react";
+import { AlertTriangle, Briefcase, CheckCircle2, Handshake, Plus, Printer, Search, Send, User, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
@@ -16,7 +16,7 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { useToday } from "@/hooks/use-today";
 import { formatLocalYMD, formatNumericDate, parseLocalYMD } from "@/lib/dates";
 import type { ArchiveBorrowing, ArchiveItemRef } from "@/types/entities";
-import { archiveTitle, isFinalStatus, isManagedArchive, toItemRef } from "../../lib/archive";
+import { archiveTitle, borrowingOverdueDays, isFinalStatus, toItemRef } from "../../lib/archive";
 import { useArchiveFiles, useFileControlActions } from "../../use-file-control";
 import { BapPrintDialog } from "../print-documents";
 
@@ -27,6 +27,7 @@ const dateText = (value: string) => {
 
 /** Sirkulasi peminjaman arsip. */
 export function BorrowPanel() {
+  const today = useToday();
   const { items: borrowings } = useBorrowings();
   const { canEdit } = usePermissions();
   const actions = useFileControlActions();
@@ -66,8 +67,18 @@ export function BorrowPanel() {
                 <p className="text-sm font-bold">
                   {b.borrowerName} <span className="text-xs font-normal text-muted-foreground">({b.unit || "-"})</span>
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  Tgl Kembali: {dateText(b.returnDate)} • {b.items.length} item
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  <span>Pinjam: {dateText(b.date)}</span>
+                  <span>• Target Kembali: {dateText(b.returnDate)}</span>
+                  {b.status === "returned" && b.returnedAt && (
+                    <span>• Dikembalikan: {formatNumericDate(new Date(b.returnedAt))}</span>
+                  )}
+                  <span>• {b.items.length} item</span>
+                  {borrowingOverdueDays(b, today) > 0 && (
+                    <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
+                      <AlertTriangle /> Terlambat {borrowingOverdueDays(b, today)} hari
+                    </Badge>
+                  )}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -164,7 +175,8 @@ function BorrowForm({ onDone }: { onDone: () => void }) {
     returnDate: "",
   });
 
-  const borrowable = files.filter((r) => isManagedArchive(r) && !isFinalStatus(r));
+  // Sirkulasi hanya untuk arsip fisik (arsip digital diakses lewat aplikasi/tautannya)
+  const borrowable = files.filter((r) => r.archivalStatus === "physical" && !isFinalStatus(r));
   const q = search.toLowerCase();
   const matches = search
     ? borrowable.filter(
@@ -186,7 +198,7 @@ function BorrowForm({ onDone }: { onDone: () => void }) {
     const found = borrowable.find((r) => (r.archiveRegId ?? "").toLowerCase() === code || r.id.toLowerCase() === code);
     if (found) addItem(toItemRef(found));
     else {
-      toast.error(`Arsip dengan Barcode "${code}" tidak ditemukan, atau berstatus Statis/Musnah.`);
+      toast.error(`Arsip dengan Barcode "${code}" tidak ditemukan, bukan arsip fisik, atau berstatus Statis/Musnah.`);
       setSearch("");
     }
   };
@@ -198,6 +210,11 @@ function BorrowForm({ onDone }: { onDone: () => void }) {
     }
     if (!form.borrowerName.trim() || !form.returnDate || !form.borrowDate) {
       toast.error("Mohon lengkapi semua field wajib (Peminjam, Tanggal Pinjam, Target Kembali).");
+      return;
+    }
+    // YMD sebanding sebagai string
+    if (form.returnDate < form.borrowDate) {
+      toast.error("Target kembali tidak boleh sebelum tanggal pinjam.");
       return;
     }
     actions.createBorrowing({
@@ -259,7 +276,7 @@ function BorrowForm({ onDone }: { onDone: () => void }) {
                 ))}
                 {matches.length === 0 && (
                   <p className="p-3 text-center text-xs text-muted-foreground italic">
-                    Arsip tidak ditemukan, berstatus Statis/Musnah, atau sedang dipinjam.
+                    Arsip fisik tidak ditemukan, berstatus Statis/Musnah, atau sedang dipinjam.
                   </p>
                 )}
               </div>
@@ -345,6 +362,7 @@ function BorrowForm({ onDone }: { onDone: () => void }) {
               id="borrow-return"
               type="date"
               className="bg-card"
+              min={form.borrowDate || undefined}
               value={form.returnDate}
               onChange={(e) => setForm((f) => ({ ...f, returnDate: e.target.value }))}
             />

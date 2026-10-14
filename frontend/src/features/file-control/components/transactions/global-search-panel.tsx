@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { usePhysRefs } from "@/data/collections";
-import { openAttachment } from "@/features/resources/resource-utils";
+import { hasArchiveDocument, openArchiveDocument } from "../../lib/archive-document";
 import { useSearchParam } from "@/hooks/use-search-param";
 import { cn } from "@/lib/utils";
 import type { PhysicalReference } from "@/types/entities";
@@ -149,14 +149,14 @@ export function GlobalSearchPanel() {
                   </div>
                 </div>
                 <div className="mt-4 flex justify-end gap-2">
-                  {file && (file.uploadId || file.url) && (
+                  {file && hasArchiveDocument(file) && (
                     <Button
                       variant="secondary"
                       size="icon-sm"
-                      aria-label="Preview File"
+                      aria-label="Lihat Dokumen"
                       onClick={(e) => {
                         e.stopPropagation();
-                        void openAttachment(file);
+                        void openArchiveDocument(file);
                       }}
                     >
                       <Eye />

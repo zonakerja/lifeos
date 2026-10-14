@@ -1,5 +1,6 @@
 import { fileControlStatus, isInFileControl } from "./file-control-intake";
 import { toast } from "sonner";
+import { previewFile } from "@/components/common/file-preview";
 import { uploadsApi } from "@/lib/api/endpoints";
 import { errorMessage } from "@/lib/api/client";
 import { links } from "@/lib/deep-links";
@@ -23,18 +24,27 @@ export const emptyAttachment = (date = ""): AttachedResource => ({
 const getUploadId = (res: { uploadId?: string; url?: string }) =>
   res.uploadId ?? res.url?.match(/\/uploads\/([a-z0-9]+)(?:$|[/?#])/i)?.[1];
 
-/** Buka lampiran di tab baru. File backend dibuka lewat link sementara bertanda tangan. */
-export async function openAttachment(res: { uploadId?: string; url?: string }) {
+/**
+ * Buka lampiran. File backend tampil di modal pratinjau bersama (PDF & gambar langsung; jenis lain bisa diunduh /
+ * dibuka di tab baru dari modal), web link dibuka di tab baru.
+ */
+export async function openAttachment(res: {
+  uploadId?: string;
+  url?: string;
+  name?: string;
+  title?: string;
+  fileName?: string;
+  mimeType?: string;
+}) {
   const uploadId = getUploadId(res);
+  if (uploadId) {
+    // Nama & jenis berkas dilengkapi modal dari metadata backend bila tidak dibawa lampiran
+    previewFile({ uploadId, name: res.fileName || res.name || res.title, mimeType: res.mimeType });
+    return;
+  }
   // Buka tab dulu (sinkron dengan klik) agar tidak diblokir popup blocker
   const tab = window.open("about:blank", "_blank");
   try {
-    if (uploadId) {
-      const url = await uploadsApi.createLink(uploadId);
-      if (tab) tab.location.href = url;
-      else window.open(url, "_blank");
-      return;
-    }
     if (res.url) {
       if (tab) tab.location.href = res.url;
       else window.open(res.url, "_blank");

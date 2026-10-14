@@ -1,19 +1,22 @@
 import {
+  AlertTriangle,
+  ArchiveRestore,
   CheckCircle2,
+  Clock,
   Eye,
   FileBox,
   FileX,
   Globe,
   Handshake,
   HardDrive,
-  History,
   MapPin,
   RotateCcw,
   Shield,
   Trash2,
   Truck,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
+import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,9 +28,10 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { useRetained } from "@/hooks/use-retained";
 import { formatFullDate, formatNumericDate, parseLocalYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
-import { type ArchiveFile, archiveTitle, classificationCode, isPermanent } from "../lib/archive";
+import { type ArchiveFile, archiveTitle, classificationCode, isManagedArchive, isPermanent } from "../lib/archive";
+import { hasArchiveDocument, openArchiveDocument } from "../lib/archive-document";
 import { useFileControlActions } from "../use-file-control";
-import { StatusBadge } from "./archive-ui";
+import { RetentionBadge, StatusBadge } from "./archive-ui";
 import { AccessScope } from "@/components/common/access-scope";
 import { CommentsPanel } from "@/features/sharing/comments-panel";
 import { ShareButton } from "@/features/sharing/share-dialog";
@@ -66,6 +70,7 @@ export function ArchiveDetailDialog({ file: fileProp, onClose }: { file: Archive
 }
 
 function ArchiveDetail({ file, onClose }: { file: ArchiveFile; onClose: () => void }) {
+  const [confirmRestore, setConfirmRestore] = useState(false);
   // Arsip bersama merujuk klasifikasi/JRA/wadah milik pemiliknya
   const { items: classifications } = useClassifications({ includeShared: true });
   const { items: jraList } = useJraList({ includeShared: true });
@@ -86,7 +91,50 @@ function ArchiveDetail({ file, onClose }: { file: ArchiveFile; onClose: () => vo
   const isStatic = status === "static";
   const activeBorrowing = borrowings.find((b) => b.status === "active" && b.items?.some((i) => i.id === file.id));
   const disposition = file.dispositionData;
-  const hasAttachment = !!(file.uploadId || file.url);
+  const hasAttachment = hasArchiveDocument(file);
+  const isPending = !isManagedArchive(file) && !isDestroyed && !isStatic;
+
+  /** Banner ringkasan kondisi arsip sesuai siklusnya. */
+  const banner = isDestroyed
+    ? {
+        tone: "border-destructive/30 bg-destructive/10 text-destructive",
+        icon: FileX,
+        title: "Arsip telah dimusnahkan",
+      }
+    : isStatic
+      ? { tone: "border-info/30 bg-info/10 text-info", icon: Truck, title: "Diserahkan ke ANRI (Statis)" }
+      : isPending
+        ? {
+            tone: "border-border bg-muted text-muted-foreground",
+            icon: ArchiveRestore,
+            title: "Belum diberkaskan",
+            text: "Arsip masih di tab Gantung. Lakukan Proses Pemberkasan untuk mengklasifikasikan dan menetapkan retensinya.",
+          }
+        : status === "expired"
+          ? {
+              tone: "border-destructive/30 bg-destructive/10 text-destructive",
+              icon: AlertTriangle,
+              title: "Perlu tindak lanjut",
+              text: `Masa retensi inaktif berakhir ${dateText(file.retentionInactiveDate)}. Lakukan ${isPermanent(jra) ? "penyerahan statis" : "pemusnahan"} sesuai JRA.`,
+            }
+          : status === "inactive"
+            ? {
+                tone: "border-warning/40 bg-warning/10 text-warning-foreground dark:text-warning",
+                icon: Clock,
+                title: file.isVital ? "Arsip vital (inaktif)" : "Arsip inaktif",
+                text: file.isVital
+                  ? "Arsip vital tetap dipertahankan walau masa retensinya lewat."
+                  : `Disimpan di Record Center hingga ${dateText(file.retentionInactiveDate)}.`,
+              }
+            : {
+                tone: "border-success/30 bg-success/10 text-success",
+                icon: CheckCircle2,
+                title: "Arsip aktif",
+                text: file.retentionActiveDate
+                  ? `Masa aktif hingga ${dateText(file.retentionActiveDate)}.`
+                  : "Arsip dikelola dengan baik.",
+              };
+  const BannerIcon = banner.icon;
 
   return (
     <>
@@ -102,52 +150,47 @@ function ArchiveDetail({ file, onClose }: { file: ArchiveFile; onClose: () => vo
         <div
           className={cn(
             "flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between",
-            isDestroyed
-              ? "border-destructive/30 bg-destructive/10 text-destructive"
-              : isStatic
-                ? "border-info/30 bg-info/10 text-info"
-                : "border-success/30 bg-success/10 text-success",
+            banner.tone,
           )}
         >
           <div className="flex items-center gap-3">
-            {isDestroyed ? (
-              <FileX className="size-6" />
-            ) : isStatic ? (
-              <Truck className="size-6" />
-            ) : (
-              <CheckCircle2 className="size-6" />
-            )}
+            <BannerIcon className="size-6 shrink-0" />
             <div>
-              <h4 className="text-sm font-bold uppercase">
-                {isDestroyed ? "Arsip telah dimusnahkan" : isStatic ? "Diserahkan ke ANRI (Statis)" : "Arsip tersimpan"}
-              </h4>
+              <h4 className="text-sm font-bold uppercase">{banner.title}</h4>
               <p className="text-xs opacity-80">
-                {disposition?.executedAt
+                {(isDestroyed || isStatic) && disposition?.executedAt
                   ? `Dieksekusi pada: ${formatFullDate(new Date(disposition.executedAt))}`
-                  : "Arsip dikelola dengan baik."}
+                  : banner.text}
               </p>
             </div>
           </div>
           <div className="flex gap-2">
             {hasAttachment && (
-              <Button size="sm" variant="outline" onClick={() => void openAttachment(file)}>
-                <Eye /> Preview File
+              <Button size="sm" variant="outline" onClick={() => void openArchiveDocument(file)}>
+                <Eye /> Lihat Dokumen
               </Button>
             )}
             {!file.isArchived && <ShareButton item={file} recordType="para_resource" title={archiveTitle(file)} />}
             {(isDestroyed || isStatic) && isSuperAdmin && !file.share && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  actions.restore(file);
-                  toast.success(`Arsip "${archiveTitle(file)}" berhasil dikembalikan ke status Dinamis.`);
-                  onClose();
-                }}
-              >
+              <Button size="sm" variant="outline" onClick={() => setConfirmRestore(true)}>
                 <RotateCcw /> Restore Data
               </Button>
             )}
+            <ConfirmDialog
+              open={confirmRestore}
+              onOpenChange={setConfirmRestore}
+              title="Pulihkan Arsip?"
+              itemName={archiveTitle(file)}
+              description={`Status ${isDestroyed ? "Musnah" : "Statis"} dibatalkan: arsip kembali dikelola (status dihitung ulang dari tanggal retensi), tag ${isDestroyed ? "Musnah" : "Statis"} dan data penyusutan dihapus, Auto-Dispose dimatikan. Berita acara yang sudah tercatat tetap ada.`}
+              destructive={false}
+              confirmLabel="Ya, Pulihkan"
+              onConfirm={() => {
+                actions.restore(file);
+                toast.success(`Arsip "${archiveTitle(file)}" berhasil dikembalikan ke status Dinamis.`);
+                setConfirmRestore(false);
+                onClose();
+              }}
+            />
           </div>
         </div>
 
@@ -183,14 +226,23 @@ function ArchiveDetail({ file, onClose }: { file: ArchiveFile; onClose: () => vo
           <div className="col-span-2">
             <p className="mb-2 text-[10px] font-bold text-muted-foreground uppercase">Label &amp; Kategori</p>
             <div className="flex flex-wrap gap-2">
-              <StatusBadge status={status} />
-              <Badge variant="outline" className={cn(isPermanent(jra) && "border-info/30 bg-info/10 text-info")}>
-                <History /> {isPermanent(jra) ? "PERMANEN" : "NON PERMANEN"}
-              </Badge>
-              <Badge variant="outline">
-                {file.archivalStatus === "physical" ? <FileBox /> : <HardDrive />}
-                {file.archivalStatus === "physical" ? "FISIK" : "DIGITAL"}
-              </Badge>
+              {isPending ? (
+                <Badge
+                  variant="outline"
+                  className="border-warning/40 bg-warning/20 text-warning-foreground dark:text-warning"
+                >
+                  <ArchiveRestore /> Gantung
+                </Badge>
+              ) : (
+                <>
+                  <StatusBadge status={status} />
+                  <RetentionBadge jra={jra} isVital={file.isVital} />
+                  <Badge variant="outline">
+                    {file.archivalStatus === "physical" ? <FileBox /> : <HardDrive />}
+                    {file.archivalStatus === "physical" ? "Fisik" : "Digital"}
+                  </Badge>
+                </>
+              )}
               {file.isVital && (
                 <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
                   <Shield /> VITAL
@@ -218,7 +270,7 @@ function ArchiveDetail({ file, onClose }: { file: ArchiveFile; onClose: () => vo
           </Info>
         </div>
 
-        {file.physLocationId && (
+        {file.physLocationId && file.archivalStatus === "physical" && (
           <div className="rounded-xl border bg-muted/40 p-4">
             <h5 className="mb-2 flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase">
               <MapPin className="size-3.5" />{" "}

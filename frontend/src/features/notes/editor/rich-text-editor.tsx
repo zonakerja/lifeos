@@ -1,10 +1,6 @@
 import { type Editor, type JSONContent } from "@tiptap/core";
-import { Highlight } from "@tiptap/extension-highlight";
-import { TaskItem, TaskList } from "@tiptap/extension-list";
-import { TableKit } from "@tiptap/extension-table";
 import { Placeholder } from "@tiptap/extensions";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
-import { StarterKit } from "@tiptap/starter-kit";
 import {
   Bold,
   ChevronDown,
@@ -50,8 +46,7 @@ import { errorMessage } from "@/lib/api/client";
 import { uploadsApi } from "@/lib/api/endpoints";
 import { toExternalHref } from "@/lib/urls";
 import { cn } from "@/lib/utils";
-import { InkBlock } from "./ink-block";
-import { UploadImage } from "./upload-image";
+import { noteExtensions } from "./note-extensions";
 import { usePermissions } from "@/hooks/use-permissions";
 
 export interface RichTextChange {
@@ -360,16 +355,8 @@ export function RichTextEditor({
     content: initialContent,
     shouldRerenderOnTransaction: false,
     extensions: [
-      StarterKit.configure({
-        link: { openOnClick: false, autolink: true, defaultProtocol: "https" },
-      }),
-      Highlight,
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      TableKit.configure({ table: { resizable: false } }),
+      ...noteExtensions(),
       Placeholder.configure({ placeholder: "Ketik catatan di sini… (Sisipkan → Coretan untuk menulis tangan)" }),
-      InkBlock,
-      UploadImage,
     ],
     editorProps: {
       attributes: { class: "rich-text min-h-[50svh] px-4 py-4 outline-none sm:px-6", "aria-label": "Isi catatan" },

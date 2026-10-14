@@ -9,10 +9,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { usePhysRefs } from "@/data/collections";
-import { openAttachment } from "@/features/resources/resource-utils";
+import { hasArchiveDocument, openArchiveDocument } from "../lib/archive-document";
 import { useRetained } from "@/hooks/use-retained";
 import type { PhysicalReference } from "@/types/entities";
-import { type ArchiveFile, archiveTitle } from "../lib/archive";
+import { type ArchiveFile, archiveTitle, isPhysicalArchive } from "../lib/archive";
 import { useArchiveFiles } from "../use-file-control";
 import { CONTAINER_STYLE, ContainerIcon } from "./archive-ui";
 
@@ -28,9 +28,14 @@ function FileRow({ file, index, onOpen }: { file: ArchiveFile; index?: number; o
         <span className="shrink-0 font-mono text-muted-foreground">{file.archiveRegId}</span>
         <span className="line-clamp-1 font-medium">{archiveTitle(file)}</span>
       </div>
-      <div className="flex shrink-0 gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
-        {(file.uploadId || file.url) && (
-          <Button variant="ghost" size="icon-xs" aria-label="Lihat File" onClick={() => void openAttachment(file)}>
+      <div className="flex shrink-0 gap-1 transition-opacity pointer-fine:opacity-0 pointer-fine:group-focus-within:opacity-100 pointer-fine:group-hover:opacity-100">
+        {hasArchiveDocument(file) && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Lihat Dokumen"
+            onClick={() => void openArchiveDocument(file)}
+          >
             <Eye />
           </Button>
         )}
@@ -61,7 +66,7 @@ export function ContainerInfoDialog({
 }) {
   const container = useRetained(containerProp);
   const { items: refs } = usePhysRefs();
-  const { files } = useArchiveFiles();
+  const files = useArchiveFiles().files.filter(isPhysicalArchive);
   if (!container) return null;
 
   const children = (id: string) => refs.filter((r) => r.parentId === id);

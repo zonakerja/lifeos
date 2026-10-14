@@ -22,7 +22,7 @@ export function AttachmentTable({
   emptyText = "Belum ada resource/dasar pelaksanaan dilampirkan.",
 }: AttachmentTableProps) {
   const navigate = useNavigate();
-  // Lampiran catatan (tanpa file/link) dibuka di Notes Space; lainnya lewat openAttachment (tab baru)
+  // Lampiran catatan (tanpa file/link) dibuka di Notes Space; berkas di modal pratinjau, link di tab baru (openAttachment)
   const open = (res: AttachedResource) => {
     const notePath = !res.uploadId && !res.url ? noteAttachmentPath(res.noteId) : null;
     if (notePath) void navigate(notePath);

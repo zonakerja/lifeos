@@ -22,7 +22,10 @@ const REASON_MESSAGES: Record<string, string> = {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Tunggu ekstraksi teks backend selesai. null = belum selesai sampai batas waktu atau dibatalkan. */
-async function waitForExtraction(assetId: string, isCancelled: () => boolean): Promise<AssetExtractionInfo | null> {
+export async function waitForExtraction(
+  assetId: string,
+  isCancelled: () => boolean,
+): Promise<AssetExtractionInfo | null> {
   const deadline = Date.now() + TIMEOUT_MS;
   while (Date.now() < deadline && !isCancelled()) {
     const { extraction } = await uploadsApi.metadata(assetId);

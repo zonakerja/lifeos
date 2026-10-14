@@ -14,4 +14,8 @@ export const queryKeys = {
   sharesOutgoing: ["shares", "outgoing"] as const,
   sharesIncoming: ["shares", "incoming"] as const,
   comments: (type: string, id: string, ownerId?: string) => ["comments", type, id, ownerId ?? ""] as const,
+  notebooks: ["notebooks"] as const,
+  notebook: (id: string) => ["notebooks", id] as const,
+  notebookMessages: (id: string) => ["notebooks", id, "messages"] as const,
+  notebookNotes: (id: string) => ["notebooks", id, "notes"] as const,
 };

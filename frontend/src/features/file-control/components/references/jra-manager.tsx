@@ -1,5 +1,6 @@
 import { PencilLine, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { type PageSize, PaginationControl, paginate } from "@/components/common/pagination-control";
 import { SearchInput } from "@/components/common/search-input";
@@ -17,6 +18,8 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { useRetained } from "@/hooks/use-retained";
 import { generateId } from "@/lib/ids";
 import type { ArchiveJra } from "@/types/entities";
+import { countArchivesUsing, jraKey } from "../../lib/archive";
+import { useArchiveFiles } from "../../use-file-control";
 import { CsvImportButton } from "./csv-import-button";
 
 const ALL = "__all";
@@ -33,6 +36,7 @@ const emptyJra = (): Omit<ArchiveJra, "id"> => ({
 /** Referensi Jadwal Retensi Arsip (JRA). */
 export function JraManager() {
   const { items, setItems } = useJraList();
+  const { files } = useArchiveFiles();
   const { canEdit } = usePermissions();
   const [search, setSearch] = useState("");
   const [kategori, setKategori] = useState("");
@@ -75,6 +79,8 @@ export function JraManager() {
                     }
                   : null
               }
+              keyOf={jraKey}
+              existingKeys={items.map(jraKey)}
               onImport={(rows) => setItems((prev) => [...prev, ...rows])}
             />
             <Button onClick={() => setEditing("new")}>
@@ -200,7 +206,16 @@ export function JraManager() {
                         size="icon-sm"
                         aria-label="Hapus"
                         className="text-destructive"
-                        onClick={() => setDeleting(j)}
+                        onClick={() => {
+                          const used = countArchivesUsing(files, "jraId", j.id);
+                          if (used > 0) {
+                            toast.error(
+                              `JRA "${j.jenisArsip}" tidak dapat dihapus karena dipakai ${used} arsip. Ubah JRA arsip tersebut terlebih dahulu.`,
+                            );
+                            return;
+                          }
+                          setDeleting(j);
+                        }}
                       >
                         <Trash2 />
                       </Button>
@@ -225,6 +240,12 @@ export function JraManager() {
         item={editing}
         onClose={() => setEditing(null)}
         onSave={(data) => {
+          const editingId = editing && editing !== "new" ? editing.id : null;
+          const key = jraKey(data);
+          if (items.some((j) => j.id !== editingId && jraKey(j) === key)) {
+            toast.error(`JRA "${data.jenisArsip}" dengan kategori yang sama sudah ada.`);
+            return;
+          }
           if (editing && editing !== "new") {
             setItems((prev) => prev.map((j) => (j.id === editing.id ? { ...j, ...data } : j)));
           } else {

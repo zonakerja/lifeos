@@ -2,14 +2,20 @@ import { describe, expect, it } from "vitest";
 import type { ArchiveFile } from "./archive";
 import type { ArchiveJra, ArchiveResource, PhysicalReference } from "@/types/entities";
 import {
+  borrowedArchiveIds,
+  borrowingOverdueDays,
+  classificationKey,
   computeDynamicStatus,
   containerHasFiles,
+  countArchivesUsing,
   descendantIds,
+  dispositionBlockReason,
   findBySmartCode,
   generateNextCode,
-  isAwaitingDisposition,
   isValidHierarchy,
+  jraKey,
   locationForTarget,
+  locationPath,
   retentionDatesFromJra,
 } from "./archive";
 
@@ -44,16 +50,69 @@ describe("status dinamis arsip", () => {
     expect(computeDynamicStatus(archive({ ...expired, status: "destroyed" }), today)).toBe("destroyed");
     expect(computeDynamicStatus(archive({ ...expired, status: "static" }), today)).toBe("static");
   });
+});
 
-  it("hanya arsip terkelola yang masa inaktifnya selesai yang menunggu penyusutan", () => {
-    expect(isAwaitingDisposition(archive({ retentionInactiveDate: "2026-10-08" }), today)).toBe(true);
-    expect(isAwaitingDisposition(archive({ retentionInactiveDate: "2026-10-09" }), today)).toBe(false);
-    expect(
-      isAwaitingDisposition(archive({ archivalStatus: "pending", retentionInactiveDate: "2020-01-01" }), today),
-    ).toBe(false);
-    expect(isAwaitingDisposition(archive({ status: "static", retentionInactiveDate: "2020-01-01" }), today)).toBe(
-      false,
+describe("syarat penyusutan", () => {
+  const expired = { retentionActiveDate: "2024-01-01", retentionInactiveDate: "2025-01-01" };
+  const file = (fields: Partial<ArchiveResource>) => {
+    const r = archive({ ...expired, ...fields });
+    return { ...r, isArchived: false, dynamicStatus: computeDynamicStatus(r, today) } as ArchiveFile;
+  };
+  const musnah = { id: "jm", jenisArsip: "x", retensiAktif: 1, retensiInaktif: 1, keterangan: "Musnah" } as ArchiveJra;
+  const permanen = { ...musnah, id: "jp", keterangan: "Permanen" } as ArchiveJra;
+  const none = new Set<string>();
+
+  it("pemusnahan hanya untuk arsip expired non-Permanen; penyerahan hanya untuk Permanen", () => {
+    expect(dispositionBlockReason(file({}), "destroy", musnah, none)).toBeNull();
+    expect(dispositionBlockReason(file({}), "transfer", permanen, none)).toBeNull();
+    expect(dispositionBlockReason(file({}), "destroy", permanen, none)).toMatch(/Permanen/);
+    expect(dispositionBlockReason(file({}), "transfer", musnah, none)).toMatch(/Permanen/);
+  });
+
+  it("menolak arsip vital, belum expired, belum diberkaskan, final, dan yang sedang dipinjam", () => {
+    expect(dispositionBlockReason(file({ isVital: true }), "destroy", undefined, none)).toMatch(/vital/);
+    expect(dispositionBlockReason(file({ retentionInactiveDate: "2030-01-01" }), "destroy", musnah, none)).toMatch(
+      /belum selesai/,
     );
+    expect(dispositionBlockReason(file({ archivalStatus: "pending" }), "destroy", musnah, none)).toMatch(/diberkaskan/);
+    expect(dispositionBlockReason(file({ status: "destroyed" }), "destroy", musnah, none)).toMatch(/Statis/);
+    expect(dispositionBlockReason(file({}), "destroy", musnah, new Set(["a1"]))).toMatch(/dipinjam/);
+  });
+
+  it("arsip dipinjam = item peminjaman berstatus aktif", () => {
+    const items = [{ id: "a1" }, { id: "a2" }];
+    expect([
+      ...borrowedArchiveIds([
+        { status: "active", items: [items[0]] },
+        { status: "returned", items: [items[1]] },
+      ]),
+    ]).toEqual(["a1"]);
+  });
+
+  it("keterlambatan peminjaman dihitung dari target kembali (hanya yang aktif)", () => {
+    expect(borrowingOverdueDays({ status: "active", returnDate: "2026-10-05" }, today)).toBe(3);
+    expect(borrowingOverdueDays({ status: "active", returnDate: "2026-10-08" }, today)).toBe(0);
+    expect(borrowingOverdueDays({ status: "returned", returnDate: "2026-10-01" }, today)).toBe(0);
+  });
+});
+
+describe("referensi", () => {
+  it("kunci duplikat klasifikasi & JRA tidak peka huruf besar/kecil", () => {
+    const c = { kodePokok: "um", kodeSub: "01", kodeItem: "001" };
+    expect(classificationKey(c)).toBe("UM.01.001");
+    expect(jraKey({ kategoriUtama: "Keuangan ", subKategori: "Anggaran", jenisArsip: "RAB" })).toBe(
+      jraKey({ kategoriUtama: "keuangan", subKategori: "ANGGARAN", jenisArsip: "rab" }),
+    );
+  });
+
+  it("jumlah arsip pemakai referensi & lokasi lengkap", () => {
+    const files = [archive({ classificationId: "c1" }), archive({ classificationId: "c1", jraId: "j1" })];
+    expect(countArchivesUsing(files, "classificationId", "c1")).toBe(2);
+    expect(countArchivesUsing(files, "jraId", "j2")).toBe(0);
+    expect(locationPath(archive({ physLocationId: "loc", physRackId: "rak", physBoxId: "box" }), refs)).toBe(
+      "Gedung A / Rak 1 / Box 7",
+    );
+    expect(locationPath(archive({}), refs)).toBe("");
   });
 });
 
@@ -94,6 +153,8 @@ describe("hierarki penyimpanan fisik", () => {
     expect(descendantIds(refs, "loc")).toEqual(["rak", "box", "map"]);
     expect(containerHasFiles("loc", refs, [archive({ physFolderId: "map" })])).toBe(true);
     expect(containerHasFiles("loc", refs, [])).toBe(false);
+    // Arsip digital tidak ditata secara fisik: lokasi lama yang tersimpan tidak membuat wadah dianggap berisi
+    expect(containerHasFiles("loc", refs, [archive({ archivalStatus: "digital", physFolderId: "map" })])).toBe(false);
   });
 
   it("kode wadah berikutnya per jenis & tahun berjalan", () => {

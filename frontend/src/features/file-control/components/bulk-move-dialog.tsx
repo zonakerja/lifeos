@@ -9,10 +9,19 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { usePhysRefs } from "@/data/collections";
+import { useBorrowings, usePhysRefs } from "@/data/collections";
 import { useLatchedWhileOpen } from "@/hooks/use-retained";
 import type { PhysicalReference } from "@/types/entities";
-import { type ArchiveFile, archiveTitle, deepestContainerId, findBySmartCode, isValidHierarchy } from "../lib/archive";
+import {
+  type ArchiveFile,
+  archiveTitle,
+  borrowedArchiveIds,
+  deepestContainerId,
+  findBySmartCode,
+  isFinalStatus,
+  isPhysicalArchive,
+  isValidHierarchy,
+} from "../lib/archive";
 import { useArchiveFiles } from "../use-file-control";
 import { CameraScanner } from "./camera-scanner";
 
@@ -24,9 +33,8 @@ const itemName = (item: MoveItem) => ("title" in item && item.title) || ("name" 
 const itemCode = (item: MoveItem) =>
   ("archiveRegId" in item && item.archiveRegId) || ("code" in item && item.code) || "";
 const isFile = (item: MoveItem): item is ArchiveFile => item.type === "file";
-/** Arsip fisik yang sudah statis/musnah tidak boleh ditata lagi. */
-const isEndLife = (item: MoveItem) =>
-  isFile(item) && item.archivalStatus === "physical" && (item.status === "static" || item.status === "destroyed");
+/** Arsip yang sudah statis/musnah (fisik maupun digital) tidak boleh ditata lagi. */
+const isEndLife = (item: MoveItem) => isFile(item) && isFinalStatus(item);
 
 /** Pemindahan banyak item ke satu wadah dengan pencarian, scanner USB, dan kamera. */
 export function BulkMoveDialog({
@@ -51,6 +59,8 @@ export function BulkMoveDialog({
 function BulkMove({ target, onExecute }: { target: MoveTarget; onExecute: (items: MoveItem[]) => void }) {
   const { items: refs } = usePhysRefs();
   const { files } = useArchiveFiles();
+  const { items: borrowings } = useBorrowings();
+  const borrowed = borrowedArchiveIds(borrowings);
   const isRoot = target === "root";
   const targetId = isRoot ? "root" : target.id;
   const targetType = isRoot ? "root" : target.type;
@@ -59,7 +69,7 @@ function BulkMove({ target, onExecute }: { target: MoveTarget; onExecute: (items
   const [query, setQuery] = useState("");
   const [barcode, setBarcode] = useState("");
   const [staging, setStaging] = useState<MoveItem[]>([]);
-  const [validation, setValidation] = useState({ status: "all", media: "all" });
+  const [validation, setValidation] = useState({ status: "all" });
   const [confirmReset, setConfirmReset] = useState(false);
 
   const childType = { box: "folder", rack: "box", location: "rack" } as const;
@@ -68,8 +78,7 @@ function BulkMove({ target, onExecute }: { target: MoveTarget; onExecute: (items
       ? refs.filter((r) => r.type === childType[targetType] && r.id !== targetId && r.parentId !== targetId)
       : [];
   const fileCandidates = files.filter((r) => {
-    if (r.archivalStatus !== "physical" && r.archivalStatus !== "digital") return false;
-    if (isEndLife(r)) return false;
+    if (!isPhysicalArchive(r) || isEndLife(r) || borrowed.has(r.id)) return false;
     const parent = deepestContainerId(r);
     return isRoot ? !!parent : parent !== targetId;
   });
@@ -95,11 +104,6 @@ function BulkMove({ target, onExecute }: { target: MoveTarget; onExecute: (items
         return reject(`Filter Status Aktif menyala, namun arsip berstatus ${item.status}.`, scanner);
       if (val.status === "inactive" && item.status !== "inactive")
         return reject(`Filter Status Inaktif menyala, namun arsip berstatus ${item.status}.`, scanner);
-      const physical = item.archivalStatus === "physical";
-      if (val.media === "physical" && !physical)
-        return reject("Filter Media Fisik menyala, namun format arsip adalah Digital.", scanner);
-      if (val.media === "digital" && physical)
-        return reject("Filter Media Digital menyala, namun format arsip adalah Fisik.", scanner);
     }
     setStaging((prev) => (prev.some((s) => s.id === item.id) ? prev : [...prev, item]));
     setQuery("");
@@ -109,11 +113,21 @@ function BulkMove({ target, onExecute }: { target: MoveTarget; onExecute: (items
   /** Validasi status, hierarki, dan lokasi sebelum masuk antrean. */
   const processItem = (item: MoveItem, scanner = false) => {
     if (isFile(item)) {
-      if (item.archivalStatus !== "physical" && item.archivalStatus !== "digital")
-        return reject(`Ditolak: Arsip "${itemName(item)}" belum berstatus Fisik atau Digital.`, scanner);
+      if (item.archivalStatus === "digital")
+        return reject(
+          `Ditolak: Arsip "${itemName(item)}" adalah arsip digital dan tidak ditata di wadah fisik.`,
+          false,
+        );
+      if (!isPhysicalArchive(item))
+        return reject(`Ditolak: Arsip "${itemName(item)}" belum diberkaskan sebagai arsip fisik.`, scanner);
       if (isEndLife(item))
         return reject(
-          `Ditolak: Arsip fisik "${itemName(item)}" sudah berstatus ${item.status === "destroyed" ? "Musnah" : "Statis"} sehingga tidak dapat ditata kembali.`,
+          `Ditolak: Arsip "${itemName(item)}" sudah berstatus ${item.status === "destroyed" ? "Musnah" : "Statis"} sehingga tidak dapat ditata kembali.`,
+          false,
+        );
+      if (borrowed.has(item.id))
+        return reject(
+          `Ditolak: Arsip "${itemName(item)}" sedang dipinjam. Selesaikan peminjamannya sebelum memindahkan.`,
           false,
         );
     } else if (isRoot) {
@@ -161,47 +175,24 @@ function BulkMove({ target, onExecute }: { target: MoveTarget; onExecute: (items
               Filter Validasi{" "}
               <span className="text-[10px] font-normal text-muted-foreground normal-case">(Khusus Arsip)</span>
             </p>
-            <div className="grid grid-cols-2 gap-2">
-              <Field>
-                <FieldLabel className="text-[10px] uppercase">Status</FieldLabel>
-                <Select
-                  value={validation.status}
-                  disabled={locked}
-                  onValueChange={(status) => setValidation((v) => ({ ...v, status }))}
-                >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Semua</SelectItem>
-                    <SelectItem value="active">Aktif</SelectItem>
-                    <SelectItem value="inactive">Inaktif</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field>
-                <FieldLabel className="text-[10px] uppercase">Media</FieldLabel>
-                <Select
-                  value={validation.media}
-                  disabled={locked}
-                  onValueChange={(media) => setValidation((v) => ({ ...v, media }))}
-                >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Semua</SelectItem>
-                    <SelectItem value="physical">Fisik</SelectItem>
-                    <SelectItem value="digital">Digital</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
+            <Field>
+              <FieldLabel className="text-[10px] uppercase">Status</FieldLabel>
+              <Select value={validation.status} disabled={locked} onValueChange={(status) => setValidation({ status })}>
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua</SelectItem>
+                  <SelectItem value="active">Aktif</SelectItem>
+                  <SelectItem value="inactive">Inaktif</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
             <Button
               variant="secondary"
               size="sm"
               className="w-full"
-              onClick={() => (locked ? setConfirmReset(true) : setValidation({ status: "all", media: "all" }))}
+              onClick={() => (locked ? setConfirmReset(true) : setValidation({ status: "all" }))}
             >
               Reset Filter
             </Button>
@@ -326,7 +317,7 @@ function BulkMove({ target, onExecute }: { target: MoveTarget; onExecute: (items
         description={`Mereset filter akan menghapus semua ${staging.length} item antrean. Lanjutkan?`}
         confirmLabel="Ya, Reset"
         onConfirm={() => {
-          setValidation({ status: "all", media: "all" });
+          setValidation({ status: "all" });
           setStaging([]);
           setConfirmReset(false);
         }}

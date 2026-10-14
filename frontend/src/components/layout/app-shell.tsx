@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Outlet } from "react-router";
 import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
+import { FilePreviewHost } from "@/components/common/file-preview";
 import { PageLoader } from "@/components/common/page-loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { useProfileSync } from "@/data/use-auth";
@@ -36,6 +37,8 @@ export function AppShell() {
         </main>
       </SidebarInset>
       <FloatingChatbot />
+      {/* Modal pratinjau berkas bersama (previewFile) */}
+      <FilePreviewHost />
     </SidebarProvider>
   );
 }

@@ -244,3 +244,110 @@ export interface AssetMetadata {
   size: number;
   extraction: AssetExtractionInfo | null;
 }
+
+// ---------------------------------------------------------------------------- My Notebook
+
+export type NotebookSourceKind = "upload" | "record" | "text" | "web";
+export type NotebookSourceStatus = "ready" | "processing" | "failed" | "missing";
+/** Item LifeOS yang bisa dijadikan sumber notebook (sama dengan backend `NOTEBOOK_RECORD_TYPES`). */
+export type NotebookRecordType = "free_note" | "ai_note" | "list" | "para_resource";
+
+export interface NotebookListItem {
+  id: string;
+  title: string;
+  description: string | null;
+  icon: string | null;
+  hasSummary: boolean;
+  createdAt: string;
+  updatedAt: string;
+  _count: { sources: number; notes: number; messages: number };
+}
+
+export interface NotebookSource {
+  id: string;
+  kind: NotebookSourceKind;
+  title: string;
+  enabled: boolean;
+  assetId: string | null;
+  recordType: NotebookRecordType | null;
+  recordId: string | null;
+  url: string | null;
+  status: NotebookSourceStatus;
+  error: string | null;
+  /** Jenis berkas (sumber unggahan) */
+  mimeType: string | null;
+  /** true = diunggah langsung ke notebook (ikut terhapus bersama notebook); false = berkas/ item dari LifeOS */
+  ownedByNotebook: boolean;
+  /** Jumlah karakter teks yang dibaca AI */
+  chars: number;
+  preview: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotebookSummary {
+  overview: string;
+  keyPoints: string[];
+  questions: string[];
+}
+
+export interface NotebookDetail {
+  id: string;
+  title: string;
+  description: string | null;
+  icon: string | null;
+  summary: NotebookSummary | null;
+  summaryAt: string | null;
+  summaryStale: boolean;
+  createdAt: string;
+  updatedAt: string;
+  sources: NotebookSource[];
+}
+
+export interface NotebookCitation {
+  n: number;
+  /** ID sumber notebook */
+  sourceId: string;
+  title: string;
+  excerpt: string;
+}
+
+export interface NotebookAttachment {
+  uploadId: string;
+  name: string;
+  mimeType: string;
+}
+
+export interface NotebookMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  citations: NotebookCitation[] | null;
+  /** Gambar yang dilampirkan pengguna */
+  attachments?: NotebookAttachment[] | null;
+  createdAt: string;
+}
+
+export interface NotebookChatResult {
+  userMessage: NotebookMessage;
+  assistantMessage: NotebookMessage;
+  /** full = seluruh sumber dibaca; rag = potongan paling relevan */
+  mode: "full" | "rag";
+  fallback: AiGenerateResult["fallback"];
+}
+
+export interface NotebookNote {
+  id: string;
+  title: string;
+  /** Markdown */
+  content: string;
+  origin: "chat" | "summary" | "manual";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AddNotebookSourceInput =
+  | { kind: "upload"; assetId: string; title?: string }
+  | { kind: "record"; recordType: NotebookRecordType; recordId: string }
+  | { kind: "text"; content: string; title?: string }
+  | { kind: "web"; url: string; title?: string };

@@ -4,6 +4,7 @@ import {
   ArchiveRestore,
   ArrowRightLeft,
   BookOpen,
+  BookOpenText,
   CalendarDays,
   CalendarRange,
   FileX,
@@ -14,7 +15,6 @@ import {
   Layers,
   LayoutGrid,
   ListChecks,
-  type LucideIcon,
   NotebookPen,
   Package,
   Settings,
@@ -23,6 +23,7 @@ import {
   Sparkles,
   StickyNote,
   Tag,
+  type LucideIcon,
   UserRound,
   Users,
 } from "lucide-react";
@@ -72,13 +73,14 @@ export const MODULES: ModuleDef[] = [
   {
     key: "notes",
     label: "Notes Space",
-    description: "Catatan bebas, catatan berbasis AI, dan daftar.",
+    description: "Catatan bebas, daftar, catatan berbasis AI, dan notebook riset AI dari sumber Anda.",
     path: "/notes",
     icon: StickyNote,
     tabs: [
       { id: "free", label: "Catatan Bebas", icon: NotebookPen },
-      { id: "ai", label: "Notes AI", icon: Sparkles },
       { id: "lists", label: "List Bebas", icon: ListChecks },
+      { id: "ai", label: "Notes AI", icon: Sparkles },
+      { id: "notebook", label: "My Notebook", icon: BookOpenText },
     ],
   },
   {

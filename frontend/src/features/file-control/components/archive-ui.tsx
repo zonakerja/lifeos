@@ -3,8 +3,8 @@ import { QRCodeSVG } from "qrcode.react";
 import { forwardRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { DynamicStatus, PhysicalReference, PhysRefType } from "@/types/entities";
-import { STATUS_LABEL, STATUS_TONE } from "../lib/archive";
+import type { ArchiveJra, DynamicStatus, PhysicalReference, PhysRefType } from "@/types/entities";
+import { isPermanent, STATUS_LABEL, STATUS_TONE } from "../lib/archive";
 
 /** Badge status siklus arsip (Aktif / Inaktif / Perlu Tindak Lanjut / Statis / Musnah). */
 export function StatusBadge({ status, className }: { status: DynamicStatus; className?: string }) {
@@ -12,6 +12,38 @@ export function StatusBadge({ status, className }: { status: DynamicStatus; clas
     <Badge variant="outline" className={cn("gap-1.5", STATUS_TONE[status], className)}>
       <span className="size-1.5 rounded-full bg-current" />
       {STATUS_LABEL[status]}
+    </Badge>
+  );
+}
+
+/**
+ * Badge jenis retensi dari JRA: Permanen / Non Permanen (Musnah) / Dinilai Kembali. Arsip vital tidak memakai JRA
+ * (retensi manual); arsip tanpa JRA = "JRA Belum Diset".
+ */
+export function RetentionBadge({
+  jra,
+  isVital,
+  className,
+}: {
+  jra?: ArchiveJra;
+  isVital?: boolean;
+  className?: string;
+}) {
+  const [label, tone] = jra
+    ? isPermanent(jra)
+      ? ["Permanen", "border-info/30 bg-info/10 text-info"]
+      : jra.keterangan === "Musnah"
+        ? ["Non Permanen", "border-destructive/30 bg-destructive/10 text-destructive"]
+        : [
+            jra.keterangan || "Non Permanen",
+            "border-warning/40 bg-warning/15 text-warning-foreground dark:text-warning",
+          ]
+    : isVital
+      ? ["Retensi Manual (Vital)", "text-muted-foreground"]
+      : ["JRA Belum Diset", "text-muted-foreground"];
+  return (
+    <Badge variant="outline" className={cn(tone, className)}>
+      {label}
     </Badge>
   );
 }

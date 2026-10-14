@@ -18,13 +18,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { useClassifications, useJraList, usePhysRefs } from "@/data/collections";
+import { useBorrowings, useClassifications, useJraList, usePhysRefs } from "@/data/collections";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSearchParam } from "@/hooks/use-search-param";
 import { useToday } from "@/hooks/use-today";
 import { cn } from "@/lib/utils";
 import type { DispositionType } from "@/types/entities";
-import { type ArchiveFile, isPermanent } from "../lib/archive";
+import {
+  type ArchiveFile,
+  archiveTitle,
+  borrowedArchiveIds,
+  dispositionBlockReason,
+  isPermanent,
+} from "../lib/archive";
 import { useArchiveFiles, useFileControlActions } from "../use-file-control";
 import { ArchiveCard, PendingArchiveCard } from "./archive-card";
 import { ArchiveProcessDialog } from "./archive-process-dialog";
@@ -58,6 +64,7 @@ export function ArchiveListTab({ tab }: { tab: ArchiveListTabId }) {
   const { items: classifications } = useClassifications();
   const { items: jraList } = useJraList();
   const { items: physRefs } = usePhysRefs();
+  const { items: borrowings } = useBorrowings();
   const [, setDetailId] = useSearchParam("archive");
 
   const [subTab, setSubTab] = useState<SubTab>("all");
@@ -72,6 +79,7 @@ export function ArchiveListTab({ tab }: { tab: ArchiveListTabId }) {
   const [disposal, setDisposal] = useState<{ type: DispositionType; items: ArchiveFile[] } | null>(null);
 
   const jraOf = (f: ArchiveFile) => jraList.find((j) => j.id === f.jraId);
+  const borrowed = borrowedArchiveIds(borrowings);
 
   const filtered = files
     .filter((r) => {
@@ -116,13 +124,15 @@ export function ArchiveListTab({ tab }: { tab: ArchiveListTabId }) {
       toast.error("Pilih minimal satu arsip.");
       return;
     }
-    const invalid = items.filter((item) => {
-      const perm = isPermanent(jraOf(item));
-      if (type === "destroy") return item.isVital || perm || item.dynamicStatus !== "expired";
-      return !perm || item.dynamicStatus !== "expired";
-    }).length;
-    if (invalid > 0) {
-      toast.error(`Validasi gagal: terdapat ${invalid} arsip yang tidak memenuhi syarat.`);
+    const rejected = items
+      .map((item) => ({ item, reason: dispositionBlockReason(item, type, jraOf(item), borrowed) }))
+      .filter((x) => x.reason !== null);
+    if (rejected.length > 0) {
+      const [first] = rejected;
+      toast.error(
+        `Validasi gagal: ${rejected.length} arsip tidak memenuhi syarat — "${archiveTitle(first.item)}" ${first.reason}` +
+          (rejected.length > 1 ? `, dan ${rejected.length - 1} lainnya.` : "."),
+      );
       return;
     }
     setDisposal({ type, items });
@@ -136,6 +146,7 @@ export function ArchiveListTab({ tab }: { tab: ArchiveListTabId }) {
       classifications={classifications}
       jraList={jraList}
       physRefs={physRefs}
+      borrowed={borrowed.has(file.id)}
       canEdit={canEdit}
       bulkActive={!!bulkSection}
       selected={selectedIds.has(file.id)}

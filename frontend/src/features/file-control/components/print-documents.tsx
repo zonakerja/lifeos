@@ -9,7 +9,7 @@ import { parseLocalYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
 import type { ArchiveBorrowing, ArchiveDispositionLog, PhysicalReference } from "@/types/entities";
-import { type ArchiveFile, archiveTitle, printStatusLabel } from "../lib/archive";
+import { type ArchiveFile, archiveTitle, isPhysicalArchive, printStatusLabel } from "../lib/archive";
 import { printElement } from "../lib/print";
 import { useArchiveFiles } from "../use-file-control";
 import { QrImage } from "./archive-ui";
@@ -18,7 +18,7 @@ const toDate = (value?: string) => (value ? (parseLocalYMD(value) ?? new Date(va
 const idDate = (value?: string) => toDate(value)?.toLocaleDateString("id-ID") ?? "-";
 const idFullDate = (value?: string) => toDate(value)?.toLocaleDateString("id-ID", { dateStyle: "full" }) ?? "-";
 
-/** Kerangka pratinjau cetak A4: toolbar + lembar putih yang dicetak apa adanya. */
+/** Kerangka pratinjau cetak A4 layar penuh: toolbar + lembar putih yang dicetak apa adanya. */
 function A4PreviewDialog({
   open,
   onClose,
@@ -33,8 +33,8 @@ function A4PreviewDialog({
   const sheetRef = useRef<HTMLDivElement>(null);
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex max-h-[95svh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[230mm]">
-        <DialogHeader className="flex-row items-center justify-between gap-4 border-b p-4 pr-14">
+      <DialogContent className="top-0 left-0 flex h-svh w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 ring-0 sm:max-w-none">
+        <DialogHeader className="flex-row items-center justify-between gap-4 border-b px-4 py-3 pr-14">
           <div>
             <DialogTitle>Mode Pratinjau Cetak (A4)</DialogTitle>
             <DialogDescription>{title}</DialogDescription>
@@ -70,7 +70,7 @@ export function ContainerPrintDialog({
   const today = useToday();
   const userName = useAuthStore((s) => s.user?.name);
   const { items: refs } = usePhysRefs();
-  const { files } = useArchiveFiles();
+  const files = useArchiveFiles().files.filter(isPhysicalArchive);
   if (!container) return null;
 
   const isBox = container.type === "box";
@@ -210,6 +210,7 @@ export function BapPrintDialog({ doc: docProp, onClose }: { doc: BapDocument | n
   if (!doc) return null;
   const borrowing = isBorrowing(doc) ? doc : null;
   const disposition = isBorrowing(doc) ? null : doc;
+  const isAutoDispose = !!disposition?.id.startsWith("BAP-AUTO-");
   const watermark =
     borrowing?.status === "cancelled" ? "DIBATALKAN" : borrowing?.status === "returned" ? "SUDAH DIKEMBALIKAN" : null;
 
@@ -234,8 +235,11 @@ export function BapPrintDialog({ doc: docProp, onClose }: { doc: BapDocument | n
         <p className="mt-1 text-sm">Nomor: {doc.id}</p>
       </div>
       <p className="mb-4 text-justify">
-        Pada hari ini, tanggal <strong>{idFullDate(borrowing ? borrowing.date : disposition?.executedAt)}</strong>,
-        telah dilakukan{" "}
+        Pada hari ini, tanggal{" "}
+        <strong>
+          {idFullDate(borrowing ? borrowing.date : disposition?.formData?.date || disposition?.executedAt)}
+        </strong>
+        , telah dilakukan{" "}
         {borrowing
           ? "penyerahan pinjaman"
           : `proses ${disposition?.type === "destroy" ? "pemusnahan" : "penyerahan statis"}`}{" "}
@@ -298,7 +302,11 @@ export function BapPrintDialog({ doc: docProp, onClose }: { doc: BapDocument | n
         </div>
         <div className="w-48">
           <p className="mb-16">Pengelola Arsip,</p>
-          <p className="font-bold underline">{userName || "Admin Arsip"}</p>
+          {/* Pelaksana = yang mencatat berita acara (peminjaman: PIC), bukan user yang sedang mencetak */}
+          <p className="font-bold underline">
+            {(borrowing ? borrowing.pic : disposition?.user) || userName || "Admin Arsip"}
+          </p>
+          {isAutoDispose && <p className="mt-1 text-[10px] text-gray-500">Dieksekusi otomatis oleh sistem</p>}
         </div>
       </div>
     </A4PreviewDialog>

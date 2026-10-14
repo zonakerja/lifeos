@@ -1,5 +1,6 @@
 import { PencilLine, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { type PageSize, PaginationControl, paginate } from "@/components/common/pagination-control";
 import { SearchInput } from "@/components/common/search-input";
@@ -15,7 +16,8 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { useRetained } from "@/hooks/use-retained";
 import { generateId } from "@/lib/ids";
 import type { ArchiveClassification } from "@/types/entities";
-import { classificationCode } from "../../lib/archive";
+import { classificationCode, classificationKey, countArchivesUsing } from "../../lib/archive";
+import { useArchiveFiles } from "../../use-file-control";
 import { CsvImportButton } from "./csv-import-button";
 
 const ALL = "__all";
@@ -32,6 +34,7 @@ const emptyClassification = (): Omit<ArchiveClassification, "id"> => ({
 /** Referensi kode klasifikasi arsip. */
 export function ClassificationManager() {
   const { items, setItems } = useClassifications();
+  const { files } = useArchiveFiles();
   const { canEdit } = usePermissions();
   const [search, setSearch] = useState("");
   const [primary, setPrimary] = useState("");
@@ -74,7 +77,7 @@ export function ClassificationManager() {
                   ? {
                       id: generateId("cls"),
                       jenis: cols[0],
-                      kodePokok: cols[1],
+                      kodePokok: cols[1].toUpperCase(),
                       namaPokok: cols[2],
                       kodeSub: cols[3].padStart(2, "0"),
                       namaSub: cols[4],
@@ -83,6 +86,8 @@ export function ClassificationManager() {
                     }
                   : null
               }
+              keyOf={classificationKey}
+              existingKeys={items.map(classificationKey)}
               onImport={(rows) => setItems((prev) => [...prev, ...rows])}
             />
             <Button onClick={() => setEditing("new")}>
@@ -197,7 +202,16 @@ export function ClassificationManager() {
                         size="icon-sm"
                         aria-label="Hapus"
                         className="text-destructive"
-                        onClick={() => setDeleting(c)}
+                        onClick={() => {
+                          const used = countArchivesUsing(files, "classificationId", c.id);
+                          if (used > 0) {
+                            toast.error(
+                              `Klasifikasi ${classificationCode(c)} tidak dapat dihapus karena dipakai ${used} arsip. Ubah klasifikasi arsip tersebut terlebih dahulu.`,
+                            );
+                            return;
+                          }
+                          setDeleting(c);
+                        }}
                       >
                         <Trash2 />
                       </Button>
@@ -222,6 +236,12 @@ export function ClassificationManager() {
         item={editing}
         onClose={() => setEditing(null)}
         onSave={(data) => {
+          const editingId = editing && editing !== "new" ? editing.id : null;
+          const key = classificationKey(data);
+          if (items.some((c) => c.id !== editingId && classificationKey(c) === key)) {
+            toast.error(`Kode klasifikasi ${key} sudah ada. Gunakan kode lain atau ubah data yang sudah ada.`);
+            return;
+          }
           if (editing && editing !== "new") {
             setItems((prev) => prev.map((c) => (c.id === editing.id ? { ...c, ...data } : c)));
           } else {

@@ -52,18 +52,24 @@ opsional berkas SK/BA `uploadId, fileName`).
 
 Pemberkasan: tanggal retensi = tanggal dokumen + retensi aktif (tahun), lalu + retensi inaktif (tahun); dihitung ulang
 dari JRA setiap form dibuka. Arsip vital mengisi tanggal retensi manual (JRA tidak dipakai).
+Media: **fisik** mengisi lokasi simpan (gedung/rak/box/folder); **digital** mengisi aplikasi/sistem, tautan dokumen, dan
+Auto-Dispose — tanpa lokasi fisik. Catatan kondisi/kearsipan tersedia untuk keduanya. Saat disimpan, isian media yang
+tidak dipilih dikosongkan (arsip digital tidak pernah menyimpan lokasi fisik).
 
 ## 3. Penyusutan
 
 - **Pemusnahan** (destroy): arsip expired, tidak vital, JRA bukan Permanen.
 - **Penyerahan statis** (transfer): arsip expired dengan JRA Permanen.
+- Syarat di atas + **tidak sedang dipinjam** berlaku sama untuk semua jalur (satuan, pilih banyak, BAP manual) lewat
+  satu fungsi `dispositionBlockReason` (`lib/archive.ts`); penolakan menyebut alasannya (vital, Permanen/non-Permanen,
+  retensi belum selesai, belum diberkaskan, final, dipinjam). Kandidat BAP manual hanya arsip yang lolos syarat.
 - Eksekusi: status → destroyed/static, tag "Musnah"/"Statis", `dispositionData` dari form + `executedAt`/`type`,
-  berita acara dicatat. Bisa satuan, pilih banyak per seksi, atau manual dari Transaksi (scan/cari arsip yang
-  masa inaktifnya selesai).
+  berita acara dicatat. Bisa satuan, pilih banyak per seksi, atau manual dari Transaksi (scan/cari).
 - **Auto-dispose**: arsip digital dengan `isAutoDispose` yang lewat tanggal inaktif dieksekusi otomatis
-  (Permanen → statis, lainnya → musnah, `legalNumber` `AUTO-SYS-<tahun>`) saat modul dibuka; idempoten.
-- **Restore** (super admin): status kembali active, `isAutoDispose` false, tag musnah/statis dihapus,
-  `dispositionData` dikosongkan.
+  (Permanen → statis, lainnya → musnah, `legalNumber` `AUTO-SYS-<tahun>`) saat modul dibuka; idempoten. Tanggal BA =
+  tanggal **lokal** hari itu; pelaksana (`user`) = user yang membuka modul, BA bertanda "Dieksekusi otomatis oleh sistem".
+- **Restore** (super admin, dengan dialog konfirmasi): status kembali active, `isAutoDispose` false, tag musnah/statis
+  dihapus, `dispositionData` dikosongkan; berita acara yang sudah tercatat tetap ada.
 
 ## 4. Tab
 
@@ -77,14 +83,22 @@ dari JRA setiap form dibuka. Arsip vital mengisi tanggal retensi manual (JRA tid
 | Referensi | `?ref=` klasifikasi · jra · lokasi (§7) |
 
 Daftar: cari judul/nomor/kode, filter waktu (semua/tahun/bulan/rentang) pada tanggal dokumen, urut terbaru,
-pagination (default 100). Detail arsip dibuka lewat `?archive=<id>` (deep link).
+pagination (default 100). Detail arsip dibuka lewat `?archive=<id>` (deep link); banner & label detail mengikuti
+status: Gantung (belum diberkaskan, tanpa label media/retensi), Aktif, Inaktif, Vital (retensi manual), Perlu Tindak
+Lanjut (menyebut pemusnahan/penyerahan sesuai JRA), Statis, Musnah. Kartu menampilkan kode klasifikasi lengkap
+`P.S.I`, jenis retensi, lokasi fisik lengkap (atau "Belum ditata"), dan penanda Dipinjam.
+**Lihat Dokumen** tersedia di semua tempat yang menampilkan arsip (kartu, detail, Penataan, isi wadah, pencarian) bila
+arsip punya dokumen: berkas upload (modal pratinjau), URL, atau tautan dokumen digital — `lib/archive-document.ts`.
 
 ## 5. Penataan
 
-- Navigasi breadcrumb + kembali/maju; klik ganda membuka wadah. Di root tampil gedung & arsip tanpa lokasi.
+- Khusus **arsip fisik** yang masih dikelola (`isPhysicalArchive`): arsip digital tidak ditata, tidak dihitung sebagai isi
+  wadah (hapus wadah, info box/folder, Daftar Isi), dan ditolak di pemindahan massal.
+- Navigasi breadcrumb + kembali/maju; klik ganda membuka wadah. Di root tampil gedung & arsip fisik tanpa lokasi.
 - Wadah yang bisa dibuat per tingkat: root → gedung → rak → box → folder (folder tidak berisi wadah).
-- Hierarki pemindahan: wadah hanya ke tingkat tepat di atasnya; arsip boleh ke wadah mana saja. Arsip fisik
-  statis/musnah tidak ditampilkan dan tidak bisa ditata.
+- Hierarki pemindahan: wadah hanya ke tingkat tepat di atasnya; arsip boleh ke wadah mana saja. Arsip
+  statis/musnah (fisik maupun digital) tidak ditampilkan dan tidak bisa ditata; arsip yang sedang dipinjam tidak bisa
+  dipindah sampai dikembalikan.
 - Interaksi: pilih (Ctrl/⌘ untuk banyak), drag-drop, menu klik kanan, pintasan Ctrl+C/X/V/A/N dan Delete.
 - Salin wadah: kode baru berurutan, nama + " (Copy)" (sub-wadah tidak ikut). Potong-tempel = pindah.
 - Memindah arsip mengisi rantai lokasi lengkap dari wadah tujuan ke atas.
@@ -97,30 +111,39 @@ pagination (default 100). Detail arsip dibuka lewat `?archive=<id>` (deep link).
 - **Pencarian global & smart scan**: cari arsip/wadah; Enter/scan mencocokkan ID, kode wadah, lalu ID registrasi
   arsip dan langsung membuka detail/isi wadah. Scanner USB (keyboard) dan kamera (QR).
 - **Pemindahan massal**: pilih wadah tujuan (atau ROOT), tambah item lewat cari/scan/kamera dengan filter
-  validasi (status & media); penolakan untuk hierarki salah, item sudah di tujuan, duplikat, arsip final.
-- **Peminjaman**: pilih arsip (tidak sedang dipinjam, bukan statis/musnah), peminjam wajib, tanggal pinjam &
-  target kembali; aksi Kembalikan/Batalkan; cetak Berita Acara (watermark untuk dikembalikan/dibatalkan).
-  Arsip yang sedang dipinjam ditandai di detail arsip.
+  validasi (status & media); penolakan untuk hierarki salah, item sudah di tujuan, duplikat, arsip final (semua
+  media), arsip yang sedang dipinjam.
+- **Peminjaman**: hanya **arsip fisik** (tidak sedang dipinjam, bukan statis/musnah), peminjam wajib, tanggal pinjam &
+  target kembali (target ≥ tanggal pinjam); aksi Kembalikan/Batalkan; cetak Berita Acara (watermark untuk
+  dikembalikan/dibatalkan). Daftar menampilkan tanggal pinjam, target, tanggal dikembalikan, dan penanda
+  **Terlambat n hari** (`borrowingOverdueDays`). Arsip yang sedang dipinjam ditandai di kartu & detail arsip.
 - **Histori penyusutan**: daftar berita acara + pembuatan BAP manual + cetak.
 
 ## 7. Referensi
 
 - Klasifikasi & JRA: CRUD, pencarian, filter, impor CSV berpemisah `|` (baris pertama header).
-  Klasifikasi: `jenis|kodePokok|namaPokok|kodeSub|namaSub|kodeItem|namaItem` (kodeSub dipad 2, kodeItem dipad 3).
-  JRA: `kategoriUtama|subKategori|jenisArsip|retensiAktif|retensiInaktif|keterangan`.
+  Klasifikasi: `jenis|kodePokok|namaPokok|kodeSub|namaSub|kodeItem|namaItem` (kodePokok huruf besar, kodeSub dipad 2,
+  kodeItem dipad 3). JRA: `kategoriUtama|subKategori|jenisArsip|retensiAktif|retensiInaktif|keterangan`.
+- Keunikan: klasifikasi = kode lengkap `P.S.I`, JRA = kategori utama + sub kategori + jenis arsip (tanpa peka huruf
+  besar/kecil; `classificationKey`/`jraKey`). Form menolak data kembar; impor CSV melewati baris yang sudah ada atau
+  berulang di berkas dan melaporkan jumlahnya.
+- Klasifikasi/JRA yang masih dirujuk arsip (termasuk statis/musnah) **tidak bisa dihapus** (`countArchivesUsing`).
 - Lokasi fisik: per jenis wadah, form dengan pemilih induk bertingkat, cetak label QR, hapus berantai (ditolak bila
   berisi arsip).
 
 ## 8. Label & cetak
 
 QR dibuat lokal. Label arsip: QR `archiveRegId` + kode klasifikasi + tanda VITAL + uraian. Label wadah: QR ID wadah
-+ kode + nama + jenis. Dokumen A4 (daftar isi wadah, berita acara) dicetak lewat jendela terpisah.
++ kode + nama + jenis. Dokumen A4 (daftar isi wadah, berita acara) dipratinjau **layar penuh** lalu dicetak lewat
+jendela terpisah. Penandatangan "Pengelola Arsip" pada BA = pelaksana yang tercatat (BA penyusutan: `user`, peminjaman:
+`pic`), bukan user yang sedang mencetak; tanggal BA penyusutan = tanggal eksekusi di form.
 
 ## 9. Peta kode
 
 | File | Isi |
 |---|---|
-| `lib/archive.ts` | logika murni: status, retensi, ID registrasi, kode wadah, hierarki, rantai lokasi, smart scan (diuji `archive.test.ts`) |
+| `lib/archive.ts` | logika murni: status, retensi, syarat penyusutan, peminjaman (dipinjam/terlambat), keunikan & pemakaian referensi, ID registrasi, kode wadah, hierarki, rantai & teks lokasi, smart scan (diuji `archive.test.ts`) |
+| `lib/archive-document.ts` | lihat dokumen arsip (berkas → modal pratinjau, URL / tautan digital → tab baru) |
 | `lib/print.ts` | cetak elemen (label / A4) |
 | `use-file-control.ts` | `useArchiveFiles` (gabung resource + PARA Archive) & `useFileControlActions` (semua mutasi) |
 | `file-control-page.tsx` | halaman modul, statistik, auto-dispose, dialog detail `?archive=` |

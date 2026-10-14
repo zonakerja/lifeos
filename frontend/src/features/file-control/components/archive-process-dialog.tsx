@@ -26,6 +26,7 @@ import {
   type ArchiveFile,
   archiveTitle,
   classificationCode,
+  EMPTY_LOCATION,
   generateArchiveRegId,
   retentionDatesFromJra,
 } from "../lib/archive";
@@ -132,7 +133,10 @@ function ProcessForm({ file, onDone }: { file: ArchiveFile; onDone: () => void }
     } else if (!form.jraId) nextErrors.jraId = "Wajib dipilih";
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
-    actions.saveArchive({ ...file, ...form, jraId: form.isVital ? "" : form.jraId, status });
+    // Isian media lain tidak disimpan: arsip digital tanpa lokasi fisik, arsip fisik tanpa data sistem digital
+    const media =
+      form.archivalStatus === "digital" ? EMPTY_LOCATION : { digitalApp: "", digitalLink: "", isAutoDispose: false };
+    actions.saveArchive({ ...file, ...form, ...media, jraId: form.isVital ? "" : form.jraId, status });
     onDone();
   };
 
@@ -344,69 +348,76 @@ function ProcessForm({ file, onDone }: { file: ArchiveFile; onDone: () => void }
               </div>
             )}
 
-            <div className="space-y-4 rounded-2xl border p-4">
-              <div className="flex items-center justify-between">
-                <h4 className="flex items-center gap-2 text-xs font-bold text-module uppercase">
-                  <MapPin className="size-4" /> Lokasi Simpan Fisik
-                </h4>
-                <Button
-                  type="button"
-                  variant="link"
-                  size="xs"
-                  className="text-destructive"
-                  onClick={() => patch({ physLocationId: "", physRackId: "", physBoxId: "", physFolderId: "" })}
-                >
-                  Reset Lokasi
-                </Button>
+            {form.archivalStatus === "physical" && (
+              <div className="space-y-4 rounded-2xl border p-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="flex items-center gap-2 text-xs font-bold text-module uppercase">
+                    <MapPin className="size-4" /> Lokasi Simpan Fisik
+                  </h4>
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="xs"
+                    className="text-destructive"
+                    onClick={() => patch({ physLocationId: "", physRackId: "", physBoxId: "", physFolderId: "" })}
+                  >
+                    Reset Lokasi
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  {locationSelect(
+                    "proc-loc",
+                    "Gedung / Ruang",
+                    form.physLocationId,
+                    locations,
+                    "-- Tanpa Lokasi --",
+                    (v) => patch({ physLocationId: v, physRackId: "", physBoxId: "", physFolderId: "" }),
+                  )}
+                  {locationSelect(
+                    "proc-rack",
+                    "Rak / Lemari",
+                    form.physRackId,
+                    racks,
+                    "-- Lepas / Tanpa Rak --",
+                    (v) => patch({ physRackId: v, physBoxId: "", physFolderId: "" }),
+                    !form.physLocationId,
+                  )}
+                  {locationSelect(
+                    "proc-box",
+                    "Boks Arsip",
+                    form.physBoxId,
+                    boxes,
+                    "-- Lepas / Tanpa Box --",
+                    (v) => patch({ physBoxId: v, physFolderId: "" }),
+                    !form.physLocationId,
+                  )}
+                  {locationSelect(
+                    "proc-folder",
+                    "Folder",
+                    form.physFolderId,
+                    folders,
+                    "-- Lepas / Tanpa Folder --",
+                    (v) => patch({ physFolderId: v }),
+                    !form.physLocationId,
+                  )}
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                {locationSelect(
-                  "proc-loc",
-                  "Gedung / Ruang",
-                  form.physLocationId,
-                  locations,
-                  "-- Tanpa Lokasi --",
-                  (v) => patch({ physLocationId: v, physRackId: "", physBoxId: "", physFolderId: "" }),
-                )}
-                {locationSelect(
-                  "proc-rack",
-                  "Rak / Lemari",
-                  form.physRackId,
-                  racks,
-                  "-- Lepas / Tanpa Rak --",
-                  (v) => patch({ physRackId: v, physBoxId: "", physFolderId: "" }),
-                  !form.physLocationId,
-                )}
-                {locationSelect(
-                  "proc-box",
-                  "Boks Arsip",
-                  form.physBoxId,
-                  boxes,
-                  "-- Lepas / Tanpa Box --",
-                  (v) => patch({ physBoxId: v, physFolderId: "" }),
-                  !form.physLocationId,
-                )}
-                {locationSelect(
-                  "proc-folder",
-                  "Folder",
-                  form.physFolderId,
-                  folders,
-                  "-- Lepas / Tanpa Folder --",
-                  (v) => patch({ physFolderId: v }),
-                  !form.physLocationId,
-                )}
-              </div>
-              <Field>
-                <FieldLabel htmlFor="proc-notes">Catatan Kondisi / Kearsipan</FieldLabel>
-                <Textarea
-                  id="proc-notes"
-                  rows={2}
-                  placeholder="Cth: Tumpukan di atas meja..."
-                  value={form.notes}
-                  onChange={(e) => patch({ notes: e.target.value })}
-                />
-              </Field>
-            </div>
+            )}
+
+            <Field>
+              <FieldLabel htmlFor="proc-notes">Catatan Kondisi / Kearsipan</FieldLabel>
+              <Textarea
+                id="proc-notes"
+                rows={2}
+                placeholder={
+                  form.archivalStatus === "physical"
+                    ? "Cth: Tumpukan di atas meja..."
+                    : "Cth: Versi final, ditandatangani elektronik..."
+                }
+                value={form.notes}
+                onChange={(e) => patch({ notes: e.target.value })}
+              />
+            </Field>
           </FieldGroup>
         </div>
         <DialogFooter className="border-t p-4">

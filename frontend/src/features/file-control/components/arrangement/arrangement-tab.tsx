@@ -36,8 +36,8 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { useClassifications, usePhysRefs } from "@/data/collections";
-import { openAttachment } from "@/features/resources/resource-utils";
+import { useBorrowings, useClassifications, usePhysRefs } from "@/data/collections";
+import { hasArchiveDocument, openArchiveDocument } from "../../lib/archive-document";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSearchParam } from "@/hooks/use-search-param";
 import { cn } from "@/lib/utils";
@@ -45,10 +45,13 @@ import type { PhysicalReference, PhysRefType } from "@/types/entities";
 import {
   type ArchiveFile,
   archiveTitle,
+  borrowedArchiveIds,
   childTypeOf,
   classificationCode,
   containerHasFiles,
   deepestContainerId,
+  isFinalStatus,
+  isPhysicalArchive,
   isValidHierarchy,
   PHYS_SHORT_LABEL,
   PHYS_TYPE_LABEL,
@@ -74,6 +77,8 @@ export function ArrangementTab() {
   const { files } = useArchiveFiles();
   const { items: refs } = usePhysRefs();
   const { items: classifications } = useClassifications();
+  const { items: borrowings } = useBorrowings();
+  const borrowed = borrowedArchiveIds(borrowings);
   const actions = useFileControlActions();
   const [, setDetailId] = useSearchParam("archive");
 
@@ -112,9 +117,8 @@ export function ArrangementTab() {
     .sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name));
   const folderFiles = files
     .filter((r) => {
-      if (r.archivalStatus !== "physical" && r.archivalStatus !== "digital") return false;
-      const status = String(r.status || "").toLowerCase();
-      if (r.archivalStatus === "physical" && (status === "destroyed" || status === "static")) return false;
+      // Penataan khusus arsip fisik yang masih dikelola (digital tidak punya lokasi fisik; statis/musnah sudah keluar)
+      if (!isPhysicalArchive(r) || isFinalStatus(r)) return false;
       const parent = deepestContainerId(r);
       return current ? parent === current.id : !parent;
     })
@@ -147,7 +151,16 @@ export function ArrangementTab() {
 
   const hierarchyError = (message: string) => toast.error(message, { description: "Aksi tidak valid" });
 
+  /** Arsip yang sedang dipinjam tidak berada di wadahnya → tidak boleh dipindah sampai dikembalikan. */
+  const rejectBorrowed = (items: Item[]) => {
+    const item = items.find((i) => isFile(i) && borrowed.has(i.id));
+    if (!item) return false;
+    hierarchyError(`Arsip "${archiveTitle(item as ArchiveFile)}" sedang dipinjam. Selesaikan peminjamannya dulu.`);
+    return true;
+  };
+
   const moveTo = (items: Item[], target: PhysicalReference | null) => {
+    if (rejectBorrowed(items)) return;
     const targetType = target?.type ?? "root";
     const invalid = items.find((i) => !isValidHierarchy(itemType(i), targetType));
     if (invalid) {
@@ -166,6 +179,7 @@ export function ArrangementTab() {
       hierarchyError(`Gagal Paste. "${PHYS_SHORT_LABEL[itemType(invalid)]}" tidak sesuai hierarki di sini.`);
       return;
     }
+    if (clipboard.mode === "cut" && rejectBorrowed(clipboard.items)) return;
     if (clipboard.mode === "copy") {
       actions.pasteCopies(
         clipboard.items.filter((i): i is PhysicalReference => !isFile(i)),
@@ -526,15 +540,14 @@ export function ArrangementTab() {
                             >
                               <Info />
                             </Button>
-                            {(file.digitalLink || file.uploadId || file.url) && (
+                            {hasArchiveDocument(file) && (
                               <Button
                                 variant="ghost"
                                 size="icon-xs"
-                                aria-label="Preview"
+                                aria-label="Lihat Dokumen"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (file.digitalLink) window.open(file.digitalLink, "_blank", "noopener");
-                                  else void openAttachment(file);
+                                  void openArchiveDocument(file);
                                 }}
                               >
                                 <Eye />

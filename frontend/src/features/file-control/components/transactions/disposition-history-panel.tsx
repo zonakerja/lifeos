@@ -69,7 +69,11 @@ export function DispositionHistoryPanel() {
                 <div className="mb-3 flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-bold">{log.id}</p>
-                    <p className="text-xs text-muted-foreground">{formatNumericDate(new Date(log.executedAt))}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatNumericDate(new Date(log.executedAt))}
+                      {log.user && ` • Oleh: ${log.user}`}
+                      {log.id.startsWith("BAP-AUTO-") && " (otomatis)"}
+                    </p>
                   </div>
                   <Badge
                     variant="outline"

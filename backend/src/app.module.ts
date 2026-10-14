@@ -9,6 +9,7 @@ import { validateEnv } from "./config/env.validation";
 import { loggerConfig } from "./config/logger.config";
 import { ExtractionModule } from "./extraction/extraction.module";
 import { HealthModule } from "./health/health.module";
+import { NotebooksModule } from "./notebooks/notebooks.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RecordsModule } from "./records/records.module";
 import { RedisModule } from "./redis/redis.module";
@@ -36,6 +37,7 @@ import { UsersModule } from "./users/users.module";
     ExtractionModule,
     UploadsModule,
     AiModule,
+    NotebooksModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

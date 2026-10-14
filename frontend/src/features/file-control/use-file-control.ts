@@ -10,6 +10,7 @@ import {
   useResources,
 } from "@/data/collections";
 import { useToday } from "@/hooks/use-today";
+import { formatLocalYMD } from "@/lib/dates";
 import { useAuthStore } from "@/stores/auth-store";
 import type {
   ArchiveBorrowing,
@@ -204,6 +205,8 @@ export function useFileControlActions() {
       });
       if (due.length === 0) return 0;
       const now = new Date().toISOString();
+      // Tanggal BA = tanggal lokal (ISO UTC bisa mundur sehari saat dini hari di WIB)
+      const localDate = formatLocalYMD(base);
       const updates: ArchiveFile[] = [];
       const logs: ArchiveDispositionLog[] = [];
       for (const r of due) {
@@ -211,10 +214,10 @@ export function useFileControlActions() {
         const type: DispositionType = perm ? "transfer" : "destroy";
         const statusLabel = perm ? "Statis" : "Musnah";
         const dispositionData: DispositionData = {
-          legalNumber: `AUTO-SYS-${new Date().getFullYear()}`,
-          date: now.slice(0, 10),
+          legalNumber: `AUTO-SYS-${base.getFullYear()}`,
+          date: localDate,
           description: "Eksekusi pemusnahan/penyerahan otomatis oleh sistem (Auto-Dispose) untuk arsip digital.",
-          userNote: "Eksekusi Otomatisasi via Sistem Terintegrasi",
+          userNote: `Eksekusi otomatis oleh sistem saat File Control dibuka oleh ${userName}`,
           executedAt: now,
           type,
         };
@@ -231,6 +234,7 @@ export function useFileControlActions() {
           executedAt: now,
           formData: dispositionData,
           items: [toItemRef(r)],
+          user: userName,
         });
       }
       saveFiles(updates);
