@@ -5,6 +5,7 @@ import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { DateRangeFilter } from "@/components/common/date-range-filter";
 import { type PageSize, PaginationControl, paginate } from "@/components/common/pagination-control";
 import { type OptionGroup, SearchableSelect } from "@/components/common/searchable-select";
+import { TagInput } from "@/components/common/tag-input";
 import { SearchInput } from "@/components/common/search-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,21 @@ import { ResourceAiDialog } from "@/features/resources/resource-ai-dialog";
 import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
 import { openAttachment } from "@/features/resources/resource-utils";
 import { readAiSummaryPreference, writeAiSummaryPreference } from "@/features/resources/ai-summary-preference";
+import {
+  addFreeTag,
+  collectFreeTags,
+  isContextTag,
+  MAX_TAG_LENGTH,
+  resourceTags,
+  splitTags,
+} from "@/features/resources/resource-tags";
+import {
+  fileControlStatus,
+  isFiledArchive,
+  isInFileControl,
+  readFileControlPreference,
+  writeFileControlPreference,
+} from "@/features/resources/file-control-intake";
 import { SummaryStatusBadge } from "@/features/resources/summary-status-badge";
 import { useFileSummarizer } from "@/features/resources/use-file-summarizer";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -47,7 +63,8 @@ import { useParaActions } from "../use-para-actions";
 import { ParaInfo } from "./para-info";
 import { useOpenSession, useRetained } from "@/hooks/use-retained";
 
-const resourceTags = (r: Resource) => (Array.isArray(r.tags) ? r.tags : r.sourceTag ? [r.sourceTag] : ["Global"]);
+/** Waktu sekarang (helper modul agar tidak dianggap pemanggilan tidak murni saat render) */
+const nowIso = () => new Date().toISOString();
 
 export function ResourcesTab() {
   const today = useToday();
@@ -71,7 +88,11 @@ export function ResourcesTab() {
   const [highlightId] = useSearchParam("resource");
 
   const filtered = resources
-    .filter((r) => !search || (r.title ?? "").toLowerCase().includes(search.toLowerCase()))
+    // Cari di nama resource atau tag (mis. "SOP", "Regulasi")
+    .filter((r) => {
+      const q = search.trim().toLowerCase();
+      return !q || [r.title ?? "", ...resourceTags(r)].some((v) => v.toLowerCase().includes(q));
+    })
     .filter((r) => matchesDateFilter(r.date, dateFilter, today))
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
@@ -142,17 +163,35 @@ export function ResourcesTab() {
                 <TableCell className="max-w-56 truncate text-muted-foreground">{res.content || "-"}</TableCell>
                 <TableCell className="text-xs">{res.date ? formatNumericDate(res.date) : "-"}</TableCell>
                 <TableCell>
-                  <Badge variant="secondary" className="uppercase">
-                    {res.type}
-                  </Badge>
+                  <div className="flex flex-wrap gap-1">
+                    <Badge variant="secondary" className="uppercase">
+                      {res.type}
+                    </Badge>
+                    {isInFileControl(res) && (
+                      <Badge className="bg-mod-files/15 text-mod-files" title="Dikelola di File Control">
+                        <Archive /> File Control
+                      </Badge>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex max-w-56 flex-wrap gap-1">
-                    {resourceTags(res).map((tag, i) => (
-                      <Badge key={i} className="bg-module-soft text-module">
-                        {typeof tag === "string" ? tag : "Unknown Tag"}
-                      </Badge>
-                    ))}
+                    {resourceTags(res).map((tag) =>
+                      isContextTag(tag) ? (
+                        <Badge
+                          key={tag}
+                          variant="outline"
+                          className="text-muted-foreground"
+                          title="Tag otomatis (asal)"
+                        >
+                          {tag}
+                        </Badge>
+                      ) : (
+                        <Badge key={tag} className="bg-module-soft text-module" title="Tag">
+                          {tag}
+                        </Badge>
+                      ),
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -310,7 +349,7 @@ function ResourceForm({
   onCancel: () => void;
   onDone: () => void;
 }) {
-  const { setItems: setResources } = useResources();
+  const { items: allResources, setItems: setResources } = useResources();
   const cleanup = useAttachmentCleanup();
   // Berkas yang diunggah di sesi form ini (dibuang bila tidak disimpan / diganti lagi sebelum disimpan)
   const sessionUploads = useRef(new Set<string>());
@@ -328,6 +367,16 @@ function ResourceForm({
   const summarizer = useFileSummarizer();
   // "Ringkas dengan AI" opsional (default mati, diingat per browser); hasil lama diabaikan bila berkas diganti
   const [aiSummary, setAiSummary] = useState(readAiSummaryPreference);
+  // "Masukkan ke File Control": resource baru mengikuti preferensi terakhir, resource lama mengikuti statusnya.
+  // Arsip yang sudah diberkaskan (fisik/digital) dikelola File Control → centang terkunci.
+  const [toFileControl, setToFileControl] = useState(() =>
+    resource ? isInFileControl(resource) : readFileControlPreference(),
+  );
+  const filed = isFiledArchive(resource?.archivalStatus);
+  const toggleFileControl = (enabled: boolean) => {
+    setToFileControl(enabled);
+    if (!resource) writeFileControlPreference(enabled);
+  };
   const lastFileRef = useRef<File | null>(null);
   const summaryRunRef = useRef(0);
   const [uploading, setUploading] = useState(false);
@@ -337,6 +386,11 @@ function ResourceForm({
     () => resource ?? { id: "", title: "", number: "", type: "link", content: "", date: "", url: "", noteId: "" },
   );
   const patch = (values: Partial<Resource>) => setForm((prev) => ({ ...prev, ...values }));
+  // Tag konteks (asal resource) dikunci; user hanya mengelola tag bebas. Resource baru dari tab ini bertag "Global Resource".
+  const initialTags = splitTags(resource ? resourceTags(resource) : []);
+  const contextTags = initialTags.context.length ? initialTags.context : ["Global Resource"];
+  const [freeTags, setFreeTags] = useState(initialTags.free);
+  const tagSuggestions = collectFreeTags(allResources);
 
   const noteGroups: OptionGroup[] = [
     { heading: "Free Notes", options: freeNotes.map((n) => ({ label: n.title, value: `free-${n.id}` })) },
@@ -410,22 +464,17 @@ function ResourceForm({
     }
     const data: Resource = {
       ...form,
+      tags: [...contextTags, ...freeTags],
       title: form.title.trim(),
-      date: form.date || new Date().toISOString().slice(0, 10),
+      date: form.date || nowIso().slice(0, 10),
       // Resource bukan berkas tidak menyimpan rujukan berkas
       ...(form.type === "file" ? {} : { uploadId: undefined, mimeType: undefined }),
+      archivalStatus: fileControlStatus(resource?.archivalStatus, form.type === "file" && toFileControl),
     };
     if (resource) {
-      setResources((prev) =>
-        prev.map((r) =>
-          r.id === resource.id ? { ...r, ...data, tags: r.tags || ["Global Resource"], id: resource.id } : r,
-        ),
-      );
+      setResources((prev) => prev.map((r) => (r.id === resource.id ? { ...r, ...data, id: resource.id } : r)));
     } else {
-      setResources((prev) => [
-        ...prev,
-        { ...data, id: generateId("res"), tags: ["Global Resource"], createdAt: new Date().toISOString() },
-      ]);
+      setResources((prev) => [...prev, { ...data, id: generateId("res"), createdAt: nowIso() }]);
     }
     savedRef.current = true;
     sessionUploads.current.forEach(untrackPendingUpload); // kini tersimpan di data
@@ -515,6 +564,18 @@ function ResourceForm({
               </Label>
               {aiSummary && <SummaryStatusBadge status={summarizer.status} />}
             </span>
+            <span className="flex items-center gap-2">
+              <Checkbox
+                id="res-file-control"
+                checked={toFileControl || filed}
+                disabled={filed}
+                onCheckedChange={(checked) => toggleFileControl(checked === true)}
+              />
+              <Label htmlFor="res-file-control" className="text-xs font-normal text-muted-foreground">
+                <Archive className="size-3.5" /> Masukkan ke File Control
+                {filed && " (sudah diberkaskan)"}
+              </Label>
+            </span>
             {form.uploadId && (
               <span className="truncate text-xs text-muted-foreground">File saat ini: {form.title}</span>
             )}
@@ -545,6 +606,26 @@ function ResourceForm({
       <Field className="md:w-1/2">
         <FieldLabel htmlFor="res-date">Tanggal</FieldLabel>
         <Input id="res-date" type="date" value={form.date ?? ""} onChange={(e) => patch({ date: e.target.value })} />
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="res-tags">Tag</FieldLabel>
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          Otomatis:
+          {contextTags.map((tag) => (
+            <Badge key={tag} variant="outline" className="text-muted-foreground">
+              {tag}
+            </Badge>
+          ))}
+        </div>
+        <TagInput
+          id="res-tags"
+          value={freeTags}
+          suggestions={tagSuggestions}
+          maxLength={MAX_TAG_LENGTH}
+          placeholder="Tambah tag, mis. Regulasi, SOP..."
+          onAdd={(input) => setFreeTags((prev) => addFreeTag(prev, input, tagSuggestions))}
+          onRemove={(tag) => setFreeTags((prev) => prev.filter((t) => t !== tag))}
+        />
       </Field>
       <Field>
         <FieldLabel htmlFor="res-content">Deskripsi</FieldLabel>

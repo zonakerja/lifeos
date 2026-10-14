@@ -147,6 +147,8 @@ export interface AttachedResource {
   /** ID catatan yang dirujuk: "free-<id>" | "ai-<id>" | "list-<id>" (type "note") */
   noteId?: string;
   addToGlobal?: boolean;
+  /** Berkas dimasukkan ke File Control (Gantung) — otomatis menjadi Resource Global (`addToGlobal`) */
+  toFileControl?: boolean;
   aiSummary?: string;
 }
 
@@ -167,6 +169,8 @@ export interface Resource extends Owned {
   /** Alternatif: tag tunggal */
   sourceTag?: string;
   aiSummary?: string;
+  /** Status kearsipan; terisi bila berkas dimasukkan ke File Control (lihat `file-control-intake.ts`) */
+  archivalStatus?: ArchivalStatus;
 }
 
 // ============================================================================

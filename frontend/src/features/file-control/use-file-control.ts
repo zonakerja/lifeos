@@ -1,3 +1,4 @@
+import { isInFileControl } from "@/features/resources/file-control-intake";
 import { useMemo } from "react";
 import {
   useBorrowings,
@@ -59,11 +60,14 @@ export function useArchiveFiles({ includeShared = false }: { includeShared?: boo
 
   const files = useMemo<ArchiveFile[]>(() => {
     const active = resources.items
-      .filter((r) => r.type === "file" && (includeShared || !r.share))
+      // Hanya berkas yang dimasukkan ke File Control (centang "Masukkan ke File Control"), bukan semua resource berkas
+      .filter((r) => isInFileControl(r) && (includeShared || !r.share))
       .map((r) => ({ ...(r as ArchiveResource), isArchived: false }));
     const archived = archives.items
       .filter(
-        (a) => String(a.originalType).toLowerCase() === "resource" && String(a.data?.type).toLowerCase() === "file",
+        (a) =>
+          String(a.originalType).toLowerCase() === "resource" &&
+          isInFileControl(a.data as { type?: string; archivalStatus?: string }),
       )
       .map((a) => ({
         ...(a.data as unknown as ArchiveResource),

@@ -12,11 +12,18 @@ Record type yang dipakai modul ini (nama tabel & kolom: [ARCHITECTURE.md §4.2](
 `archive_borrowing` (peminjaman), `archive_disposition` (berita acara penyusutan), `archive_move_log` (riwayat
 pemindahan). Semua perubahan data kearsipan tercatat otomatis di `archive_audit_logs` (ARCHITECTURE.md §4.4).
 
-**Sumber arsip**: resource bertipe file (`isArchived: false`) + isi snapshot PARA Archive bertipe file
-(`isArchived: true`, `archiveWrapperId`). Setiap perubahan dirutekan kembali ke asalnya; field sementara
+**Masuk File Control = pilihan user (opt-in)**: resource berkas hanya menjadi arsip bila dicentang **"Masukkan ke File
+Control"** saat dibuat (form Resource Global & form lampiran Project/Action/Task/Agenda/Tandai Selesai — lampiran
+otomatis menjadi Resource Global) atau saat diubah di form Resource. Centang mengisi `archivalStatus: "pending"`
+(Gantung); dilepas → `"none"`; kosong/`none` = bukan arsip. Arsip fisik/digital tidak bisa dikeluarkan lewat centang.
+Centang default mati, pilihan terakhir diingat per browser. Logika: `features/resources/file-control-intake.ts` (+ test).
+Resource berkas lama (sebelum opt-in) dimigrasi menjadi `pending` (`20261014120000_file_control_opt_in`).
+
+**Sumber arsip**: resource bertipe file yang masuk File Control (`isInFileControl`, `isArchived: false`) + isi snapshot
+PARA Archive bertipe file yang masuk File Control (`isArchived: true`, `archiveWrapperId`). Setiap perubahan dirutekan kembali ke asalnya; field sementara
 (`dynamicStatus`, `isArchived`, `archiveWrapperId`, `archivedAt`) tidak pernah disimpan.
 
-**Field kearsipan pada resource**: `archivalStatus` (pending|physical|digital|none), `archiveRegId`
+**Field kearsipan pada resource**: `archivalStatus` (pending|physical|digital|none; kosong/none = bukan arsip), `archiveRegId`
 (`ARC-<tahun dokumen>-<6 karakter>`), `classificationId`, `jraId`, `retentionActiveDate`, `retentionInactiveDate`,
 `status` (active|inactive|static|destroyed), `isVital`, `isAutoDispose`, `physLocationId/physRackId/physBoxId/physFolderId`,
 `digitalApp`, `digitalLink`, `notes`, `dispositionData` (`legalNumber, date, description, userNote, executedAt, type`,

@@ -243,7 +243,7 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     `20261011130000_para_archive_log` + `20261011140000_ai_credentials` +
     `20261011150000_ai_fallback` + `20261011160000_ai_chunks` + `20261011170000_sharing` (viewer → member, `shares`,
     `record_comments`, `assets.uploaded_by_id`) + `20261011180000_schedule_project` (`schedules.project_id`, data lama dari
-    `extra` dipindah). Migrasi baru → lihat docs/SETUP.md §10
+    `extra` dipindah) + `20261014120000_file_control_opt_in` (resource berkas lama → `archival_status = 'pending'`). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
@@ -351,6 +351,18 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     (`resources/ai-summary-preference.ts`). AI hanya dipanggil bila dicentang (centang setelah upload → langsung diringkas);
     "Tambahkan"/"Simpan" tidak menunggu AI (bila masih berjalan, ringkasan dilewati → buat nanti lewat ikon robot); hasil
     untuk berkas yang sudah diganti diabaikan.
+  - **Masukkan ke File Control = opt-in** (keputusan user 2026-10-14): centang **"Masukkan ke File Control"** di form
+    Resource Global dan `AttachmentForm` (khusus berkas; default mati, diingat per browser) → `archivalStatus: "pending"`.
+    Pada lampiran, centang ini memaksa `addToGlobal` (`AttachedResource.toFileControl` → `mergeIntoGlobalResources`), karena
+    File Control bersumber dari Resource Global. Tanpa centang berkas **tidak** masuk File Control. Helper:
+    `resources/file-control-intake.ts` (`isInFileControl`, `fileControlStatus`, preferensi). Detail: docs/FILE-CONTROL.md §1.
+  - **Tag Resource Global** (`resources/resource-tags.ts` + test): dua macam di satu array `tags` — **tag konteks** otomatis
+    (asal: `Global Resource`, `Project Basis`, `Project`, `Project Action`, `Area`, `Area Task`, `Agenda` = `CONTEXT_TAGS`;
+    diberikan `contextTag` saat resource dibuat dari lampiran/penghapusan, tidak bisa diubah user) dan **tag bebas**
+    (kategori isi, mis. Regulasi, SOP) yang diketik di form Resource lewat `<TagInput>` (`components/common/tag-input.tsx`:
+    Enter/koma/+, Backspace, saran `datalist` dari tag yang sudah dipakai). `addFreeTag` mencegah duplikat tanpa peka huruf
+    besar/kecil & mengikuti penulisan yang sudah ada. Pencarian tab Resources mencocokkan nama atau tag. Context tag baru →
+    tambahkan ke `CONTEXT_TAGS`.
   - **Upload yang belum tersimpan** dicatat di `lib/pending-uploads.ts` (localStorage per user: `uploadId`, instans
     halaman, detak) lewat `trackPendingUpload` / `untrackPendingUpload`: `AttachmentForm` (sebelum "Tambahkan"; diserahkan
     ke form pemakai saat ditambahkan), `useAttachmentEdits` (sampai form disimpan) dan form Resource. `usePendingUploadsJanitor`
@@ -485,6 +497,10 @@ VPS, CI, dokumentasi). Berikutnya:
    `AiIndexService.search` + riwayat chat **permanen** di PostgreSQL (keputusan user) → tahap 3 Redis (cache embedding
    pertanyaan, batas pemakaian harian, throttler).
 3. (Opsional) tampilan riwayat audit arsip di UI (`GET /archive-audit` sudah tersedia).
+4. **Dokumen dibuat di aplikasi** (jenis resource baru) dengan editor berbasis **ONLYOFFICE** — dikerjakan user di
+   thread & **branch baru**. Titik sambung: Resource Global (`para_resource`, berkas = `uploadId` Asset backend), centang
+   "Masukkan ke File Control" (`file-control-intake.ts`), ekstraksi/indeks RAG berkas (DOCX/XLSX sudah didukung), CSP
+   `nginx.conf` bila editor dimuat dari domain lain.
 
 Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1): KaTeX 0.19 (≥ 29 Okt 2026), Node 26
 (≥ ± 25 Nov 2026); pantau TS 7, Prisma 8, ioredis 6.
@@ -729,6 +745,17 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   Tab Action | Agenda di detail Project/Area diganti **daftar gabungan** action/task + agenda urut tanggal dengan tag
   pembeda dan filter tag; timeline sudah gabungan. Diuji dengan data demo (batal → berkas 404; konfirmasi → lampiran
   tersimpan, progres 20% → 45%).
+- 2026-10-14 — **Tag bebas Resource Global** (permintaan user): sebelumnya tag hanya tag konteks otomatis (asal resource);
+  tag "Regulasi"/"SOP" di data demo berasal dari skrip seed, bukan UI. Kini form Resource punya input tag bebas (saran dari
+  tag yang sudah dipakai, anti-duplikat), tag konteks tampil terkunci, tabel membedakan keduanya, pencarian ikut tag.
+  Tanpa perubahan backend (kolom `tags` jsonb).
+- 2026-10-14 — **File Control opt-in** (keputusan user): berkas tidak lagi otomatis masuk File Control; user menentukannya
+  sejak awal lewat centang "Masukkan ke File Control" (bersama "Ringkas dengan AI") di form Resource Global dan semua
+  form lampiran (Project, Action/Task, Agenda, Tandai Selesai) — lampiran yang dicentang otomatis menjadi Resource Global.
+  Default mati, diingat per browser. Data lama tetap di File Control (migrasi `20261014120000_file_control_opt_in`).
+  Bisa dikeluarkan dengan melepas centang di form Resource (status `none`, tercatat di audit) selama belum diberkaskan.
+  Rencana berikutnya (thread & branch baru, oleh user): jenis resource baru **dokumen yang dibuat di aplikasi** dengan
+  editor dokumen berbasis **ONLYOFFICE** (Document Server); dokumen itu memakai centang File Control yang sama.
 - 2026-10-12 — **Modal Project/Area lebih lega** (permintaan user): header TaskManager dirapatkan (progres satu baris,
   lampiran Dasar & kartu turunan item area dalam satu baris geser, toolbar satu baris, tombol tambah pindah ke baris
   judul, footer dihapus), sidebar Area lebih sempit (w-64/72). Ruang daftar di layar 1366×768: 227 px → 504 px. Di HP

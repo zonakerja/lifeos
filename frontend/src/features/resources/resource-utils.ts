@@ -1,3 +1,4 @@
+import { fileControlStatus, isInFileControl } from "./file-control-intake";
 import { toast } from "sonner";
 import { uploadsApi } from "@/lib/api/endpoints";
 import { errorMessage } from "@/lib/api/client";
@@ -83,6 +84,10 @@ export function mergeIntoGlobalResources(
       } else if (att.aiSummary && !existing.aiSummary) {
         next[index] = { ...existing, aiSummary: att.aiSummary };
       }
+      // Dicentang "Masukkan ke File Control": resource yang sudah ada ikut masuk Gantung (bila belum menjadi arsip)
+      if (att.toFileControl && next[index].type === "file" && !isInFileControl(next[index])) {
+        next[index] = { ...next[index], archivalStatus: fileControlStatus(next[index].archivalStatus, true) };
+      }
     } else if (!att.existingId) {
       next.push({
         id: generateId("res"),
@@ -97,6 +102,7 @@ export function mergeIntoGlobalResources(
         createdAt: new Date().toISOString(),
         tags: [contextTag],
         aiSummary: att.aiSummary,
+        ...(att.toFileControl && att.type === "file" ? { archivalStatus: "pending" as const } : {}),
       });
     }
   }

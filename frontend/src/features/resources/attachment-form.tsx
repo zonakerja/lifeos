@@ -1,4 +1,4 @@
-import { CheckCircle2, Paperclip, Plus, Upload } from "lucide-react";
+import { Archive, CheckCircle2, Paperclip, Plus, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type OptionGroup, SearchableSelect } from "@/components/common/searchable-select";
@@ -16,6 +16,7 @@ import { generateId } from "@/lib/ids";
 import { trackPendingUpload, untrackPendingUpload } from "@/lib/pending-uploads";
 import type { AttachedResource, AttachmentType } from "@/types/entities";
 import { readAiSummaryPreference, writeAiSummaryPreference } from "./ai-summary-preference";
+import { readFileControlPreference, writeFileControlPreference } from "./file-control-intake";
 import { emptyAttachment } from "./resource-utils";
 import { SummaryStatusBadge } from "./summary-status-badge";
 import { useFileSummarizer } from "./use-file-summarizer";
@@ -65,6 +66,12 @@ export function AttachmentForm({
   const { uploadOwnerId } = usePermissions();
   const summarizer = useFileSummarizer();
   const [aiSummary, setAiSummary] = useState(() => offerAiSummary && readAiSummaryPreference());
+  // "Masukkan ke File Control" (khusus berkas): default mati, pilihan terakhir diingat per browser
+  const [toFileControl, setToFileControl] = useState(readFileControlPreference);
+  const toggleFileControl = (enabled: boolean) => {
+    setToFileControl(enabled);
+    writeFileControlPreference(enabled);
+  };
   // File terakhir yang diunggah (untuk meringkas bila centang AI baru dinyalakan) + penanda permintaan terbaru
   const lastFileRef = useRef<File | null>(null);
   const summaryRunRef = useRef(0);
@@ -190,9 +197,12 @@ export function AttachmentForm({
       pendingUploadRef.current = null;
     } else discardPending();
     lastFileRef.current = null;
+    // Arsip File Control dikelola lewat Resource Global → berkas yang dimasukkan otomatis menjadi Resource Global
+    const archive = draft.type === "file" && toFileControl;
     onAdd({
       ...draft,
       ...(keepsUpload ? {} : { uploadId: undefined, mimeType: undefined, size: undefined }),
+      ...(archive ? { toFileControl: true, addToGlobal: true } : { toFileControl: undefined }),
       id: generateId(idPrefix),
       date: draft.date || defaultDate || new Date().toISOString().slice(0, 10),
     });
@@ -270,6 +280,16 @@ export function AttachmentForm({
               {aiSummary && <SummaryStatusBadge status={summarizer.status} />}
             </span>
           )}
+          <span className="flex items-center gap-2">
+            <Checkbox
+              id="att-file-control"
+              checked={toFileControl}
+              onCheckedChange={(checked) => toggleFileControl(checked === true)}
+            />
+            <Label htmlFor="att-file-control" className="text-xs font-normal text-muted-foreground">
+              <Archive className="size-3.5" /> Masukkan ke File Control
+            </Label>
+          </span>
           {draft.uploadId && (
             <span className="flex items-center gap-1 text-xs font-medium text-success">
               <CheckCircle2 className="size-3.5" /> Terunggah: {draft.name}
@@ -323,13 +343,16 @@ export function AttachmentForm({
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
+          {/* Berkas yang masuk File Control selalu menjadi Resource Global (sumber data File Control) */}
           <Checkbox
             id="att-global"
-            checked={!!draft.addToGlobal}
+            checked={!!draft.addToGlobal || (draft.type === "file" && toFileControl)}
+            disabled={draft.type === "file" && toFileControl}
             onCheckedChange={(checked) => patch({ addToGlobal: checked === true })}
           />
           <Label htmlFor="att-global" className="text-xs font-normal text-muted-foreground">
             Simpan/Tag ke Resource Global
+            {draft.type === "file" && toFileControl && " (wajib untuk File Control)"}
           </Label>
         </div>
         <div className="flex gap-2">
