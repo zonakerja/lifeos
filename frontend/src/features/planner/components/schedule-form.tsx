@@ -383,6 +383,7 @@ function ScheduleForm({
             <AttachmentForm
               defaultDate={form.startDate}
               uploadContext="schedule"
+              offerAiSummary
               idPrefix="sb"
               onCancel={() => setAddingBasis(false)}
               onAdd={(att) => {

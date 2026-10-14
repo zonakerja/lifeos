@@ -1,5 +1,6 @@
 import { Bot, ExternalLink, FileText, NotebookPen, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumericDate } from "@/lib/dates";
@@ -64,6 +65,15 @@ export function AttachmentTable({
                   )}
                   <span className="truncate">{attachmentLabel(res)}</span>
                 </button>
+                {!!res.tags?.length && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {res.tags.map((tag) => (
+                      <Badge key={tag} className="bg-module-soft text-[10px] text-module">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </TableCell>
               <TableCell className="max-w-64 truncate text-muted-foreground">
                 {res.description || res.content || "-"}

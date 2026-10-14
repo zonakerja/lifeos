@@ -1,4 +1,5 @@
 import { fileControlStatus, isInFileControl } from "./file-control-intake";
+import { addFreeTag } from "./resource-tags";
 import { toast } from "sonner";
 import { previewFile } from "@/components/common/file-preview";
 import { uploadsApi } from "@/lib/api/endpoints";
@@ -94,6 +95,12 @@ export function mergeIntoGlobalResources(
       } else if (att.aiSummary && !existing.aiSummary) {
         next[index] = { ...existing, aiSummary: att.aiSummary };
       }
+      // Tag bebas dari form lampiran ditambahkan tanpa duplikat
+      if (att.tags?.length) {
+        const current = Array.isArray(next[index].tags) ? next[index].tags! : [];
+        const merged = att.tags.reduce((acc, tag) => addFreeTag(acc, tag, current), current);
+        if (merged !== current) next[index] = { ...next[index], tags: merged };
+      }
       // Dicentang "Masukkan ke File Control": resource yang sudah ada ikut masuk Gantung (bila belum menjadi arsip)
       if (att.toFileControl && next[index].type === "file" && !isInFileControl(next[index])) {
         next[index] = { ...next[index], archivalStatus: fileControlStatus(next[index].archivalStatus, true) };
@@ -110,7 +117,7 @@ export function mergeIntoGlobalResources(
         mimeType: att.mimeType,
         date: att.date || new Date().toISOString(),
         createdAt: new Date().toISOString(),
-        tags: [contextTag],
+        tags: [contextTag, ...(att.tags ?? [])],
         aiSummary: att.aiSummary,
         ...(att.toFileControl && att.type === "file" ? { archivalStatus: "pending" as const } : {}),
       });

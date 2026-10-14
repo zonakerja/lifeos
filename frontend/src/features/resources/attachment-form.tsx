@@ -17,6 +17,8 @@ import { trackPendingUpload, untrackPendingUpload } from "@/lib/pending-uploads"
 import type { AttachedResource, AttachmentType } from "@/types/entities";
 import { readAiSummaryPreference, writeAiSummaryPreference } from "./ai-summary-preference";
 import { readFileControlPreference, writeFileControlPreference } from "./file-control-intake";
+import { addFreeTag, collectFreeTags, MAX_TAG_LENGTH, resourceTags, splitTags } from "./resource-tags";
+import { TagInput } from "@/components/common/tag-input";
 import { emptyAttachment } from "./resource-utils";
 import { SummaryStatusBadge } from "./summary-status-badge";
 import { useFileSummarizer } from "./use-file-summarizer";
@@ -94,6 +96,9 @@ export function AttachmentForm({
   const { items: resources } = useResources();
 
   const patch = (values: Partial<AttachedResource>) => setDraft((prev) => ({ ...prev, ...values }));
+  // Lampiran yang disimpan ke Resource Global (centang, File Control, atau merujuk resource global) bisa diberi tag bebas
+  const toGlobal = !!draft.addToGlobal || (draft.type === "file" && toFileControl) || draft.type === "existing";
+  const tagSuggestions = collectFreeTags(resources);
 
   const noteGroups: OptionGroup[] = [
     { heading: "Free Notes", options: freeNotes.map((n) => ({ label: n.title, value: `free-${n.id}` })) },
@@ -117,6 +122,8 @@ export function AttachmentForm({
     const res = resources.find((r) => r.id === value);
     if (!res) return;
     patch({
+      // Tag bebas resource yang dipilih tampil & bisa ditambah (ditulis kembali ke resource itu)
+      tags: splitTags(resourceTags(res)).free,
       existingId: value,
       name: draft.name || res.title,
       description: res.content,
@@ -203,6 +210,8 @@ export function AttachmentForm({
       ...draft,
       ...(keepsUpload ? {} : { uploadId: undefined, mimeType: undefined, size: undefined }),
       ...(archive ? { toFileControl: true, addToGlobal: true } : { toFileControl: undefined }),
+      // Tag hanya relevan bila lampiran masuk Resource Global
+      ...(toGlobal && draft.tags?.length ? {} : { tags: undefined }),
       id: generateId(idPrefix),
       date: draft.date || defaultDate || new Date().toISOString().slice(0, 10),
     });
@@ -340,6 +349,24 @@ export function AttachmentForm({
           />
         </Field>
       </div>
+
+      {toGlobal && (
+        <Field>
+          <FieldLabel htmlFor="att-tags">Tag Resource Global</FieldLabel>
+          <TagInput
+            id="att-tags"
+            value={draft.tags ?? []}
+            suggestions={tagSuggestions}
+            maxLength={MAX_TAG_LENGTH}
+            placeholder="Tambah tag, mis. Regulasi, SOP..."
+            // Pembaruan fungsional: menempel "a, b" memanggil onAdd beberapa kali dalam satu event
+            onAdd={(input) =>
+              setDraft((prev) => ({ ...prev, tags: addFreeTag(prev.tags ?? [], input, tagSuggestions) }))
+            }
+            onRemove={(tag) => setDraft((prev) => ({ ...prev, tags: (prev.tags ?? []).filter((t) => t !== tag) }))}
+          />
+        </Field>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">

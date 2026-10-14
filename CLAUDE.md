@@ -405,7 +405,12 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     (kategori isi, mis. Regulasi, SOP) yang diketik di form Resource lewat `<TagInput>` (`components/common/tag-input.tsx`:
     Enter/koma/+, Backspace, saran `datalist` dari tag yang sudah dipakai). `addFreeTag` mencegah duplikat tanpa peka huruf
     besar/kecil & mengikuti penulisan yang sudah ada. Pencarian tab Resources mencocokkan nama atau tag. Context tag baru →
-    tambahkan ke `CONTEXT_TAGS`.
+    tambahkan ke `CONTEXT_TAGS`. **Form lampiran** (`AttachmentForm`: Project, Action/Task, Tandai Selesai, Agenda dasar &
+    hasil) juga punya input "Tag Resource Global" — muncul bila lampiran masuk Resource Global (centang global, File Control,
+    atau jenis Resource Global); tag disimpan di `AttachedResource.tags` dan **ditambahkan** (tanpa duplikat, tidak pernah
+    menghapus) ke resource oleh `mergeIntoGlobalResources`. Semua form lampiran menawarkan "Ringkas dengan AI"
+    (`offerAiSummary`). Handler tag wajib pembaruan fungsional (`setX(prev => …)`): menempel "a, b" memanggil `onAdd`
+    beberapa kali dalam satu event.
   - **Upload yang belum tersimpan** dicatat di `lib/pending-uploads.ts` (localStorage per user: `uploadId`, instans
     halaman, detak) lewat `trackPendingUpload` / `untrackPendingUpload`: `AttachmentForm` (sebelum "Tambahkan"; diserahkan
     ke form pemakai saat ditambahkan), `useAttachmentEdits` (sampai form disimpan) dan form Resource. `usePendingUploadsJanitor`
@@ -837,6 +842,10 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   Tab Action | Agenda di detail Project/Area diganti **daftar gabungan** action/task + agenda urut tanggal dengan tag
   pembeda dan filter tag; timeline sudah gabungan. Diuji dengan data demo (batal → berkas 404; konfirmasi → lampiran
   tersimpan, progres 20% → 45%).
+- 2026-10-15 — **Tag & Ringkas AI di semua form lampiran** (permintaan user): form lampiran Project/Action/Task/Tandai
+  Selesai dan Agenda Planner (dasar pelaksanaan & hasil) kini punya input tag Resource Global seperti form Resource, dan
+  agenda + "Ubah" task cepat ikut menawarkan "Ringkas dengan AI" sehingga semua form lampiran sama. Ditemukan & diperbaiki
+  saat uji: menempel beberapa tag sekaligus kehilangan tag pertama (state basi) → pembaruan fungsional.
 - 2026-10-14 — **Tag bebas Resource Global** (permintaan user): sebelumnya tag hanya tag konteks otomatis (asal resource);
   tag "Regulasi"/"SOP" di data demo berasal dari skrip seed, bukan UI. Kini form Resource punya input tag bebas (saran dari
   tag yang sudah dipakai, anti-duplikat), tag konteks tampil terkunci, tabel membedakan keduanya, pencarian ikut tag.

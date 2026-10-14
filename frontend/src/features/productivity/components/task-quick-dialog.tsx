@@ -155,6 +155,7 @@ function TaskQuickDialogInner({ task, kind, open, onOpenChange, onSave }: TaskQu
                   <AttachmentForm
                     defaultDate={form.dueDate}
                     uploadContext="task"
+                    offerAiSummary
                     onCancel={() => setAdding(false)}
                     onAdd={(att) => {
                       edits.trackAdded(att);

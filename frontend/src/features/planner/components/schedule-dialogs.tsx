@@ -571,6 +571,7 @@ function ScheduleDetail({
             <AttachmentForm
               defaultDate={end}
               uploadContext="schedule-result"
+              offerAiSummary
               idPrefix="sr"
               types={["note", "file", "link", "existing"]}
               onCancel={() => setAddingResult(false)}

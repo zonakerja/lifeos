@@ -181,6 +181,8 @@ export interface AttachedResource {
   addToGlobal?: boolean;
   /** Berkas dimasukkan ke File Control (Gantung) — otomatis menjadi Resource Global (`addToGlobal`) */
   toFileControl?: boolean;
+  /** Tag bebas untuk Resource Global (kategori isi, mis. Regulasi) — dipakai bila lampiran disimpan ke Resource Global */
+  tags?: string[];
   aiSummary?: string;
 }
 
