@@ -464,6 +464,15 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   centang di `task-manager.tsx` dan "Tandai Selesai" di `TaskQuickDialog` (`onSave` sudah membawa `completedAt`).
   Centang action/task (Productivity **dan** Planner Harian) membuka `CompleteTaskDialog` (tanggal, prioritas, bobot
   terisi otomatis — `completionDefaults`); batal centang langsung; "Ubah" tetap `TaskQuickDialog`.
+- **Overview** (`features/overview/`, logika murni + test di `lib/overview-logic.ts` & `lib/notifications.ts`):
+  kartu **Rutinitas Hari Ini** (warna Planner, bisa dicentang langsung), **Agenda Hari Ini** (status Akan datang /
+  Berlangsung / Selesai dari `agendaStatus` + `useNow()` yang berdetak tiap menit, tombol Gabung, + agenda baru lewat
+  `?agenda=new`), **To-do Hari Ini** (todo + task/action jatuh tempo hari ini), **Tugas Mendesak** (`urgentTasks`:
+  semua yang terlambat + prioritas tinggi s.d. 7 hari ke depan / tanpa tenggat; yang jatuh tempo hari ini hanya di To-do
+  Hari Ini), **Proyek Berjalan** (`runningProjects`: status bukan completed/on-hold/archived, deadline terdekat dulu).
+  Centang task/action = dialog Tandai Selesai (sama dengan Planner). Angka di hero = jumlah penuh (bukan yang tampil).
+  Lonceng notifikasi: agenda 3 hari, **Tugas Terlambat**, pengingat deadline project berjalan, **Baru Dibagikan**
+  (`GET /shares/incoming` 7 hari terakhir). Label jam agenda berbahasa Indonesia: `agendaTimeLabel` ("Sepanjang hari").
 - **Kalender Harian** (`planner-calendar.tsx`): sel tinggi tetap 56–64 px (bukan persegi); penanda dari `summarizeDay()`
   (`planner-logic.ts`, sumber sama dengan daftar Harian) — titik penuh = ada yang belum selesai, lingkaran = semua
   selesai (todo/task/rutinitas yang sudah selesai tetap ditandai); hover tanggal → tooltip ringkasan agenda, rutinitas,
@@ -631,6 +640,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Isolasi data per user (admin tanpa akses data user lain, role viewer dihapus, statistik admin) + **berbagi** item (Project, Area, Resource/arsip, Catatan, Notes AI, List, Agenda; izin Lihat/Komentar/Edit; turunan & berkas ikut; komentar; Pengaturan → Berbagi; File Control tab Dibagikan) | ✅ 2026-10-11 — unit (backend share-graph + frontend sharing), smoke ±45 skenario baru, lint, typecheck, build, UI diuji di browser (bagikan Edit → kolaborator menambah action & komentar; bagikan Lihat → baca-saja; statistik admin). **Belum**: RAG/chatbot mencari item bersama, notifikasi berbagi, tautan publik |
 | File Control: uji menyeluruh + perbaikan aturan penyusutan, peminjaman, referensi, penataan & tampilan detail/kartu (11 temuan prioritas tinggi & sedang) | ✅ 2026-10-14 — unit test (`archive.test.ts` +6), lint, typecheck, build, UI diuji di browser dengan data `[UJI]`. Lanjutan: konfirmasi Restore, BA auto-dispose (tanggal lokal + pelaksana), Penataan khusus fisik, Lihat Dokumen seragam, pratinjau cetak layar penuh, modal pratinjau berkas lebih besar — diuji di browser |
 | Pengaturan & Layout: Profil Saya keluar dari Pengaturan (`/profile`), urutan sub menu, satu pengatur tema, sidebar ciut simetris, tombol tutup pencarian global, form tanpa sinkronisasi `useEffect`, logo lewat endpoint ber-cache | ✅ 2026-10-15 — unit backend & frontend, smoke (+7 skenario logo), lint, typecheck, build, UI diuji di browser (desktop + HP) |
+| Perbaikan Overview (proyek berjalan, tugas mendesak + terlambat, to-do & rutinitas hari ini bisa dicentang, status & Gabung agenda, label Indonesia, notifikasi tugas terlambat & baru dibagikan) | ✅ 2026-10-15 — unit test (`overview-logic.test.ts`: 9), lint, typecheck, build, UI diuji di browser (desktop + HP; centang rutinitas/todo/task, tambah agenda, popover notifikasi) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -967,6 +977,14 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   sekali saat data termuat. (7) Logo aplikasi (data URL ≤ 1 MB) tidak lagi ikut di setiap respons `GET /settings/app`
   (termasuk halaman login) → endpoint publik `GET /settings/app/logo?v=` yang di-cache browser; `PATCH` memvalidasi bahwa
   logo berupa gambar. Tanpa migrasi (kolom `app_logo` tetap).
+- 2026-10-15 — Thread **Overview** dimulai (tanpa perubahan backend/migrasi). Perbaikan: (1) Proyek Berjalan tidak lagi
+  `slice(0, 4)` mentah — hanya project berjalan, urut deadline terdekat, hitungan penuh; (2) Tugas Mendesak = terlambat
+  (prioritas apa pun) + prioritas tinggi ≤ 7 hari / tanpa tenggat, bisa dicentang (task → dialog Tandai Selesai), tenggat
+  dibaca lokal (sebelumnya `new Date(YMD)` = UTC); (3) kartu baru To-do Hari Ini + rutinitas hari ini bisa dicentang dari
+  Overview; (4) Agenda Hari Ini: status per jam, Gabung, tombol tambah agenda, "Sepanjang hari"; label Inggris
+  ("Task Completion", "Time Elapsed", "Project Reminder", "Overdue") diganti; (5) notifikasi: project selesai/ditunda
+  tidak diingatkan, bagian Tugas Terlambat & Baru Dibagikan, tanggal agenda dibaca lokal; (6) kartu rutinitas memakai
+  warna Planner. `scheduleTimeLabel` bersama (Planner) sengaja tidak diubah.
 
 ## 13. Konvensi Kode
 
