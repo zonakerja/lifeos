@@ -96,7 +96,8 @@ export function AttachmentForm({
   const { items: resources } = useResources();
 
   const patch = (values: Partial<AttachedResource>) => setDraft((prev) => ({ ...prev, ...values }));
-  // Lampiran yang disimpan ke Resource Global (centang, File Control, atau merujuk resource global) bisa diberi tag bebas
+  // Tag selalu tersimpan di lampiran; ikut ke Resource Global bila lampiran disimpan ke sana (centang, File Control,
+  // atau merujuk resource global)
   const toGlobal = !!draft.addToGlobal || (draft.type === "file" && toFileControl) || draft.type === "existing";
   const tagSuggestions = collectFreeTags(resources);
 
@@ -210,8 +211,7 @@ export function AttachmentForm({
       ...draft,
       ...(keepsUpload ? {} : { uploadId: undefined, mimeType: undefined, size: undefined }),
       ...(archive ? { toFileControl: true, addToGlobal: true } : { toFileControl: undefined }),
-      // Tag hanya relevan bila lampiran masuk Resource Global
-      ...(toGlobal && draft.tags?.length ? {} : { tags: undefined }),
+      ...(draft.tags?.length ? {} : { tags: undefined }),
       id: generateId(idPrefix),
       date: draft.date || defaultDate || new Date().toISOString().slice(0, 10),
     });
@@ -350,23 +350,25 @@ export function AttachmentForm({
         </Field>
       </div>
 
-      {toGlobal && (
-        <Field>
-          <FieldLabel htmlFor="att-tags">Tag Resource Global</FieldLabel>
-          <TagInput
-            id="att-tags"
-            value={draft.tags ?? []}
-            suggestions={tagSuggestions}
-            maxLength={MAX_TAG_LENGTH}
-            placeholder="Tambah tag, mis. Regulasi, SOP..."
-            // Pembaruan fungsional: menempel "a, b" memanggil onAdd beberapa kali dalam satu event
-            onAdd={(input) =>
-              setDraft((prev) => ({ ...prev, tags: addFreeTag(prev.tags ?? [], input, tagSuggestions) }))
-            }
-            onRemove={(tag) => setDraft((prev) => ({ ...prev, tags: (prev.tags ?? []).filter((t) => t !== tag) }))}
-          />
-        </Field>
-      )}
+      {/* Tag selalu tersedia (Dasar Pelaksanaan, Hasil, lampiran Project/Action/Task) */}
+      <Field>
+        <FieldLabel htmlFor="att-tags">
+          Tag
+          <span className="text-xs font-normal text-muted-foreground">
+            {toGlobal ? "· ikut ke Resource Global" : "· tersimpan di lampiran ini"}
+          </span>
+        </FieldLabel>
+        <TagInput
+          id="att-tags"
+          value={draft.tags ?? []}
+          suggestions={tagSuggestions}
+          maxLength={MAX_TAG_LENGTH}
+          placeholder="Tambah tag, mis. Regulasi, SOP..."
+          // Pembaruan fungsional: menempel "a, b" memanggil onAdd beberapa kali dalam satu event
+          onAdd={(input) => setDraft((prev) => ({ ...prev, tags: addFreeTag(prev.tags ?? [], input, tagSuggestions) }))}
+          onRemove={(tag) => setDraft((prev) => ({ ...prev, tags: (prev.tags ?? []).filter((t) => t !== tag) }))}
+        />
+      </Field>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">

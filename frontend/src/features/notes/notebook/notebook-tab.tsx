@@ -2,6 +2,7 @@ import {
   ChevronLeft,
   FileText,
   MessageSquareText,
+  Minimize2,
   MoreVertical,
   PencilLine,
   Plus,
@@ -50,7 +51,7 @@ import { errorMessage } from "@/lib/api/client";
 import { formatRelative } from "@/lib/dates";
 import { getAppIcon } from "@/lib/icons/icon-registry";
 import type { NotebookDetail, NotebookListItem } from "@/types/api";
-import { ChatPanel, useNotebookAsker } from "./chat-panel";
+import { ChatPanel, useChatComposer, useNotebookAsker } from "./chat-panel";
 import { SourcesPanel } from "./sources-panel";
 import { NotesPanel, SummaryCard } from "./notebook-panels";
 
@@ -313,12 +314,15 @@ function NotebookView({ id, onBack }: { id: string; onBack: () => void }) {
   const [panel, setPanel] = useState<Panel>("chat");
   const [editing, setEditing] = useState(false);
   const asker = useNotebookAsker(id);
+  const composer = useChatComposer();
+  const [chatExpanded, setChatExpanded] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const wide = useMediaQuery("(min-width: 1024px)");
   const headerRef = useRef<HTMLDivElement>(null);
   const loaded = !!notebook;
 
-  // Laptop: gulir halaman sampai judul notebook di atas agar area kerja (Sumber, Studio, Chat) memenuhi layar.
+  // Laptop: gulir halaman sampai judul notebook tepat di bawah header aplikasi agar area kerja (Sumber, Studio, Chat)
+  // memenuhi sisa layar.
   // Isi di atasnya (statistik hero, dsb.) bisa selesai dimuat belakangan dan menggeser posisi → selama 3 detik pertama
   // penjajaran diulang setiap tata letak berubah, kecuali user sudah menggulir sendiri.
   useEffect(() => {
@@ -363,6 +367,7 @@ function NotebookView({ id, onBack }: { id: string; onBack: () => void }) {
   const openSource = (sourceId: string) => {
     setHighlightId(sourceId);
     setPanel("sources");
+    setChatExpanded(false); // sumber yang disorot ada di panel kiri
   };
 
   // Kolom kiri: Sumber dan Studio sebagai dua panel terpisah, masing-masing dengan scroll sendiri
@@ -386,19 +391,19 @@ function NotebookView({ id, onBack }: { id: string; onBack: () => void }) {
       </div>
     </div>
   );
-  const chat = (
-    <ChatPanel
-      notebookId={notebook.id}
-      sources={notebook.sources}
-      renderSummary={(hasMessages) => <SummaryCard notebook={notebook} onAsk={ask} defaultOpen={!hasMessages} />}
-      asker={asker}
-      onOpenSource={openSource}
-    />
-  );
+  const chatProps = {
+    notebookId: notebook.id,
+    sources: notebook.sources,
+    renderSummary: (hasMessages: boolean) => <SummaryCard notebook={notebook} onAsk={ask} defaultOpen={!hasMessages} />,
+    asker,
+    composer,
+    onOpenSource: openSource,
+  };
+  const chat = <ChatPanel {...chatProps} onToggleExpand={wide ? () => setChatExpanded(true) : undefined} />;
 
   return (
     <div className="flex flex-col gap-4">
-      <div ref={headerRef} className="flex scroll-mt-[9.5rem] items-center gap-2">
+      <div ref={headerRef} className="flex scroll-mt-[4.25rem] items-center gap-2">
         <Button variant="ghost" size="icon" aria-label="Kembali ke daftar notebook" onClick={onBack}>
           <ChevronLeft />
         </Button>
@@ -417,10 +422,26 @@ function NotebookView({ id, onBack }: { id: string; onBack: () => void }) {
       {/* Satu tata letak saja yang dirender (panel chat tidak boleh terpasang dua kali) */}
       {wide ? (
         // Desktop: dua kolom — Sumber + Studio | Chat (lebar, dengan ringkasan di atasnya). Tinggi = layar dikurangi
-        // header aplikasi & judul notebook, sehingga di laptop biasa (± 650 px) Sumber dan Studio sama-sama terlihat
-        <div className="grid h-[calc(100svh-13.25rem)] min-h-[26rem] grid-cols-[18rem_minmax(0,1fr)] gap-5 xl:grid-cols-[20rem_minmax(0,1fr)]">
+        // header aplikasi (3,5rem) + judul notebook & jarak (± 4,5rem) + sedikit ruang bawah, sehingga area kerja
+        // memenuhi layar laptop biasa (± 650 px) setelah digulir otomatis
+        <div className="grid h-[calc(100svh-8.75rem)] min-h-[26rem] grid-cols-[18rem_minmax(0,1fr)] gap-5 xl:grid-cols-[20rem_minmax(0,1fr)]">
           <div className="min-h-0 min-w-0">{side}</div>
-          <div className="flex min-h-0 flex-col">{chat}</div>
+          <div className="flex min-h-0 flex-col">
+            {chatExpanded ? (
+              // Panel chat hanya terpasang di satu tempat: saat diperbesar, kolom ini menjadi penanda saja
+              <button
+                type="button"
+                onClick={() => setChatExpanded(false)}
+                className="flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-sm text-muted-foreground transition-colors hover:border-module hover:bg-module-soft hover:text-module"
+              >
+                <Minimize2 className="size-6" />
+                <span className="font-semibold">Chat sedang dibuka di jendela besar</span>
+                <span className="text-xs">Klik untuk mengembalikan ke sini</span>
+              </button>
+            ) : (
+              chat
+            )}
+          </div>
         </div>
       ) : (
         // HP & tablet: tab
@@ -435,6 +456,22 @@ function NotebookView({ id, onBack }: { id: string; onBack: () => void }) {
           <TabsContent value="sources">{side}</TabsContent>
         </Tabs>
       )}
+
+      {/* Chat diperbesar: modal hampir selebar layar, isi prompt & lampiran tetap (composer di induk) */}
+      <Dialog open={wide && chatExpanded} onOpenChange={setChatExpanded}>
+        <DialogContent className="flex h-[92svh] max-w-[calc(100%-2rem)] flex-col gap-0 p-0 sm:max-w-6xl">
+          <DialogTitle className="sr-only">Chat {notebook.title}</DialogTitle>
+          <DialogDescription className="sr-only">Percakapan dengan sumber notebook</DialogDescription>
+          {chatExpanded && (
+            <ChatPanel
+              {...chatProps}
+              expanded
+              onToggleExpand={() => setChatExpanded(false)}
+              className="min-h-0 flex-1 border-0 lg:min-h-0"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <NotebookFormDialog
         notebook={editing ? (notebook satisfies NotebookDetail) : null}

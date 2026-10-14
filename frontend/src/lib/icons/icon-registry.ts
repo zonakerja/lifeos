@@ -357,7 +357,11 @@ export const resolveIconKey = (key?: string | null): string | null => {
 export const getAppIcon = (key?: string | null, fallback = "clock"): AppIcon =>
   BY_KEY.get(resolveIconKey(key) ?? fallback) ?? BY_KEY.get("clock")!;
 
-const normalize = (text: string) => text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+const normalize = (text: string) =>
+  text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 
 /** Cari ikon per kata (semua kata harus cocok dengan key/label/kata kunci), opsional per kategori. */
 export const searchIcons = (query: string, category?: IconCategory | null) => {

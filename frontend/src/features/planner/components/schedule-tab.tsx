@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PaginationControl } from "@/components/common/pagination-control";
+import { SearchInput } from "@/components/common/search-input";
 import { SectionCard } from "@/components/common/section-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ import {
   scheduleTimeLabel,
 } from "../lib/planner-logic";
 import { collapseSeries, seriesPosition } from "../lib/recurrence";
+import { searchSchedules } from "../lib/planner-search";
 import { ScheduleDeleteDialog } from "./schedule-delete-dialog";
 import { scheduleTypeStyle } from "../lib/schedule-style";
 import { useAgendaTypeList } from "../use-agenda-types";
@@ -64,11 +66,14 @@ export function ScheduleTab() {
   const filter: ScheduleFilter = isScheduleFilter(subParam) ? subParam : "upcoming";
 
   const today = formatLocalYMD(useToday());
+  // Pencarian berlaku di semua filter waktu; jumlah di chip filter mengikuti hasil pencarian
+  const [query, setQuery] = useState("");
+  const searched = useMemo(() => searchSchedules(schedules, query), [schedules, query]);
   const counts = useMemo(() => {
-    const past = schedules.filter((s) => isSchedulePast(s, today)).length;
-    return { upcoming: schedules.length - past, past, all: schedules.length };
-  }, [schedules, today]);
-  const filtered = useMemo(() => filterSchedules(schedules, filter, today), [schedules, filter, today]);
+    const past = searched.filter((s) => isSchedulePast(s, today)).length;
+    return { upcoming: searched.length - past, past, all: searched.length };
+  }, [searched, today]);
+  const filtered = useMemo(() => filterSchedules(searched, filter, today), [searched, filter, today]);
   const displayed = useMemo(() => (grouped ? collapseSeries(filtered) : filtered), [filtered, grouped]);
   const hasSeries = useMemo(() => schedules.some((s) => s.seriesId), [schedules]);
   const { pageItems, setPage, controlProps } = usePagination(displayed, 10);
@@ -86,31 +91,42 @@ export function ScheduleTab() {
         )
       }
     >
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        spacing={2}
-        value={filter}
-        onValueChange={(v) => {
-          if (!isScheduleFilter(v)) return;
-          setSubParam(v === "upcoming" ? null : v);
-          setPage(1);
-        }}
-        className="flex-wrap"
-      >
-        {(Object.keys(SCHEDULE_FILTER_LABELS) as ScheduleFilter[]).map((key) => (
-          <ToggleGroupItem
-            key={key}
-            value={key}
-            className="gap-1.5 data-[state=on]:bg-module data-[state=on]:text-module-foreground"
-          >
-            {SCHEDULE_FILTER_LABELS[key]}
-            <span className="rounded-md bg-muted px-1.5 text-[10px] font-bold text-muted-foreground">
-              {counts[key]}
-            </span>
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          spacing={2}
+          value={filter}
+          onValueChange={(v) => {
+            if (!isScheduleFilter(v)) return;
+            setSubParam(v === "upcoming" ? null : v);
+            setPage(1);
+          }}
+          className="flex-wrap"
+        >
+          {(Object.keys(SCHEDULE_FILTER_LABELS) as ScheduleFilter[]).map((key) => (
+            <ToggleGroupItem
+              key={key}
+              value={key}
+              className="gap-1.5 data-[state=on]:bg-module data-[state=on]:text-module-foreground"
+            >
+              {SCHEDULE_FILTER_LABELS[key]}
+              <span className="rounded-md bg-muted px-1.5 text-[10px] font-bold text-muted-foreground">
+                {counts[key]}
+              </span>
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <SearchInput
+          value={query}
+          onChange={(v) => {
+            setQuery(v);
+            setPage(1);
+          }}
+          placeholder="Cari judul, lokasi, hari, link…"
+          className="md:w-72"
+        />
+      </div>
       {hasSeries && (
         <div className="mt-3 flex items-center gap-2">
           <Switch
@@ -135,13 +151,19 @@ export function ScheduleTab() {
               <CalendarDays />
             </EmptyMedia>
             <EmptyTitle>
-              {filter === "past"
-                ? "Belum ada agenda yang lewat"
-                : filter === "upcoming"
-                  ? "Tidak ada agenda mendatang"
-                  : "Belum ada agenda"}
+              {query.trim()
+                ? `Tidak ada agenda yang cocok dengan "${query.trim()}"`
+                : filter === "past"
+                  ? "Belum ada agenda yang lewat"
+                  : filter === "upcoming"
+                    ? "Tidak ada agenda mendatang"
+                    : "Belum ada agenda"}
             </EmptyTitle>
-            {filter !== "past" && <EmptyDescription>Tambahkan agenda baru untuk mulai merencanakan.</EmptyDescription>}
+            {query.trim()
+              ? counts.all > 0 && <EmptyDescription>Ada {counts.all} hasil di filter waktu lain.</EmptyDescription>
+              : filter !== "past" && (
+                  <EmptyDescription>Tambahkan agenda baru untuk mulai merencanakan.</EmptyDescription>
+                )}
           </EmptyHeader>
         </Empty>
       ) : (

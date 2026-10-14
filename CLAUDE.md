@@ -358,8 +358,10 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   dibuat **padat** (header 1 baris berikon; item 1 baris ± 34 px: ikon jenis · judul terpotong · status sumber / tanggal catatan;
   jumlah karakter terbaca tidak ditampilkan ke user; **klik sumber = buka dokumen aslinya**: berkas → modal pratinjau,
   web → tab baru, item LifeOS → menu asalnya (resource berkas/link langsung dibuka), hanya teks tempelan tampil di dialog; kolom grid wajib `min-w-0` agar judul panjang tidak melebarkan kolom)
-  (`fill`, baris grid 11:9) dan tinggi area kerja `100svh − 13.25rem` + gulir otomatis ke judul notebook
-  (`scroll-mt-[9.5rem]` = header + tab modul sticky) sehingga semuanya terlihat di laptop 1366×768; kanan **Chat lebar**
+  (`fill`, baris grid 11:9) dan tinggi area kerja `100svh − 8.75rem` + gulir otomatis ke judul notebook
+  (`scroll-mt-[4.25rem]` = tepat di bawah header aplikasi, satu-satunya elemen sticky) sehingga area kerja memenuhi
+  layar laptop 1366×768; chat bisa **diperbesar ke modal** (tombol ⤢; kolom chat menjadi penanda, isi prompt & lampiran
+  dipegang induk lewat `useChatComposer` agar tidak hilang saat panel di-mount ulang); kanan **Chat lebar**
   dengan **kartu Ringkasan** di atas percakapan (`SummaryCard` di `notebook-panels.tsx`, bisa dilipat, terbuka otomatis
   saat chat kosong; saran pertanyaan hanya di kartu ini). Di bawah 1024 px: tab Chat | Sumber & Catatan (`useMediaQuery`)
   — **hanya satu tata letak yang dirender** (panel chat tidak boleh terpasang dua kali). Pertanyaan dikirim lewat satu
@@ -406,9 +408,9 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     Enter/koma/+, Backspace, saran `datalist` dari tag yang sudah dipakai). `addFreeTag` mencegah duplikat tanpa peka huruf
     besar/kecil & mengikuti penulisan yang sudah ada. Pencarian tab Resources mencocokkan nama atau tag. Context tag baru →
     tambahkan ke `CONTEXT_TAGS`. **Form lampiran** (`AttachmentForm`: Project, Action/Task, Tandai Selesai, Agenda dasar &
-    hasil) juga punya input "Tag Resource Global" — muncul bila lampiran masuk Resource Global (centang global, File Control,
-    atau jenis Resource Global); tag disimpan di `AttachedResource.tags` dan **ditambahkan** (tanpa duplikat, tidak pernah
-    menghapus) ke resource oleh `mergeIntoGlobalResources`. Semua form lampiran menawarkan "Ringkas dengan AI"
+    hasil) juga punya input **Tag** yang **selalu tampil** (Dasar Pelaksanaan, Hasil, lampiran Project/Action/Task); tag disimpan
+    di `AttachedResource.tags` dan, bila lampiran masuk Resource Global (centang global, File Control, atau jenis Resource
+    Global), **ditambahkan** (tanpa duplikat, tidak pernah menghapus) ke resource oleh `mergeIntoGlobalResources`. Semua form lampiran menawarkan "Ringkas dengan AI"
     (`offerAiSummary`). Handler tag wajib pembaruan fungsional (`setX(prev => …)`): menempel "a, b" memanggil `onAdd`
     beberapa kali dalam satu event.
   - **Upload yang belum tersimpan** dicatat di `lib/pending-uploads.ts` (localStorage per user: `uploadId`, instans
@@ -518,6 +520,10 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     `joinLinks()`, label `linkLabel()` (host). Input `<LinkListInput>` (`components/common/link-list-input.tsx`, reusable):
     Enter/+ menambah, Backspace di input kosong menghapus terakhir, tempel beberapa link sekaligus dipecah. Harian: tombol
     Gabung = link pertama + "+n".
+  - **Pencarian** tab Jadwal, Rutinitas, Referensi (`lib/planner-search.ts` + test): per kata, tanpa huruf besar/kecil
+    & aksen (`queryWords`/`matchesWords`). Agenda: judul, tipe, lokasi, keterangan, ringkasan hasil, link, nama hari &
+    tanggal ("Selasa, 13 Oktober 2026"), pola berulang, "dijadwal ulang"; chip filter waktu menghitung hasil pencarian.
+    Rutinitas: judul + pola frekuensi. Referensi: nama tipe + label ikon. Mengetik → halaman paginasi kembali ke 1.
   - Form agenda: mengubah Tanggal Mulai menggeser Tanggal Selesai (durasi tetap); konten form di-`key` per sesi buka &
     per agenda (`useOpenSession`).
 - **Layout & Pengaturan** (keputusan user 2026-10-15): sidebar = modul Workspace + grup Sistem berisi **Pengaturan**
@@ -618,6 +624,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Agenda berulang (seri, satu agenda per pertemuan; ubah/hapus dengan cakupan ini / ini & berikutnya / semua) + banyak link meeting | ✅ 2026-10-14 — unit test (pola, rencana seri, link), lint, typecheck, build, UI diuji di browser (buat seri 10 pertemuan, ubah semua, ubah pola dari pertemuan tengah, hapus "ini & berikutnya", tab Jadwal/Harian) |
 | Berbagi seri agenda sekaligus (`schedule_series`) + hapus agenda berseri dari Productivity dengan cakupan | ✅ 2026-10-14 — unit backend & frontend, smoke (+6), skrip API dua akun (11/11), UI diuji (Bagikan Seri, hapus "ini & berikutnya" dari project) |
 | Jadwal ulang agenda (majukan/mundurkan, alasan, cek bentrok, kembalikan; juga satu pertemuan seri) | ✅ 2026-10-14 — unit test, lint, typecheck, build, UI diuji di browser (pindah kuliah 27→29 Okt dengan bentrok terdeteksi, baris "Dipindah ke" di tanggal asal, kembalikan) |
+| Pencarian tab Jadwal, Rutinitas, Referensi (per kata, termasuk hari/tanggal, link, pola) | ✅ 2026-10-15 — unit test, lint, typecheck, build, UI diuji di browser |
 | Catatan Bebas: editor teks kaya (Tiptap) + tulisan tangan stylus (halaman penuh & blok Coretan) + ubah ke teks (AI) | ✅ 2026-10-11 — unit test, build, smoke, UI diuji di browser (mouse + event pena sintetis + mode HP), pengenalan AI diuji dengan Gemini sungguhan; **uji S Pen di perangkat Android user belum** |
 | Perbaikan Notes Space (simpan otomatis Catatan, cegah perubahan hilang di Notes AI, cari/sematkan/paginasi, dokumen dibaca backend, prompt AI, List urut ulang & progres) | ✅ 2026-10-11 — lint, typecheck, unit test, build, dan UI diuji di browser (desktop + mode HP); ringkasan/transkrip AI sungguhan belum diuji (butuh API key) |
 | **My Notebook** (RAG ala NotebookLM: sumber berkas/item LifeOS/teks/web, chat hibrida bersitasi + riwayat permanen, ringkasan Studio, catatan notebook → Catatan Bebas) + urutan tab Notes (Catatan Bebas, List Bebas, Notes AI, My Notebook) | ✅ 2026-10-14 — unit backend (notebook-context, web-source: 19) & frontend, smoke (+20), lint, typecheck, build, UI diuji di browser (desktop + HP); chat & ringkasan diuji dengan Gemini sungguhan (akun admin dev; Gemini sempat 503 kelebihan beban → jalur error teruji) |
@@ -845,7 +852,8 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
 - 2026-10-15 — **Tag & Ringkas AI di semua form lampiran** (permintaan user): form lampiran Project/Action/Task/Tandai
   Selesai dan Agenda Planner (dasar pelaksanaan & hasil) kini punya input tag Resource Global seperti form Resource, dan
   agenda + "Ubah" task cepat ikut menawarkan "Ringkas dengan AI" sehingga semua form lampiran sama. Ditemukan & diperbaiki
-  saat uji: menempel beberapa tag sekaligus kehilangan tag pertama (state basi) → pembaruan fungsional.
+  saat uji: menempel beberapa tag sekaligus kehilangan tag pertama (state basi) → pembaruan fungsional. Revisi (permintaan
+  user): input tag selalu tampil di form lampiran — sebelumnya tersembunyi sampai "Simpan/Tag ke Resource Global" dicentang.
 - 2026-10-14 — **Tag bebas Resource Global** (permintaan user): sebelumnya tag hanya tag konteks otomatis (asal resource);
   tag "Regulasi"/"SOP" di data demo berasal dari skrip seed, bukan UI. Kini form Resource punya input tag bebas (saran dari
   tag yang sudah dipakai, anti-duplikat), tag konteks tampil terkunci, tabel membedakan keduanya, pencarian ikut tag.
@@ -1171,6 +1179,9 @@ utama tetap < 500 kB (cek output `npm run build`).
   gagal 500. Cek `grep -c <kolom> dist/generated/prisma/internal/class.js`; perbaiki dengan restart `npm run dev`.
 - Import dinamis paket yang belum pernah dimuat (mis. `@tiptap/markdown` lewat `markdown-to-doc`) membuat Vite dev
   mengoptimasi ulang dependensi dan me-reload halaman sekali — normal, ulangi aksinya.
+- Tool Write mengubah escape `\u0300` di konten menjadi karakter Unicode literal (regex `[\u0300-\u036f]` jadi karakter
+  kombinasi yang tak terbaca, walau tetap berfungsi). Tulis escape lewat skrip yang menyusun `String.fromCharCode(92)`,
+  atau periksa hasilnya dengan `grep` setelah menulis.
 - Tool Write dengan path relatif (`....Users...`) dihitung dari folder kerja (drive D:) → file tertulis ke
   `D:Users...`, bukan scratchpad. Selalu pakai path absolut scratchpad.
 

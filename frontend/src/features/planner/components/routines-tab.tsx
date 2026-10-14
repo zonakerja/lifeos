@@ -2,6 +2,7 @@ import { Archive, ArchiveRestore, History, PencilLine, Plus, RefreshCw, Snowflak
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { PaginationControl } from "@/components/common/pagination-control";
+import { SearchInput } from "@/components/common/search-input";
 import { SectionCard } from "@/components/common/section-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import { formatDayMonth, parseLocalYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { Routine } from "@/types/entities";
 import { describeFrequency, isPeriodActiveOn, isRoutineFrozenOn, yesterdayYMD } from "../lib/planner-logic";
+import { searchRoutines } from "../lib/planner-search";
 import { FreezeDialog, FreezeHistoryDialog, RoutineFormDialog } from "./routine-dialogs";
 
 export function RoutinesTab() {
@@ -35,7 +37,11 @@ export function RoutinesTab() {
     setItems((prev) => prev.map((r) => (r.id === id ? fn(r) : r)));
 
   const today = useToday();
-  const displayed = routines.filter((r) => (showArchived ? r.archived : !r.archived));
+  const [query, setQuery] = useState("");
+  const displayed = searchRoutines(
+    routines.filter((r) => (showArchived ? r.archived : !r.archived)),
+    query,
+  );
   const { pageItems, setPage, controlProps } = usePagination(displayed, 10);
   const deletingCompletions = deleting ? completions.filter((c) => c.routineId === deleting.id).length : 0;
   // Referensi live agar dialog riwayat langsung mencerminkan perubahan
@@ -80,14 +86,31 @@ export function RoutinesTab() {
         </div>
       }
     >
+      {routines.length > 0 && (
+        <SearchInput
+          value={query}
+          onChange={(v) => {
+            setQuery(v);
+            setPage(1);
+          }}
+          placeholder="Cari rutinitas atau pola (mis. mingguan)…"
+          className="mb-4 md:w-80"
+        />
+      )}
       {displayed.length === 0 ? (
         <Empty className="border border-dashed">
           <EmptyHeader>
             <EmptyMedia variant="icon" className="bg-module-soft text-module">
               <RefreshCw />
             </EmptyMedia>
-            <EmptyTitle>Tidak ada rutinitas {showArchived ? "diarsipkan" : "aktif"}</EmptyTitle>
-            {!showArchived && <EmptyDescription>Buat rutinitas untuk membangun kebiasaan baik.</EmptyDescription>}
+            <EmptyTitle>
+              {query.trim()
+                ? `Tidak ada rutinitas ${showArchived ? "diarsipkan" : "aktif"} yang cocok dengan "${query.trim()}"`
+                : `Tidak ada rutinitas ${showArchived ? "diarsipkan" : "aktif"}`}
+            </EmptyTitle>
+            {!showArchived && !query.trim() && (
+              <EmptyDescription>Buat rutinitas untuk membangun kebiasaan baik.</EmptyDescription>
+            )}
           </EmptyHeader>
         </Empty>
       ) : (

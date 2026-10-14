@@ -5,7 +5,9 @@ import {
   Copy,
   Eraser,
   FileText,
+  Maximize2,
   MessageSquareText,
+  Minimize2,
   Paperclip,
   SendHorizontal,
   Sparkles,
@@ -178,13 +180,28 @@ export function useNotebookAsker(notebookId: string): NotebookAsker {
   return { ask, isPending: chat.isPending, lastMode };
 }
 
+/**
+ * Isi kotak prompt + lampiran chat. Dipegang induk agar tetap utuh saat panel chat dipindah antara tata letak biasa
+ * dan modal besar (panel di-mount ulang, tetapi upload yang sedang berjalan & teks yang diketik tidak hilang).
+ */
+export function useChatComposer() {
+  const [input, setInput] = useState("");
+  const files = useChatAttachments();
+  return { input, setInput, files };
+}
+export type ChatComposer = ReturnType<typeof useChatComposer>;
+
 /** Chat notebook: jawaban hanya dari sumber, dengan sitasi yang bisa ditelusuri. */
 export function ChatPanel({
   notebookId,
   sources,
   renderSummary,
   asker,
+  composer,
   onOpenSource,
+  expanded = false,
+  onToggleExpand,
+  className,
 }: {
   notebookId: string;
   sources: NotebookSource[];
@@ -192,17 +209,22 @@ export function ChatPanel({
   renderSummary?: (hasMessages: boolean) => ReactNode;
   /** Pengirim pertanyaan bersama (dipakai juga oleh Studio) */
   asker: NotebookAsker;
+  composer: ChatComposer;
   onOpenSource: (sourceId: string) => void;
+  /** Sedang tampil di modal besar */
+  expanded?: boolean;
+  /** Tombol perbesar / kecilkan (tidak tampil bila tidak diisi) */
+  onToggleExpand?: () => void;
+  className?: string;
 }) {
   const ai = useAi();
   const { data: messages = [], isLoading } = useNotebookMessages(notebookId);
   const clear = useClearNotebookChat(notebookId);
-  const [input, setInput] = useState("");
+  const { input, setInput, files: chatFiles } = composer;
   const [confirmClear, setConfirmClear] = useState(false);
   const [dragging, setDragging] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const chatFiles = useChatAttachments();
   const ready = readySources(sources);
   const hasFiles = chatFiles.attachments.length > 0;
   // Tanpa sumber pun boleh bertanya tentang lampiran
@@ -232,6 +254,7 @@ export function ChatPanel({
       className={cn(
         "relative flex h-[calc(100svh-15rem)] min-h-[26rem] flex-col rounded-2xl border bg-muted/30 lg:h-auto lg:min-h-0 lg:flex-1",
         dragging && "border-module ring-2 ring-module/40",
+        className,
       )}
       onDragOver={(e) => {
         if (!ai.isConfigured || !e.dataTransfer.types.includes("Files")) return;
@@ -253,7 +276,8 @@ export function ChatPanel({
           <Paperclip className="mr-2 size-5" /> Lepas gambar / berkas untuk dilampirkan
         </div>
       )}
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
+      {/* Di modal: ruang kanan untuk tombol tutup dialog */}
+      <div className={cn("flex items-center justify-between gap-2 border-b px-4 py-2.5", expanded && "pr-12")}>
         <h3 className="flex items-center gap-2 text-sm font-bold">
           <MessageSquareText className="size-4 text-module" /> Chat
         </h3>
@@ -270,6 +294,17 @@ export function ChatPanel({
           {messages.length > 0 && (
             <Button variant="ghost" size="xs" onClick={() => setConfirmClear(true)}>
               <Eraser /> Bersihkan
+            </Button>
+          )}
+          {onToggleExpand && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={expanded ? "Kecilkan chat" : "Perbesar chat"}
+              title={expanded ? "Kecilkan chat" : "Perbesar chat"}
+              onClick={onToggleExpand}
+            >
+              {expanded ? <Minimize2 /> : <Maximize2 />}
             </Button>
           )}
         </div>
@@ -332,8 +367,8 @@ export function ChatPanel({
         )}
       </div>
 
-      {/* Ruang kanan agar tombol Kirim tidak tertutup tombol chatbot melayang (fixed kanan-bawah) */}
-      <div className="border-t p-3 pr-[4.75rem]">
+      {/* Ruang kanan agar tombol Kirim tidak tertutup tombol chatbot melayang (fixed kanan-bawah); di modal tidak perlu */}
+      <div className={cn("border-t p-3", !expanded && "pr-[4.75rem]")}>
         <AttachmentTray items={chatFiles.items} onRemove={chatFiles.remove} />
         <form
           className="flex items-end gap-1.5"

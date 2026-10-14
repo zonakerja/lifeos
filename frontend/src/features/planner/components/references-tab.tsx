@@ -3,6 +3,7 @@ import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { PaginationControl } from "@/components/common/pagination-control";
+import { SearchInput } from "@/components/common/search-input";
 import { SectionCard } from "@/components/common/section-card";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +32,7 @@ import { AGENDA_COLORS, defaultAgendaColor, defaultAgendaIcon, resolveAgendaStyl
 /** Konteks yang dikirim ke AI saat memilih ikon tipe agenda. */
 const AI_CONTEXT = "tipe/kategori agenda (jadwal kegiatan) di Planner";
 import { useAgendaTypeList } from "../use-agenda-types";
+import { searchAgendaTypes } from "../lib/planner-search";
 
 /** Agenda yang memakai tipe ini (milik user yang sama; agenda yang dibagikan user lain tidak ikut). */
 const usesType = (s: Schedule, type: AgendaType) =>
@@ -46,7 +48,9 @@ export function ReferencesTab() {
   const [newIcon, setNewIcon] = useState<string | null>(null);
   const [editing, setEditing] = useState<AgendaType | null>(null);
   const [deleting, setDeleting] = useState<AgendaType | null>(null);
-  const { pageItems, controlProps } = usePagination(types, 12);
+  const [query, setQuery] = useState("");
+  const visibleTypes = searchAgendaTypes(types, query);
+  const { pageItems, setPage, controlProps } = usePagination(visibleTypes, 12);
 
   /** Nama ganda hanya dicek di antara tipe milik pemilik yang sama. */
   const isDuplicate = (name: string, ownerId: string | undefined, exceptId?: string) =>
@@ -129,6 +133,22 @@ export function ReferencesTab() {
           </form>
         )}
 
+        {types.length > 0 && (
+          <SearchInput
+            value={query}
+            onChange={(v) => {
+              setQuery(v);
+              setPage(1);
+            }}
+            placeholder="Cari tipe agenda…"
+            className="md:w-72"
+          />
+        )}
+        {query.trim() && visibleTypes.length === 0 && (
+          <p className="py-6 text-center text-sm text-muted-foreground italic">
+            Tidak ada tipe agenda yang cocok dengan "{query.trim()}".
+          </p>
+        )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
           {pageItems.map((type) => {
             const style = resolveAgendaStyle(type.name, type);
