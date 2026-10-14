@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import type { UserRole } from "@/types/api";
 
-export type ModuleKey = "overview" | "planner" | "notes" | "productivity" | "files" | "settings";
+export type ModuleKey = "overview" | "planner" | "notes" | "productivity" | "files" | "settings" | "profile";
 
 export interface ModuleTab {
   id: string;
@@ -46,6 +46,8 @@ export interface ModuleDef {
   path: string;
   icon: LucideIcon;
   tabs?: ModuleTab[];
+  /** Tidak tampil sebagai modul di sidebar (dibuka dari menu lain, mis. menu user). */
+  hiddenInSidebar?: boolean;
 }
 
 /** Sumber tunggal navigasi: sidebar, router, breadcrumb, hero halaman. */
@@ -118,16 +120,23 @@ export const MODULES: ModuleDef[] = [
   {
     key: "settings",
     label: "Pengaturan",
-    description: "Profil, berbagi, pengguna, branding aplikasi, dan API key AI.",
+    description: "Branding aplikasi, pengguna, berbagi, dan API key AI.",
     path: "/settings",
     icon: Settings,
     tabs: [
-      { id: "profile", label: "Profil Saya", icon: UserRound },
-      { id: "sharing", label: "Berbagi", icon: Share2 },
-      { id: "users", label: "Manajemen User", icon: Users, roles: ["super_admin", "admin"] },
       { id: "app", label: "Aplikasi", icon: Settings2, roles: ["super_admin", "admin"] },
+      { id: "users", label: "Manajemen User", icon: Users, roles: ["super_admin", "admin"] },
+      { id: "sharing", label: "Berbagi", icon: Share2 },
       { id: "api", label: "AI", icon: Sparkles },
     ],
+  },
+  {
+    key: "profile",
+    label: "Profil Saya",
+    description: "Informasi pribadi dan password akun Anda.",
+    path: "/profile",
+    icon: UserRound,
+    hiddenInSidebar: true,
   },
 ];
 

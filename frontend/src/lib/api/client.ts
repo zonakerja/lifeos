@@ -1,7 +1,7 @@
 import { useAuthStore } from "@/stores/auth-store";
 import type { AuthSession } from "@/types/api";
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "/api/v1";
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "/api/v1";
 
 export class ApiError extends Error {
   readonly status: number;

@@ -10,13 +10,14 @@ import {
   Search,
   Sparkles,
   StickyNote,
+  X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { Markdown } from "@/components/common/markdown";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -174,7 +175,10 @@ export function GlobalSearchButton() {
         <Search />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="top-[10svh] flex max-h-[80svh] translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogContent
+          showCloseButton={false}
+          className="top-[10svh] flex max-h-[80svh] translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
+        >
           <DialogTitle className="sr-only">Pencarian Global</DialogTitle>
           <DialogDescription className="sr-only">Cari data atau tanya AI tentang data LifeOS Anda.</DialogDescription>
           <GlobalSearchPanel onClose={() => setOpen(false)} />
@@ -229,7 +233,7 @@ Jawaban AI:`;
 
   return (
     <Command shouldFilter={false} className="rounded-none" data-module="overview">
-      <div className="flex items-center gap-2 border-b pr-3">
+      <div className="flex items-center gap-2 border-b pr-2">
         <div className="flex-1">
           <CommandInput
             autoFocus
@@ -256,6 +260,11 @@ Jawaban AI:`;
             </TabsTrigger>
           </TabsList>
         </Tabs>
+        <DialogClose asChild>
+          <Button variant="ghost" size="icon-sm" aria-label="Tutup pencarian">
+            <X />
+          </Button>
+        </DialogClose>
       </div>
 
       <CommandList className="max-h-none flex-1 overflow-y-auto p-2">

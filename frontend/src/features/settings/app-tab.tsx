@@ -1,15 +1,17 @@
 import { Activity, ImageUp, LayoutGrid, Save, Trash2 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import { PageLoader } from "@/components/common/page-loader";
 import { SectionCard } from "@/components/common/section-card";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import { useAppSettings, useUpdateAppSettings } from "@/data/use-app-settings";
+import { appLogoUrl, useAppSettings, useUpdateAppSettings } from "@/data/use-app-settings";
 import { errorMessage } from "@/lib/api/client";
+import type { AppSettings } from "@/types/api";
 
 const MAX_LOGO_BYTES = 1_000_000;
 
@@ -21,7 +23,6 @@ interface AppForm {
   welcomeTitle: string;
   welcomeSub: string;
   footerText: string;
-  appLogo: string;
 }
 
 const readAsDataUrl = (file: File) =>
@@ -32,29 +33,29 @@ const readAsDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 
+const toForm = (settings: AppSettings): AppForm => ({
+  name: settings.name,
+  navSub: settings.navSub,
+  loginSub: settings.loginSub,
+  motto: settings.motto,
+  welcomeTitle: settings.welcomeTitle,
+  welcomeSub: settings.welcomeSub,
+  footerText: settings.footerText,
+});
+
 export function AppTab() {
   const { settings, isSuccess } = useAppSettings();
+  // Form diisi sekali setelah data server termuat (tanpa sinkronisasi props → state)
+  return isSuccess ? <AppSettingsForm settings={settings} /> : <PageLoader />;
+}
+
+function AppSettingsForm({ settings }: { settings: AppSettings }) {
   const update = useUpdateAppSettings();
   const fileRef = useRef<HTMLInputElement>(null);
-
-  const toForm = (): AppForm => ({
-    name: settings.name,
-    navSub: settings.navSub,
-    loginSub: settings.loginSub,
-    motto: settings.motto,
-    welcomeTitle: settings.welcomeTitle,
-    welcomeSub: settings.welcomeSub,
-    footerText: settings.footerText,
-    appLogo: settings.appLogo ?? "",
-  });
-  const form = useForm<AppForm>({ defaultValues: toForm() });
-  const logo = form.watch("appLogo");
-
-  // Sinkronkan form setelah data server termuat
-  useEffect(() => {
-    if (isSuccess) form.reset(toForm());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSuccess, settings.updatedAt]);
+  const form = useForm<AppForm>({ defaultValues: toForm(settings) });
+  // undefined = logo tidak diubah, "" = dihapus, data URL = gambar baru
+  const [logoChange, setLogoChange] = useState<string>();
+  const logo = logoChange === undefined ? appLogoUrl(settings) : logoChange || null;
 
   const onLogoChange = async (file?: File) => {
     if (!file) return;
@@ -62,7 +63,7 @@ export function AppTab() {
       toast.error("Ukuran file terlalu besar", { description: "Maksimal 1 MB." });
       return;
     }
-    form.setValue("appLogo", await readAsDataUrl(file), { shouldDirty: true });
+    setLogoChange(await readAsDataUrl(file));
   };
 
   const onSubmit = form.handleSubmit(async (values) => {
@@ -71,7 +72,9 @@ export function AppTab() {
       return;
     }
     try {
-      await update.mutateAsync(values);
+      const saved = await update.mutateAsync(logoChange === undefined ? values : { ...values, appLogo: logoChange });
+      form.reset(toForm(saved));
+      setLogoChange(undefined);
       toast.success("Pengaturan aplikasi berhasil diperbarui.");
     } catch (error) {
       toast.error("Gagal menyimpan pengaturan", { description: errorMessage(error) });
@@ -104,19 +107,14 @@ export function AppTab() {
                   <ImageUp /> Upload Gambar
                 </Button>
                 {logo && (
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => form.setValue("appLogo", "", { shouldDirty: true })}
-                  >
+                  <Button type="button" variant="destructive" size="sm" onClick={() => setLogoChange("")}>
                     <Trash2 /> Hapus Logo
                   </Button>
                 )}
                 <input
                   ref={fileRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
                   className="hidden"
                   onChange={(e) => {
                     void onLogoChange(e.target.files?.[0]);

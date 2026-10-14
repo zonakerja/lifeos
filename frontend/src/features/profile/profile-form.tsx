@@ -1,6 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { CheckCircle2, LockKeyhole, UserRound } from "lucide-react";
-import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -12,6 +11,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useChangePassword, useUpdateProfile } from "@/data/use-auth";
 import { errorMessage } from "@/lib/api/client";
 import { useAuthStore } from "@/stores/auth-store";
+import type { PublicUser } from "@/types/api";
 
 const schema = z
   .object({
@@ -37,36 +37,29 @@ const schema = z
 
 type FormValues = z.infer<typeof schema>;
 
-export function ProfileTab() {
+export function ProfileForm() {
   const user = useAuthStore((s) => s.user);
+  // Form diisi sekali dari profil saat dibuka; key = akun agar ganti akun selalu mulai dari data baru
+  return user ? <ProfileFormInner key={user.id} user={user} /> : null;
+}
+
+function ProfileFormInner({ user }: { user: PublicUser }) {
   const updateProfile = useUpdateProfile();
   const changePassword = useChangePassword();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      name: user?.name ?? "",
-      email: user?.email ?? "",
-      phone: user?.phone ?? "",
-      address: user?.address ?? "",
+      name: user.name,
+      email: user.email,
+      phone: user.phone ?? "",
+      address: user.address ?? "",
       currentPassword: "",
       newPassword: "",
       confirmPassword: "",
     },
   });
   const { errors } = form.formState;
-
-  // Isi ulang form bila profil diperbarui dari server
-  useEffect(() => {
-    if (!user) return;
-    form.reset({
-      ...form.getValues(),
-      name: user.name,
-      email: user.email,
-      phone: user.phone ?? "",
-      address: user.address ?? "",
-    });
-  }, [user, form]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {

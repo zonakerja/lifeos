@@ -203,12 +203,32 @@ try {
   ok("ai remove fake gemini key", r.s === 200 && r.d.activeProvider === null, r);
 
   // ------------------------------------------------------------ settings (tulis nilai yang sama)
-  r = await j("GET", "/settings/app");
+  const r0 = (r = await j("GET", "/settings/app"));
   ok("settings public", r.s === 200 && r.d.name, r);
   r = await j("PATCH", "/settings/app", { name: r.d.name }, admin);
   ok("patch settings", r.s === 200, r);
   r = await j("PATCH", "/settings/app", { id: "x" }, admin);
   ok("settings reject unknown 400", r.s === 400, r);
+  ok("settings public tanpa data logo", !("appLogo" in r0.d) && "logoVersion" in r0.d, r0);
+  r = await j("PATCH", "/settings/app", { appLogo: "data:text/html;base64,PGgxPg==" }, admin);
+  ok("settings tolak logo bukan gambar 400", r.s === 400, r);
+  if (r0.d.logoVersion === null) {
+    // Logo uji 1×1 PNG lalu dihapus lagi (hanya bila belum ada logo, agar logo asli tidak hilang)
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    r = await j("PATCH", "/settings/app", { appLogo: `data:image/png;base64,${png}` }, admin);
+    ok("settings set logo", r.s === 200 && r.d.logoVersion, r);
+    const logo = await fetch(`${B}/settings/app/logo?v=${r.d.logoVersion}`);
+    ok(
+      "settings logo publik",
+      logo.status === 200 &&
+        logo.headers.get("content-type")?.startsWith("image/png") &&
+        logo.headers.get("cache-control")?.includes("immutable"),
+      logo.status,
+    );
+    r = await j("PATCH", "/settings/app", { appLogo: "" }, admin);
+    ok("settings hapus logo", r.s === 200 && r.d.logoVersion === null, r);
+    ok("settings logo 404 setelah dihapus", (await fetch(`${B}/settings/app/logo`)).status === 404);
+  }
 
   // ------------------------------------------------------------ records (tabel terstruktur)
   r = await j("PUT", "/records/para_project/proj-1", { payload: { title: "Proyek A", deadline: "2026-12-01" } }, at);

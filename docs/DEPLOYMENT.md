@@ -184,7 +184,7 @@ docker compose -f docker-compose.prod.yml exec backend node dist/database/seed.j
 ```
 
 Buka `https://<APP_DOMAIN>` dan login dengan `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`. Setelah login pertama,
-ganti password lewat **Pengaturan → Profil** lalu hapus `SEED_ADMIN_PASSWORD` dari `.env`.
+ganti password lewat **menu user (kiri bawah) → Profil Saya** lalu hapus `SEED_ADMIN_PASSWORD` dari `.env`.
 
 > Alias praktis: `alias dc='docker compose -f docker-compose.prod.yml'`.
 

@@ -224,7 +224,9 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   (maks. 4 milik sendiri, context `notebook_chat`; gambar ≤ 10 MB dikirim ke AI, dokumen ≤ 20 MB dibaca dari teks
   ekstraksi server — PDF tanpa teks dikirim ke AI sebagai berkas; masih diproses / tak terbaca → 400); disimpan di
   `notebook_messages.attachments`; bersihkan chat / hapus notebook ikut menghapus lampirannya.
-- **Settings**: `GET /settings/app` publik (branding login); `PATCH` admin.
+- **Settings**: `GET /settings/app` publik (branding login; **tanpa** data logo, hanya `logoVersion`); `GET /settings/app/logo`
+  publik = gambar logo (data URL di kolom `app_logo` didekode; `Cache-Control: immutable` karena URL memuat `?v=`,
+  `CSP: sandbox`); `PATCH` admin (`appLogo`: tidak dikirim = tetap, `""` = hapus, data URL PNG/JPG/WEBP/GIF/SVG = ganti).
 - **AI** (`src/ai/`, detail: `docs/ARCHITECTURE.md` §3.1): `GET/PATCH /ai/settings`, `PUT/DELETE /ai/settings/:provider`,
   `POST /ai/settings/:provider/test`, `POST /ai/generate` (multipart `prompt` + `files[]`, maks. 5 / 20 MB). Katalog
   provider & model default di `ai-providers.ts`; satu klien per provider di `providers/` (Gemini `generateContent`
@@ -513,6 +515,14 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     Gabung = link pertama + "+n".
   - Form agenda: mengubah Tanggal Mulai menggeser Tanggal Selesai (durasi tetap); konten form di-`key` per sesi buka &
     per agenda (`useOpenSession`).
+- **Layout & Pengaturan** (keputusan user 2026-10-15): sidebar = modul Workspace + grup Sistem berisi **Pengaturan**
+  (sub menu berurutan **Aplikasi, Manajemen User, Berbagi, AI** — urutan tab di `navigation.ts` sama dengan sub menu).
+  **Profil Saya bukan bagian Pengaturan**: halaman sendiri `/profile` (`features/profile/`, modul `profile` dengan
+  `hiddenInSidebar`, warna = Pengaturan) dibuka dari menu user kiri bawah. **Tema** hanya diatur dari tombol tema di header
+  (dropdown Terang / Gelap / Ikuti sistem). Tombol sidebar saat diciutkan = 32 px: logo ikut 32 px, ikon modul memakai
+  `COLLAPSIBLE_ITEM_CLASS` (tanpa padding) agar tepat di tengah. Logo aplikasi dibaca lewat `appLogoUrl(settings)`
+  (`use-app-settings.ts`). Dialog yang punya kontrol di pojok kanan atas (mis. pencarian global) memakai
+  `showCloseButton={false}` + `DialogClose` sendiri di baris kontrolnya agar tidak bertumpuk.
 - **Komponen umum**: `ConfirmDialog`, `SectionCard`, `RenameDialog`, `SearchableSelect`, `PaginationControl`+`paginate()`,
   `Markdown`, `PriorityBadge`, `PageLoader`, `DateRangeFilter`, `SearchInput`.
 - **Paginasi daftar**: `usePagination(items, ukuranAwal)` (`hooks/use-pagination.ts`) → `{ pageItems, setPage,
@@ -608,6 +618,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | **My Notebook** (RAG ala NotebookLM: sumber berkas/item LifeOS/teks/web, chat hibrida bersitasi + riwayat permanen, ringkasan Studio, catatan notebook → Catatan Bebas) + urutan tab Notes (Catatan Bebas, List Bebas, Notes AI, My Notebook) | ✅ 2026-10-14 — unit backend (notebook-context, web-source: 19) & frontend, smoke (+20), lint, typecheck, build, UI diuji di browser (desktop + HP); chat & ringkasan diuji dengan Gemini sungguhan (akun admin dev; Gemini sempat 503 kelebihan beban → jalur error teruji) |
 | Isolasi data per user (admin tanpa akses data user lain, role viewer dihapus, statistik admin) + **berbagi** item (Project, Area, Resource/arsip, Catatan, Notes AI, List, Agenda; izin Lihat/Komentar/Edit; turunan & berkas ikut; komentar; Pengaturan → Berbagi; File Control tab Dibagikan) | ✅ 2026-10-11 — unit (backend share-graph + frontend sharing), smoke ±45 skenario baru, lint, typecheck, build, UI diuji di browser (bagikan Edit → kolaborator menambah action & komentar; bagikan Lihat → baca-saja; statistik admin). **Belum**: RAG/chatbot mencari item bersama, notifikasi berbagi, tautan publik |
 | File Control: uji menyeluruh + perbaikan aturan penyusutan, peminjaman, referensi, penataan & tampilan detail/kartu (11 temuan prioritas tinggi & sedang) | ✅ 2026-10-14 — unit test (`archive.test.ts` +6), lint, typecheck, build, UI diuji di browser dengan data `[UJI]`. Lanjutan: konfirmasi Restore, BA auto-dispose (tanggal lokal + pelaksana), Penataan khusus fisik, Lihat Dokumen seragam, pratinjau cetak layar penuh, modal pratinjau berkas lebih besar — diuji di browser |
+| Pengaturan & Layout: Profil Saya keluar dari Pengaturan (`/profile`), urutan sub menu, satu pengatur tema, sidebar ciut simetris, tombol tutup pencarian global, form tanpa sinkronisasi `useEffect`, logo lewat endpoint ber-cache | ✅ 2026-10-15 — unit backend & frontend, smoke (+7 skenario logo), lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -929,6 +940,16 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   seragam di semua tempat (`lib/archive-document.ts`, termasuk arsip digital yang hanya punya tautan); pratinjau cetak A4
   (BA & Daftar Isi) layar penuh; modal pratinjau berkas bersama (`file-preview.tsx`) dibuat berbingkai tipis dan
   hampir selebar/setinggi layar.
+- 2026-10-15 — Thread **Pengaturan & Layout** dimulai. Perbaikan: (1) **Profil Saya** dipindah dari Pengaturan ke halaman
+  sendiri `/profile` (permintaan user: sudah ada di menu user); `/settings/profile` lama jatuh ke tab pertama.
+  (2) Sub menu Pengaturan berurutan **Aplikasi, Manajemen User, Berbagi, AI** (member hanya melihat Berbagi & AI).
+  (3) Sidebar diciutkan: logo 36 px di tombol 32 px terpotong sebelah kanan → logo 32 px; ikon modul 28 px bergeser 8 px
+  karena padding tombol → tanpa padding. (4) Tombol tutup bawaan dialog pencarian global menimpa tab AI → tombol tutup
+  sendiri di baris input. (5) Pengatur tema ganda (tombol header + submenu menu user) → satu dropdown di header dengan
+  pilihan Ikuti sistem. (6) Tab Profil & Aplikasi tidak lagi menyalin data ke form lewat `useEffect` (pola §8b): form diisi
+  sekali saat data termuat. (7) Logo aplikasi (data URL ≤ 1 MB) tidak lagi ikut di setiap respons `GET /settings/app`
+  (termasuk halaman login) → endpoint publik `GET /settings/app/logo?v=` yang di-cache browser; `PATCH` memvalidasi bahwa
+  logo berupa gambar. Tanpa migrasi (kolom `app_logo` tetap).
 
 ## 13. Konvensi Kode
 

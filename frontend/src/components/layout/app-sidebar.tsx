@@ -1,4 +1,4 @@
-import { Activity, ChevronRight, ChevronsUpDown, LogOut, Moon, Sun, SunMoon, UserRound } from "lucide-react";
+import { Activity, ChevronRight, ChevronsUpDown, LogOut, UserRound } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -8,12 +8,7 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -34,14 +29,17 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { MODULES, ROLE_LABELS, type ModuleDef, visibleTabs } from "@/config/navigation";
-import { useAppSettings } from "@/data/use-app-settings";
+import { appLogoUrl, useAppSettings } from "@/data/use-app-settings";
 import { useLogout } from "@/data/use-auth";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
-import { type ThemePreference, useUiStore } from "@/stores/ui-store";
 
 const isModuleActive = (module: ModuleDef, pathname: string) =>
   module.path === "/" ? pathname === "/" : pathname === module.path || pathname.startsWith(`${module.path}/`);
+
+/** Saat sidebar diciutkan tombol berukuran 32 px: tanpa padding agar ikon modul (28 px) tepat di tengah. */
+const COLLAPSIBLE_ITEM_CLASS =
+  "h-10 font-medium group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:pl-0.5!";
 
 /** Kotak ikon berwarna sesuai identitas modul. */
 function ModuleIcon({ module, active }: { module: ModuleDef; active: boolean }) {
@@ -62,11 +60,12 @@ function ModuleIcon({ module, active }: { module: ModuleDef; active: boolean }) 
 export function AppSidebar() {
   const { pathname } = useLocation();
   const { settings } = useAppSettings();
+  const logoUrl = appLogoUrl(settings);
   const role = useAuthStore((s) => s.user?.role);
   const { setOpenMobile } = useSidebar();
   const closeMobile = () => setOpenMobile(false);
 
-  const mainModules = MODULES.filter((m) => m.key !== "settings");
+  const mainModules = MODULES.filter((m) => m.key !== "settings" && !m.hiddenInSidebar);
   const settingsModule = MODULES.find((m) => m.key === "settings")!;
   const settingsActive = isModuleActive(settingsModule, pathname);
 
@@ -79,10 +78,10 @@ export function AppSidebar() {
               <NavLink to="/" onClick={closeMobile}>
                 <span
                   data-module="overview"
-                  className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-module-gradient text-white shadow-md shadow-module/30"
+                  className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-module-gradient text-white shadow-md shadow-module/30 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:rounded-lg"
                 >
-                  {settings.appLogo ? (
-                    <img src={settings.appLogo} alt="" className="size-full object-cover" />
+                  {logoUrl ? (
+                    <img src={logoUrl} alt="" className="size-full object-cover" />
                   ) : (
                     <Activity className="size-5" strokeWidth={2.5} />
                   )}
@@ -108,7 +107,12 @@ export function AppSidebar() {
                 const active = isModuleActive(module, pathname);
                 return (
                   <SidebarMenuItem key={module.key}>
-                    <SidebarMenuButton asChild isActive={active} tooltip={module.label} className="h-10 font-medium">
+                    <SidebarMenuButton
+                      asChild
+                      isActive={active}
+                      tooltip={module.label}
+                      className={COLLAPSIBLE_ITEM_CLASS}
+                    >
                       <NavLink to={module.path} end={module.path === "/"} onClick={closeMobile}>
                         <ModuleIcon module={module} active={active} />
                         <span>{module.label}</span>
@@ -131,7 +135,7 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       isActive={settingsActive}
                       tooltip={settingsModule.label}
-                      className="h-10 font-medium"
+                      className={COLLAPSIBLE_ITEM_CLASS}
                     >
                       <ModuleIcon module={settingsModule} active={settingsActive} />
                       <span>{settingsModule.label}</span>
@@ -175,8 +179,6 @@ const initials = (name?: string) =>
 
 function UserMenu() {
   const user = useAuthStore((s) => s.user);
-  const theme = useUiStore((s) => s.theme);
-  const setTheme = useUiStore((s) => s.setTheme);
   const logout = useLogout();
   const navigate = useNavigate();
   const { isMobile } = useSidebar();
@@ -211,27 +213,9 @@ function UserMenu() {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem onSelect={() => void navigate("/settings/profile")}>
+              <DropdownMenuItem onSelect={() => void navigate("/profile")}>
                 <UserRound /> Profil Saya
               </DropdownMenuItem>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <SunMoon /> Tema
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as ThemePreference)}>
-                    <DropdownMenuRadioItem value="light">
-                      <Sun /> Terang
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="dark">
-                      <Moon /> Gelap
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="system">
-                      <SunMoon /> Ikuti sistem
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onSelect={() => void logout()}>

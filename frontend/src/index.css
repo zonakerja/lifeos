@@ -225,7 +225,8 @@
   --module: var(--mod-files);
   --module-2: var(--mod-files-2);
 }
-[data-module="settings"] {
+[data-module="settings"],
+[data-module="profile"] {
   --module: var(--mod-settings);
   --module-2: var(--mod-settings-2);
 }

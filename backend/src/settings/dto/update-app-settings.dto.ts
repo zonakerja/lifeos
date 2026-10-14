@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength } from "class-validator";
+import { IsOptional, IsString, Matches, MaxLength } from "class-validator";
 
 export class UpdateAppSettingsDto {
   @IsOptional()
@@ -29,9 +29,12 @@ export class UpdateAppSettingsDto {
   @IsString()
   footerText?: string;
 
-  /** Logo sebagai data URL (maks ~1 MB file). String kosong menghapus logo. */
+  /** Logo sebagai data URL gambar (maks ~1 MB file). String kosong menghapus logo; tidak dikirim = tetap. */
   @IsOptional()
   @IsString()
   @MaxLength(1_500_000)
+  @Matches(/^(data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/]+={0,2})?$/, {
+    message: "Logo harus berupa gambar PNG, JPG, WEBP, GIF, atau SVG.",
+  })
   appLogo?: string;
 }

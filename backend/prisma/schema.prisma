@@ -174,7 +174,7 @@ model AppSettings {
   welcomeTitle String   @default("Selamat Datang") @map("welcome_title")
   welcomeSub   String   @default("Silakan masuk menggunakan User ID dan Password Anda.") @map("welcome_sub")
   footerText   String   @default("© 2026 LifeOS System") @map("footer_text")
-  // Logo aplikasi sebagai data URL (maks ~1 MB)
+  // Logo aplikasi sebagai data URL (maks ~1 MB); disajikan lewat GET /settings/app/logo
   appLogo      String?  @map("app_logo")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)

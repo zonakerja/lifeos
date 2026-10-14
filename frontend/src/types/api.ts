@@ -93,14 +93,18 @@ export interface AppSettings {
   welcomeTitle: string;
   welcomeSub: string;
   footerText: string;
-  appLogo: string | null;
+  /** Penanda versi logo (null = belum ada logo); gambar via `appLogoUrl()`. */
+  logoVersion: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export type AppSettingsInput = Partial<
   Pick<AppSettings, "name" | "navSub" | "loginSub" | "motto" | "welcomeTitle" | "welcomeSub" | "footerText">
-> & { appLogo?: string };
+> & {
+  /** Data URL gambar = ganti logo, string kosong = hapus; tidak dikirim = tetap. */
+  appLogo?: string;
+};
 
 export const RECORD_TYPES = [
   "agenda_type",

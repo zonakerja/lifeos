@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
-import { useAppSettings } from "@/data/use-app-settings";
+import { appLogoUrl, useAppSettings } from "@/data/use-app-settings";
 import { useLogin } from "@/data/use-auth";
 import { errorMessage } from "@/lib/api/client";
 import { useAuthStore } from "@/stores/auth-store";
@@ -23,6 +23,7 @@ type FormValues = z.infer<typeof schema>;
 
 function LoginPage() {
   const { settings } = useAppSettings();
+  const logoUrl = appLogoUrl(settings);
   const isAuthenticated = useAuthStore((s) => s.status === "authenticated");
   const location = useLocation();
   const login = useLogin();
@@ -54,8 +55,8 @@ function LoginPage() {
 
           <div className="relative flex items-center gap-4">
             <span className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white text-primary shadow-lg">
-              {settings.appLogo ? (
-                <img src={settings.appLogo} alt="" className="size-full object-cover" />
+              {logoUrl ? (
+                <img src={logoUrl} alt="" className="size-full object-cover" />
               ) : (
                 <Activity className="size-8" strokeWidth={2.75} />
               )}
