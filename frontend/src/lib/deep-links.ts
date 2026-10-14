@@ -6,6 +6,8 @@
 export const links = {
   /** Tampilan lihat agenda (link meeting, dasar pelaksanaan, hasil agenda) */
   schedule: (id: string) => `/planner/schedule?agenda=${encodeURIComponent(id)}`,
+  /** Seri agenda berulang → tampilan lihat pertemuan terdekat */
+  series: (seriesId: string) => `/planner/schedule?series=${encodeURIComponent(seriesId)}`,
   scheduleEdit: (id: string) => `/planner/schedule?edit=${encodeURIComponent(id)}`,
   /** Notes AI baru yang langsung terhubung ke agenda */
   newAiNoteForSchedule: (id: string) => `/notes/ai?note=new&schedule=${encodeURIComponent(id)}`,

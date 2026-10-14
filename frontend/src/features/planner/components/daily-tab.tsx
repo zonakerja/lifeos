@@ -15,6 +15,7 @@ import {
   Eye,
   Trash2,
   Video,
+  Repeat,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -63,11 +64,14 @@ import {
   isDoneLate,
   overdueTasks,
   overdueTodos,
+  scheduleLinks,
+  scheduleStart,
   scheduleTime,
 } from "../lib/planner-logic";
 import { PlannerCalendar } from "./planner-calendar";
 import { ActivityLogDialog, TodoDialog } from "./planner-dialogs";
 import { ScheduleDialogs } from "./schedule-dialogs";
+import { lastReschedule, movedAwayFrom } from "../lib/reschedule";
 
 type CombinedItem = ({ isProd: false } & Todo) | ({ isProd: true; kind: TaskKind; parentName: string } & ProjectTask);
 
@@ -126,6 +130,8 @@ export function DailyTab() {
   const isFutureView = ymd > todayYmd;
 
   const todaysSchedules = schedules.filter((s) => isScheduleOnDate(s, ymd)).sort(compareScheduleTime);
+  // Agenda yang semula di tanggal ini tetapi sudah dijadwal ulang ke tanggal lain
+  const movedAway = movedAwayFrom(schedules, ymd);
   const todaysRoutines = routines.filter((r) => isRoutineActiveOnDate(r, currentDate));
 
   const toCombinedTask = (t: ProjectTask): CombinedItem => {
@@ -382,7 +388,9 @@ export function DailyTab() {
           }
         >
           {todaysSchedules.map((sch) => {
-            const mediaHref = toExternalHref(sch.media);
+            // Link pertama = tombol Gabung; link lain tersedia di tampilan lihat
+            const mediaLinks = scheduleLinks(sch);
+            const mediaHref = toExternalHref(mediaLinks[0]);
             return (
               <div
                 key={sch.id}
@@ -398,7 +406,18 @@ export function DailyTab() {
                     {sch.isAllDay ? "All Day" : scheduleTime(sch) || "Tanpa jam"}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-semibold">{sch.title}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate font-semibold">{sch.title}</span>
+                      {sch.reschedules?.length ? (
+                        <CalendarClock
+                          className="size-3 shrink-0 text-warning-foreground dark:text-warning"
+                          aria-label="Dijadwal ulang"
+                        />
+                      ) : null}
+                      {sch.seriesId && (
+                        <Repeat className="size-3 shrink-0 text-mod-planner" aria-label="Agenda berulang" />
+                      )}
+                    </span>
                     <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                       {sch.location ? (
                         <>
@@ -423,8 +442,16 @@ export function DailyTab() {
                 </button>
                 {mediaHref && (
                   <Button size="sm" className="h-7 shrink-0 px-2.5" asChild>
-                    <a href={mediaHref} target="_blank" rel="noopener noreferrer" title={sch.media}>
+                    <a href={mediaHref} target="_blank" rel="noopener noreferrer" title={mediaLinks[0]}>
                       <Video /> Gabung
+                      {mediaLinks.length > 1 && (
+                        <span
+                          className="rounded bg-primary-foreground/20 px-1 text-[10px]"
+                          title={`${mediaLinks.length} link — lihat semua di detail agenda`}
+                        >
+                          +{mediaLinks.length - 1}
+                        </span>
+                      )}
                     </a>
                   </Button>
                 )}
@@ -489,6 +516,26 @@ export function DailyTab() {
               </div>
             );
           })}
+
+          {movedAway.map((sch) => (
+            <button
+              key={`moved-${sch.id}`}
+              type="button"
+              title="Lihat detail agenda"
+              onClick={() => setAgendaParam(sch.id)}
+              className="flex items-center gap-3 rounded-xl border border-dashed p-2.5 text-left text-muted-foreground transition-colors hover:bg-muted/50"
+            >
+              <CalendarClock className="size-4 shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm line-through">{sch.title}</span>
+                <span className="text-[11px]">
+                  Dipindah ke {formatDayMonth(parseLocalYMD(scheduleStart(sch)))}
+                  {!sch.isAllDay && scheduleTime(sch) ? ` · ${scheduleTime(sch)}` : ""}
+                  {lastReschedule(sch)?.reason ? ` — ${lastReschedule(sch)?.reason}` : ""}
+                </span>
+              </span>
+            </button>
+          ))}
 
           {todaysRoutines.length === 0 && todaysSchedules.length === 0 && (
             <Empty className="border border-dashed py-10">

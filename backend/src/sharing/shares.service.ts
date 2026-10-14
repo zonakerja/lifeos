@@ -6,6 +6,7 @@ import { RECORD_TABLES, type RecordType } from "../records/record-schema";
 import { toApiRecord } from "../records/record-mapper";
 import { CreateShareDto, ShareTargetQueryDto, UpdateShareDto } from "./dto/sharing.dto";
 import { ShareAccessService } from "./share-access.service";
+import { SERIES_TYPE } from "./share-graph";
 
 const PERSON = { select: { id: true, name: true, email: true } } as const;
 
@@ -105,6 +106,16 @@ export class SharesService {
   /** Judul & tanggal item (null = sudah dihapus / diarsipkan pemilik). */
   private async describe(items: { ownerId: string; type: string; id: string }[]) {
     const result = new Map<string, { title: string | null; date: string | null }>();
+    // Seri agenda: judul pertemuan pertama + jumlah pertemuan
+    for (const item of items.filter((i) => i.type === SERIES_TYPE)) {
+      const members = await this.seriesMembers(item.ownerId, item.id);
+      if (!members.length) continue;
+      const first = toApiRecord("schedule", RECORD_TABLES.schedule, members[0]);
+      result.set(`${item.ownerId}:${item.type}:${item.id}`, {
+        title: `${first.title ?? "Agenda"} (seri · ${members.length} pertemuan)`,
+        date: first.date,
+      });
+    }
     const groups = new Map<string, { ownerId: string; type: RecordType; ids: string[] }>();
     for (const item of items) {
       if (!Object.hasOwn(RECORD_TABLES, item.type)) continue;
@@ -125,7 +136,19 @@ export class SharesService {
     return result;
   }
 
+  /** Pertemuan seri agenda berulang milik `ownerId` (urut tanggal). */
+  private seriesMembers(ownerId: string, seriesId: string) {
+    return this.prisma.schedule.findMany({
+      where: { userId: ownerId, deletedAt: null, extra: { path: ["seriesId"], equals: seriesId } },
+      orderBy: [{ startDate: "asc" }, { clientId: "asc" }],
+    });
+  }
+
   private async ensureOwnItem(userId: string, type: string, clientId: string) {
+    if (type === SERIES_TYPE) {
+      if ((await this.seriesMembers(userId, clientId)).length) return;
+      throw new NotFoundException("Seri agenda tidak ditemukan atau bukan milik Anda.");
+    }
     if (!Object.hasOwn(RECORD_TABLES, type)) throw new BadRequestException("Jenis item tidak dikenal.");
     const row = await domainDelegate(this.prisma, type as RecordType).findUnique({
       where: { userId_clientId: { userId, clientId } },

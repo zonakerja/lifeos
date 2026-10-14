@@ -201,6 +201,8 @@ export class RecordsService {
 
     const parents = parentRefsOf(type, payload) as [RecordType, string][];
     for (const [parentType, parentId] of parents) {
+      // Induk virtual (seri agenda) tidak punya tabel — kepemilikan ditentukan dari berbagi di bawah
+      if (!Object.hasOwn(RECORD_TABLES, parentType)) continue;
       if (await exists(parentType, parentId, user.id)) return user.id;
     }
     if (parents.length === 0) return user.id;

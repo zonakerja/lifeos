@@ -208,7 +208,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   `GET /users/stats` (admin: jumlah data/berkas/ukuran/berbagi/aktif terakhir, tanpa isi), `GET /users/directory?q=`
   (semua user: cari penerima berbagi, min. 3 huruf, nama+email). Hapus user → berkasnya ikut dihapus dari storage.
 - **Berbagi & komentar** (`src/sharing/`): tabel `shares` (item induk `para_project | para_area | para_resource |
-  free_note | ai_note | list | schedule`, izin `view | comment | edit`) + `record_comments`. Akses dihitung saat request
+  free_note | ai_note | list | schedule` + virtual `schedule_series` = seluruh pertemuan agenda berulang, `recordId` =
+  `seriesId`), izin `view | comment | edit`) + `record_comments`. Akses dihitung saat request
   oleh `ShareAccessService` dari logika murni `share-graph.ts` (+ test): turunan ikut dengan izin root, rujukan
   (catatan/resource terlampir, klasifikasi/JRA/wadah arsip) baca-saja, berkas = semua key `*uploadId` di payload item
   yang dapat diakses. Turunan baru menambah relasi → ubah `expandDescendants`/`parentRefsOf`; rujukan baru →
@@ -441,6 +442,37 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     **sekali** dengan rentang tanggal (`scheduleDateRangeLabel`: "14 Okt – 16 Okt 2026"), juga di tampilan **Timeline**
     (`TimelineView`: dasar + action/task + agenda, klik agenda → tampilan lihat); di Planner tetap tampil per hari.
   - `scheduleTimeLabel`: jam kosong → "Tanpa jam" (bukan "??:??"); hanya jam selesai → "s.d. HH:mm".
+  - **Agenda berulang** (`features/planner/lib/recurrence.ts` + test): setiap pertemuan = **agenda tersendiri** dengan
+    `seriesId` + `recurrence` (`{ frequency: daily|weekly|monthly, interval, days?, until? | count? }`, maks. 200
+    pertemuan) — agar tiap pertemuan punya Hasil, Notes AI, lampiran, dan berbagi sendiri; semua konsumen agenda (Harian,
+    kalender, Overview, notifikasi, Productivity) bekerja tanpa logika khusus. Lampiran dasar disalin ke tiap pertemuan
+    dengan ID unik (`cloneAttachments`, `<id>~<idPertemuan>`) sehingga berkas yang sama terlindung saat satu pertemuan
+    dihapus. Simpan lewat `planSeriesSave(edited, original, members, scope)` → `{ upsert, remove }`; cakupan
+    `this | following | all` dipilih user (`SeriesScopePicker`) saat mengubah/menghapus pertemuan; perubahan pola
+    menghitung ulang tanggal dari jangkar & memasangkan pertemuan lama berurutan (hasil tetap); berkas hasil pertemuan
+    yang terhapus karena pola berubah disimpan ke Resource Global. Tab Jadwal menggabungkan seri (`collapseSeries`, bisa
+    dimatikan) dengan badge "i/n"; tampilan lihat menampilkan "Pertemuan i dari n" + navigasi sebelumnya/berikutnya. Seri bisa dibagikan sekaligus
+    (`schedule_series`, lihat §8 Berbagi).
+    Hapus agenda (tab Jadwal & Productivity `AgendaDeleteDialog`) lewat satu komponen `ScheduleDeleteDialog`
+    (`planner/components/schedule-delete-dialog.tsx`: cakupan seri + pembersihan berkas); hapus berantai induk menghapus
+    semua pertemuan miliknya. Daftar agenda Productivity menampilkan badge seri "i/n" & "Dijadwal ulang".
+    **Berbagi seri**: tampilan lihat pertemuan seri punya "Bagikan Pertemuan" + "Bagikan Seri" (`ShareButton
+    recordType="schedule_series" item={{ id: seriesId, share }} label`); tautan `links.series(id)` →
+    `/planner/schedule?series=<id>` membuka pertemuan terdekat (dipakai Pengaturan → Berbagi).
+  - **Jadwal ulang** (`lib/reschedule.ts` + test, `components/reschedule-dialog.tsx`): agenda biasa maupun satu
+    pertemuan seri bisa dimajukan/dimundurkan dari tampilan lihat (tanggal + jam baru, tombol cepat ±1 hari/minggu, alasan,
+    daftar agenda lain di tanggal tujuan + penanda bentrok jam). Tanggal/jam agenda diganti langsung (semua konsumen ikut);
+    riwayat di `Schedule.reschedules` (entri pertama = jadwal semula, `applyReschedule` / `revertReschedule` /
+    `originalSlot`). Tampilan: badge "Dijadwal ulang", kotak "Jadwal semula" + alasan + tombol **Kembalikan**; Harian di
+    tanggal asal menampilkan baris samar "Dipindah ke …" (`movedAwayFrom`). Seri: pertemuan baru tidak mewarisi riwayat;
+    ubah field bersama mempertahankan pemindahan; perubahan pola menghitung ulang tanggal & menghapus riwayat pertemuan yang
+    tanggalnya berubah. Productivity (`agenda-item.tsx`) belum menampilkan badge jadwal ulang (data sudah tersedia).
+  - **Banyak link meeting**: tetap kolom `media`, dipisah baris baru; baca **selalu** lewat `scheduleLinks(s)`, tulis
+    `joinLinks()`, label `linkLabel()` (host). Input `<LinkListInput>` (`components/common/link-list-input.tsx`, reusable):
+    Enter/+ menambah, Backspace di input kosong menghapus terakhir, tempel beberapa link sekaligus dipecah. Harian: tombol
+    Gabung = link pertama + "+n".
+  - Form agenda: mengubah Tanggal Mulai menggeser Tanggal Selesai (durasi tetap); konten form di-`key` per sesi buka &
+    per agenda (`useOpenSession`).
 - **Komponen umum**: `ConfirmDialog`, `SectionCard`, `RenameDialog`, `SearchableSelect`, `PaginationControl`+`paginate()`,
   `Markdown`, `PriorityBadge`, `PageLoader`, `DateRangeFilter`, `SearchInput`.
 - **Paginasi daftar**: `usePagination(items, ukuranAwal)` (`hooks/use-pagination.ts`) → `{ pageItems, setPage,
@@ -480,7 +512,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   selama masih berisi sub area/project.
 - **Planner**: todo/task punya `completedAt` (selesai terlambat); tipe agenda punya warna + ikon dari paket ikon bersama.
   Rutinitas `daily|weekly|monthly|interval` (+ `intervalType`, `freezePeriods`); jadwal/agenda multi-hari
-  (`startDate/endDate`, `isAllDay`, type, location, media = link meeting, `description`, **dasar pelaksanaan**
+  (`startDate/endDate`, `isAllDay`, type, location, media = link meeting (bisa lebih dari satu), `description`,
+  **berulang** (`seriesId` + `recurrence`, satu agenda per pertemuan), **jadwal ulang** (`reschedules`), **dasar pelaksanaan**
   `resources`, **hasil agenda** `outcome` + `results` + Notes AI terhubung); todo berprioritas; `completions` per rutinitas per tanggal
   (ID `${routineId}:${date}`).
 - **File Control**: Klasifikasi, **JRA** (retensi aktif/inaktif + Musnah/Permanen), siklus Aktif → Inaktif →
@@ -524,6 +557,9 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Agenda: tampilan lihat (link meeting bisa diklik), dasar pelaksanaan (upload opsional), hasil agenda (ringkasan, Notes Space, upload, web link, Notes AI terhubung) | ✅ 2026-10-11 — lint, typecheck, unit test, build, UI diuji di browser (Overview, Harian, Jadwal, Notes AI); **integrasi ke Action Productivity: dikerjakan user/thread Productivity berikutnya** |
 | Todo selesai terlambat (tetap tercoret di Terlambat, tanggal asal "Selesai <tgl>") + paket ikon bersama (±140 ikon, pemilih + saran AI) | ✅ 2026-10-11 — unit test, typecheck, lint, UI diuji di browser; saran AI diuji dengan provider sungguhan akun admin dev |
 | Hapus agenda/lampiran → berkas ikut dihapus (pilih pertahankan → Resource Global), upload batal dibersihkan, kalender Harian ringkas + hover | ✅ 2026-10-11 — unit test, typecheck, lint, UI + storage diuji (404 setelah dihapus, Resource Global terbentuk); Productivity menerapkan aturan yang sama + `completedAt` (2026-10-11, diuji UI + storage); upload yang belum tersimpan dibersihkan juga saat reload/tutup tab + ringkasan AI opsional (diuji: reload → 404, sapuan cadangan, berkas tersimpan aman, AI tidak dipanggil tanpa centang); Action → dialog Tandai Selesai + Agenda (dengan Hasil) di Project/Area, ikut arsip/hapus/berbagi (diuji UI + skrip API berbagi + smoke) |
+| Agenda berulang (seri, satu agenda per pertemuan; ubah/hapus dengan cakupan ini / ini & berikutnya / semua) + banyak link meeting | ✅ 2026-10-14 — unit test (pola, rencana seri, link), lint, typecheck, build, UI diuji di browser (buat seri 10 pertemuan, ubah semua, ubah pola dari pertemuan tengah, hapus "ini & berikutnya", tab Jadwal/Harian) |
+| Berbagi seri agenda sekaligus (`schedule_series`) + hapus agenda berseri dari Productivity dengan cakupan | ✅ 2026-10-14 — unit backend & frontend, smoke (+6), skrip API dua akun (11/11), UI diuji (Bagikan Seri, hapus "ini & berikutnya" dari project) |
+| Jadwal ulang agenda (majukan/mundurkan, alasan, cek bentrok, kembalikan; juga satu pertemuan seri) | ✅ 2026-10-14 — unit test, lint, typecheck, build, UI diuji di browser (pindah kuliah 27→29 Okt dengan bentrok terdeteksi, baris "Dipindah ke" di tanggal asal, kembalikan) |
 | Catatan Bebas: editor teks kaya (Tiptap) + tulisan tangan stylus (halaman penuh & blok Coretan) + ubah ke teks (AI) | ✅ 2026-10-11 — unit test, build, smoke, UI diuji di browser (mouse + event pena sintetis + mode HP), pengenalan AI diuji dengan Gemini sungguhan; **uji S Pen di perangkat Android user belum** |
 | Perbaikan Notes Space (simpan otomatis Catatan, cegah perubahan hilang di Notes AI, cari/sematkan/paginasi, dokumen dibaca backend, prompt AI, List urut ulang & progres) | ✅ 2026-10-11 — lint, typecheck, unit test, build, dan UI diuji di browser (desktop + mode HP); ringkasan/transkrip AI sungguhan belum diuji (butuh API key) |
 | Isolasi data per user (admin tanpa akses data user lain, role viewer dihapus, statistik admin) + **berbagi** item (Project, Area, Resource/arsip, Catatan, Notes AI, List, Agenda; izin Lihat/Komentar/Edit; turunan & berkas ikut; komentar; Pengaturan → Berbagi; File Control tab Dibagikan) | ✅ 2026-10-11 — unit (backend share-graph + frontend sharing), smoke ±45 skenario baru, lint, typecheck, build, UI diuji di browser (bagikan Edit → kolaborator menambah action & komentar; bagikan Lihat → baca-saja; statistik admin). **Belum**: RAG/chatbot mencari item bersama, notifikasi berbagi, tautan publik |
@@ -791,6 +827,29 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   kolaborator tidak dibuat atas nama pemilik. Item bersama tampil di modulnya dengan penanda pemilik; File Control
   memisahkan pengelolaan (milik sendiri) dari tab **Dibagikan**. Seed dev: akun kedua `user@lifeos.com` (member).
   Ditunda: RAG/chatbot atas item bersama, notifikasi saat dibagikan, tautan publik, berbagi tipe lain (rutinitas, todo).
+
+- 2026-10-14 — **Agenda berulang & banyak link** (thread Planner; tanpa perubahan backend/migrasi — `seriesId`,
+  `recurrence` di `extra`, link tetap kolom `media`). Desain (rekomendasi diterapkan): setiap pertemuan disimpan sebagai
+  agenda tersendiri dalam satu seri — bukan satu agenda yang dihitung ulang — karena tiap pertemuan kuliah butuh hasil,
+  Notes AI, dan lampiran sendiri, dan semua konsumen agenda (termasuk berbagi & Productivity) tetap bekerja. Pola:
+  harian/mingguan (pilih hari)/bulanan, interval, batas tanggal atau jumlah (maks. 200). Ubah/hapus pertemuan menanyakan
+  cakupan. Ditemukan & diperbaiki: memundurkan Tanggal Mulai di form tidak menggeser Tanggal Selesai (agenda diam-diam jadi
+  multi-hari); form agenda belum memakai `useOpenSession` (form bisa terbuka dengan data agenda sebelumnya).
+  Belum: berbagi seri sekaligus (berbagi tetap per pertemuan), pilihan cakupan saat hapus agenda dari Productivity.
+
+- 2026-10-14 — **Berbagi seri & hapus berseri dari Productivity**: seri agenda berulang bisa dibagikan sekaligus lewat
+  item virtual `schedule_series` (tanpa migrasi; `shares.record_type` teks) — backend menurunkan semua pertemuan saat
+  request, termasuk yang ditambahkan kemudian; tiap pertemuan = root (kolaborator tidak bisa menghapus); kolaborator edit
+  bisa menambah pertemuan (`parentRefsOf` → seri). Diuji unit (share-graph), smoke (+6 skenario), skrip API dua akun
+  (11 skenario: bagikan, tolak seri tak dikenal, root, pertemuan baru ikut, tambah/ubah oleh kolaborator, larang hapus,
+  judul di Berbagi, izin lihat, cabut), dan UI. Hapus agenda di Productivity kini memakai dialog Planner dengan pilihan
+  cakupan seri. Catatan: pertemuan baru dari pemilik terlihat penerima setelah cache akses baca (3 detik) — sama seperti
+  turunan bersama lain.
+- 2026-10-14 — **Jadwal ulang agenda** (permintaan user: kuliah berulang bisa dimajukan/dimundurkan; berlaku untuk semua
+  agenda). Desain: tanggal/jam agenda diganti langsung (bukan pengecualian virtual) + riwayat `reschedules` di `extra`
+  (tanpa migrasi), sehingga Harian, kalender, Overview, notifikasi, Productivity, dan berbagi otomatis memakai jadwal baru;
+  jadwal semula & alasan tetap terlihat dan bisa dikembalikan. Ditemukan & diperbaiki: label tanggal tab Jadwal membaca
+  YMD sebagai UTC (`formatDayMonth("YYYY-MM-DD")` → kini `parseLocalYMD`).
 
 ## 13. Konvensi Kode
 

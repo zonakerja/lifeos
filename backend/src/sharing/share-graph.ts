@@ -4,7 +4,8 @@
  * ----------------------------------------------------------------------------
  * Pemilik membagikan item induk (root). Penerima mendapat akses ke:
  *  1. root + TURUNAN-nya dengan izin yang sama (project → action & agenda; area → sub area/kegiatan/sub kegiatan,
- *     project, dan semua task & agenda-nya; agenda → Notes AI yang terhubung);
+ *     project, dan semua task & agenda-nya; agenda → Notes AI yang terhubung; seri agenda berulang
+ *     `schedule_series` (id = `seriesId`) → semua pertemuannya, masing-masing diperlakukan sebagai root);
  *  2. RUJUKAN dari item yang dapat diakses (catatan/resource yang dilampirkan, klasifikasi/JRA/wadah arsip,
  *     agenda dari Notes AI) — hanya `view` dan tidak menurunkan turunan;
  *  3. BERKAS (uploadId di payload item yang dapat diakses) dengan izin tertinggi item yang merujuknya.
@@ -30,7 +31,11 @@ export const SHAREABLE_TYPES = [
   "ai_note",
   "list",
   "schedule",
+  "schedule_series",
 ] as const;
+
+/** Item virtual: seluruh pertemuan satu seri agenda berulang (`id` = `seriesId` di payload agenda). */
+export const SERIES_TYPE = "schedule_series";
 export type ShareableType = (typeof SHAREABLE_TYPES)[number];
 export const isShareableType = (type: string): type is ShareableType =>
   (SHAREABLE_TYPES as readonly string[]).includes(type);
@@ -42,6 +47,8 @@ export interface ShareStructure {
   tasks: { id: string; projectId?: string | null }[];
   /** Agenda milik project / item area (`Schedule.projectId`) */
   schedules?: { id: string; projectId?: string | null }[];
+  /** Anggota seri agenda berulang yang dibagikan (`seriesId` dari payload) */
+  seriesSchedules?: { id: string; seriesId: string }[];
   aiNotes: { id: string; linkedScheduleId?: string | null }[];
 }
 
@@ -78,6 +85,7 @@ export function expandDescendants(roots: ShareRoot[], structure: ShareStructure)
   const activitiesByArea = byParent(structure.activities, (a) => a.areaId);
   const projectsByArea = byParent(structure.projects, (p) => p.areaId);
   const notesBySchedule = byParent(structure.aiNotes, (n) => n.linkedScheduleId);
+  const schedulesBySeries = byParent(structure.seriesSchedules ?? [], (s) => s.seriesId);
 
   const children = (type: string, id: string): [string, string][] => {
     switch (type) {
@@ -99,6 +107,8 @@ export function expandDescendants(roots: ShareRoot[], structure: ShareStructure)
         ];
       case "schedule":
         return (notesBySchedule.get(id) ?? []).map((n) => ["ai_note", n.id]);
+      case SERIES_TYPE:
+        return (schedulesBySeries.get(id) ?? []).map((s) => ["schedule", s.id]);
       default:
         return [];
     }
@@ -116,7 +126,8 @@ export function expandDescendants(roots: ShareRoot[], structure: ShareStructure)
       const visited = existing && existing.permission === permission;
       access.set(key, { type, id, permission, root: (existing?.root ?? false) || isRoot });
       if (visited) continue;
-      for (const [childType, childId] of children(type, id)) queue.push([childType, childId, false]);
+      // Pertemuan seri = item induk masing-masing (hanya pemilik yang menghapus), bukan turunan biasa
+      for (const [childType, childId] of children(type, id)) queue.push([childType, childId, type === SERIES_TYPE]);
     }
   }
   return access;
@@ -218,6 +229,9 @@ export function parentRefsOf(type: string, payload: Payload): [string, string][]
     // Task/action dan agenda milik project atau item area
     const id = str(payload.projectId);
     if (id) refs.push(["para_project", id], ["para_activity", id]);
+    // Pertemuan baru dalam seri agenda berulang yang dibagikan
+    const series = type === "schedule" ? str(payload.seriesId) : null;
+    if (series) refs.push([SERIES_TYPE, series]);
   } else if (type === "para_activity") {
     const parent = str(payload.parentId);
     if (parent) refs.push(["para_activity", parent]);

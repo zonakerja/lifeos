@@ -151,7 +151,15 @@ export type SharePermission = "view" | "comment" | "edit";
 
 /** Record type yang bisa dibagikan sebagai item induk (sama dengan backend `SHAREABLE_TYPES`). */
 export type ShareableType =
-  "para_project" | "para_area" | "para_resource" | "free_note" | "ai_note" | "list" | "schedule";
+  | "para_project"
+  | "para_area"
+  | "para_resource"
+  | "free_note"
+  | "ai_note"
+  | "list"
+  | "schedule"
+  /** Seluruh pertemuan satu seri agenda berulang (id = `seriesId`) */
+  | "schedule_series";
 
 /** Penanda item milik user lain yang dapat diakses lewat berbagi. */
 export interface ShareMeta {

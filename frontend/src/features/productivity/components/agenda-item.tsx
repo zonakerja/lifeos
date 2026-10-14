@@ -1,4 +1,14 @@
-import { CalendarDays, ClipboardCheck, Clock, FolderOpen, MapPin, Paperclip, Trash2 } from "lucide-react";
+import {
+  CalendarClock,
+  CalendarDays,
+  ClipboardCheck,
+  Clock,
+  FolderOpen,
+  MapPin,
+  Paperclip,
+  Repeat,
+  Trash2,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useSchedules } from "@/data/collections";
@@ -11,12 +21,10 @@ import {
 } from "@/features/planner/lib/planner-logic";
 import { scheduleTypeStyle } from "@/features/planner/lib/schedule-style";
 import { useAgendaTypeList } from "@/features/planner/use-agenda-types";
-import { ownedFiles } from "@/features/resources/attachment-cleanup";
-import { DeleteWithFilesDialog } from "@/features/resources/delete-with-files-dialog";
-import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
+import { ScheduleDeleteDialog } from "@/features/planner/components/schedule-delete-dialog";
+import { seriesPosition } from "@/features/planner/lib/recurrence";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSetSearchParams } from "@/hooks/use-search-param";
-import { useRetained } from "@/hooks/use-retained";
 import { cn } from "@/lib/utils";
 import type { Schedule } from "@/types/entities";
 
@@ -25,9 +33,6 @@ export const ITEM_TAG_STYLE = {
   task: "bg-success/15 text-success",
   agenda: "bg-info/15 text-info",
 } as const;
-
-/** Lampiran agenda (dasar pelaksanaan + hasil) untuk pembersihan berkas. */
-const agendaAttachments = (s: Schedule) => [...(s.resources ?? []), ...(s.results ?? [])];
 
 /**
  * Agenda milik Project / item Area (`Schedule.projectId`) sebagai satu baris di daftar gabungan action/task + agenda.
@@ -55,6 +60,8 @@ export function AgendaItem({
       ? { label: start === scheduleEnd(s) ? "Hari ini" : "Berlangsung", className: "bg-success/15 text-success" }
       : { label: "Akan datang", className: "bg-info/15 text-info" };
   const results = s.results?.length ?? 0;
+  const { items: schedules } = useSchedules();
+  const series = s.seriesId ? seriesPosition(schedules, s) : null;
 
   return (
     <li className="group flex items-start gap-3 rounded-2xl border bg-card p-4 transition-shadow hover:shadow-md">
@@ -70,6 +77,16 @@ export function AgendaItem({
           <Badge className={ITEM_TAG_STYLE.agenda}>Agenda</Badge>
           <span className="truncate text-sm font-bold">{s.title}</span>
           <Badge className={status.className}>{status.label}</Badge>
+          {series && (
+            <Badge className="bg-module-soft text-module" title="Agenda berulang">
+              <Repeat /> {series.index}/{series.total}
+            </Badge>
+          )}
+          {!!s.reschedules?.length && (
+            <Badge className="bg-warning/15 text-warning-foreground dark:text-warning">
+              <CalendarClock /> Dijadwal ulang
+            </Badge>
+          )}
         </span>
         <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
@@ -117,38 +134,16 @@ export function AgendaItem({
   );
 }
 
-/** Konfirmasi hapus agenda beserta berkas lampirannya (dasar pelaksanaan & hasil). */
+/**
+ * Konfirmasi hapus agenda beserta berkas lampirannya — memakai dialog Planner (`ScheduleDeleteDialog`) sehingga agenda
+ * berulang juga menawarkan cakupan (hanya ini / ini & berikutnya / semua dalam seri).
+ */
 export function AgendaDeleteDialog({
-  schedule: scheduleProp,
+  schedule,
   onOpenChange,
 }: {
   schedule: Schedule | null;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { setItems: setSchedules } = useSchedules();
-  const cleanup = useAttachmentCleanup();
-  const deleting = useRetained(scheduleProp);
-  const files = deleting ? ownedFiles(agendaAttachments(deleting)) : [];
-  return (
-    <DeleteWithFilesDialog
-      open={!!scheduleProp}
-      onOpenChange={onOpenChange}
-      title="Hapus Agenda?"
-      description="Agenda ini (termasuk hasilnya) akan dihapus permanen:"
-      itemName={deleting?.title}
-      files={files}
-      shared={deleting ? cleanup.referenced(agendaAttachments(deleting)) : undefined}
-      onConfirm={(keepIds) => {
-        if (deleting) {
-          setSchedules((prev) => prev.filter((x) => x.id !== deleting.id));
-          cleanup.release(files, keepIds, {
-            contextTag: "Agenda",
-            exclude: agendaAttachments(deleting),
-            ownerId: deleting.userId,
-          });
-        }
-        onOpenChange(false);
-      }}
-    />
-  );
+  return <ScheduleDeleteDialog schedule={schedule} onOpenChange={onOpenChange} />;
 }

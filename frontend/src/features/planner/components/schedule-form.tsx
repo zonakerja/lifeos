@@ -1,4 +1,4 @@
-import { FolderOpen, Link2, MapPin, PencilLine, Plus, Video } from "lucide-react";
+import { FolderOpen, Link2, MapPin, PencilLine, Plus, Repeat } from "lucide-react";
 import { type FormEvent, type RefObject, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -17,13 +17,14 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { LinkListInput } from "@/components/common/link-list-input";
 import { AddAttachmentButton, AttachmentForm } from "@/features/resources/attachment-form";
 import { AttachmentTable } from "@/features/resources/attachment-table";
 import { ownedFiles } from "@/features/resources/attachment-cleanup";
 import { DeleteWithFilesDialog } from "@/features/resources/delete-with-files-dialog";
 import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
-import { useRetained } from "@/hooks/use-retained";
-import { todayYMD } from "@/lib/dates";
+import { useOpenSession, useRetained } from "@/hooks/use-retained";
+import { addDays, formatLocalYMD, parseLocalYMD, todayYMD } from "@/lib/dates";
 import { toExternalHref } from "@/lib/urls";
 import { cn } from "@/lib/utils";
 import type { AttachedResource, Schedule } from "@/types/entities";
@@ -33,7 +34,19 @@ export interface ReleasedFiles {
   files: AttachedResource[];
   keepIds: string[];
 }
-import { scheduleEnd, scheduleStart, scheduleTime } from "../lib/planner-logic";
+import { joinLinks, linkLabel, scheduleEnd, scheduleLinks, scheduleStart, scheduleTime } from "../lib/planner-logic";
+import { planSeriesSave, sameRecurrence, type SeriesScope } from "../lib/recurrence";
+import { RecurrenceFields, SeriesScopePicker } from "./recurrence-fields";
+
+/** Tanggal selesai baru saat tanggal mulai diganti: durasi (selisih hari) dipertahankan. */
+const shiftEnd = (oldStart = "", oldEnd = "", newStart: string) => {
+  if (!newStart || !oldStart || !oldEnd || oldEnd < oldStart) return newStart;
+  const span = Math.round((parseLocalYMD(oldEnd).getTime() - parseLocalYMD(oldStart).getTime()) / 86_400_000);
+  return formatLocalYMD(addDays(parseLocalYMD(newStart), span));
+};
+
+/** ID agenda baru (helper modul: `Date.now()` tidak boleh dipanggil di badan komponen — aturan purity oxlint). */
+const newScheduleId = () => `sch-${Date.now()}`;
 
 /** Agenda baru kosong; `date` (YYYY-MM-DD) default hari ini. */
 export const emptySchedule = (type: string, date = todayYMD()): Schedule => ({
@@ -55,13 +68,18 @@ export function ScheduleFormDialog({
   agendaTypes,
   onOpenChange,
   onSave,
+  seriesMembers = [],
 }: {
   schedule: Schedule | null;
   agendaTypes: string[];
   onOpenChange: (open: boolean) => void;
-  onSave: (schedule: Schedule, released: ReleasedFiles[]) => void;
+  onSave: (schedule: Schedule, released: ReleasedFiles[], scope: SeriesScope) => void;
+  /** Anggota seri agenda yang sedang diubah (untuk pratinjau cakupan) */
+  seriesMembers?: Schedule[];
 }) {
   const schedule = useRetained(scheduleProp);
+  // key per sesi buka & per agenda: form selalu mulai dari props (isi lama yang belum sempat unmount tidak dipakai ulang)
+  const session = useOpenSession(!!scheduleProp);
   // Dipasang oleh form yang sedang terbuka: buang berkas yang diunggah tetapi tidak jadi disimpan
   const discardRef = useRef<(() => void) | null>(null);
   const close = () => {
@@ -77,11 +95,13 @@ export function ScheduleFormDialog({
         </DialogHeader>
         {schedule && (
           <ScheduleForm
+            key={`${session}:${schedule.id}`}
             schedule={schedule}
             agendaTypes={agendaTypes}
             onSave={onSave}
             onCancel={close}
             discardRef={discardRef}
+            seriesMembers={seriesMembers}
           />
         )}
       </DialogContent>
@@ -95,12 +115,14 @@ function ScheduleForm({
   onSave,
   onCancel,
   discardRef,
+  seriesMembers,
 }: {
   schedule: Schedule;
   agendaTypes: string[];
-  onSave: (schedule: Schedule, released: ReleasedFiles[]) => void;
+  onSave: (schedule: Schedule, released: ReleasedFiles[], scope: SeriesScope) => void;
   onCancel: () => void;
   discardRef: RefObject<(() => void) | null>;
+  seriesMembers: Schedule[];
 }) {
   const cleanup = useAttachmentCleanup();
   // Berkas yang diunggah di sesi form ini: dibuang bila form ditutup tanpa disimpan
@@ -132,6 +154,12 @@ function ScheduleForm({
   }));
   const isNew = !schedule.id;
   const [addingBasis, setAddingBasis] = useState(false);
+  const [links, setLinks] = useState(() => scheduleLinks(schedule));
+  const [linkDraft, setLinkDraft] = useState("");
+  // Agenda yang sudah menjadi bagian seri → simpan menanyakan cakupan (ini / ini & berikutnya / semua)
+  const [pending, setPending] = useState<Schedule | null>(null);
+  const [scope, setScope] = useState<SeriesScope>("this");
+  const inSeries = !!schedule.seriesId && !isNew;
   const patch = (values: Partial<Schedule>) => setForm((prev) => ({ ...prev, ...values }));
   const typeOptions = form.type && !agendaTypes.includes(form.type) ? [...agendaTypes, form.type] : agendaTypes;
 
@@ -153,9 +181,61 @@ function ScheduleForm({
       toast.error("Jam selesai tidak boleh sebelum jam mulai.");
       return;
     }
+    if (form.recurrence?.frequency === "weekly" && !form.recurrence.days?.length) {
+      toast.error("Pilih minimal satu hari pengulangan.");
+      return;
+    }
+    // Link yang masih diketik ikut disimpan
+    const allLinks = [...links, ...linkDraft.split(/\s+/).filter(Boolean)];
+    const result: Schedule = {
+      ...form,
+      title: form.title.trim(),
+      endDate,
+      media: joinLinks(allLinks),
+      id: form.id || newScheduleId(),
+    };
+    if (inSeries) {
+      // Pola diubah → "hanya ini" tidak tersedia
+      const changed = !!result.recurrence && !sameRecurrence(schedule.recurrence, result.recurrence);
+      setScope(changed ? "following" : "this");
+      setPending(result);
+      return;
+    }
     savedRef.current = true;
-    onSave({ ...form, title: form.title.trim(), endDate, id: form.id || `sch-${Date.now()}` }, released);
+    onSave(result, released, "all");
   };
+
+  const confirmScope = () => {
+    if (!pending) return;
+    savedRef.current = true;
+    onSave(pending, released, scope);
+    setPending(null);
+  };
+  const patternChanged = !!pending?.recurrence && !sameRecurrence(schedule.recurrence, pending.recurrence);
+  // Pratinjau: berapa pertemuan yang dibuat/dihapus dengan cakupan terpilih
+  const preview = pending
+    ? planSeriesSave(
+        pending,
+        schedule,
+        seriesMembers,
+        scope,
+        (i) => `preview-${i}`,
+        () => "preview",
+      )
+    : null;
+  const created = preview ? preview.upsert.filter((x) => x.id.startsWith("preview-")).length : 0;
+  const previewNote = preview
+    ? [
+        created ? `${created} pertemuan baru dibuat.` : "",
+        preview.remove.length
+          ? `${preview.remove.length} pertemuan dihapus${
+              preview.remove.some((x) => x.results?.length) ? " (berkas hasilnya disimpan ke Resource Global)" : ""
+            }.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
 
   return (
     <form onSubmit={submit}>
@@ -194,7 +274,8 @@ function ScheduleForm({
               onChange={(e) =>
                 patch({
                   startDate: e.target.value,
-                  endDate: e.target.value > (form.endDate ?? "") ? e.target.value : form.endDate,
+                  // Durasi tetap: tanggal selesai ikut bergeser bersama tanggal mulai
+                  endDate: shiftEnd(form.startDate, form.endDate, e.target.value),
                 })
               }
             />
@@ -243,7 +324,7 @@ function ScheduleForm({
           </div>
         )}
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4">
           <Field>
             <FieldLabel htmlFor="sch-location">Lokasi</FieldLabel>
             <InputGroup>
@@ -258,21 +339,24 @@ function ScheduleForm({
               />
             </InputGroup>
           </Field>
-          <Field>
-            <FieldLabel htmlFor="sch-media">Media / Link (Opsional)</FieldLabel>
-            <InputGroup>
-              <InputGroupAddon>
-                <Video />
-              </InputGroupAddon>
-              <InputGroupInput
-                id="sch-media"
-                placeholder="Link media"
-                value={form.media}
-                onChange={(e) => patch({ media: e.target.value })}
-              />
-            </InputGroup>
-          </Field>
         </div>
+
+        <Field>
+          <FieldLabel htmlFor="sch-media">Link Meeting / Media (Opsional, bisa lebih dari satu)</FieldLabel>
+          <LinkListInput
+            id="sch-media"
+            value={links}
+            onChange={setLinks}
+            draft={linkDraft}
+            onDraftChange={setLinkDraft}
+          />
+        </Field>
+
+        <RecurrenceFields
+          startDate={form.startDate ?? ""}
+          value={form.recurrence}
+          onChange={(recurrence) => patch({ recurrence })}
+        />
 
         <Field>
           <FieldLabel htmlFor="sch-desc">Keterangan (Opsional)</FieldLabel>
@@ -338,6 +422,37 @@ function ScheduleForm({
           </Button>
         </DialogFooter>
       </FieldGroup>
+      <Dialog open={!!pending} onOpenChange={(open) => !open && setPending(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Repeat className="size-5 text-module" /> Ubah Agenda Berulang
+            </DialogTitle>
+            <DialogDescription>Terapkan perubahan ke pertemuan mana saja?</DialogDescription>
+          </DialogHeader>
+          <SeriesScopePicker
+            value={scope}
+            onChange={setScope}
+            disabled={patternChanged ? ["this"] : []}
+            note={[
+              patternChanged
+                ? "Perubahan pola pengulangan berlaku untuk pertemuan ini & seterusnya, atau seluruh seri."
+                : "",
+              previewNote,
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPending(null)}>
+              Batal
+            </Button>
+            <Button type="button" onClick={confirmScope}>
+              Simpan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <DeleteWithFilesDialog
         open={!!removing}
         onOpenChange={(open) => !open && setRemoving(null)}
@@ -359,21 +474,22 @@ function ScheduleForm({
   );
 }
 
-/** Link media agenda; link yang bukan http/https ditampilkan sebagai teks biasa. */
+/** Satu link media agenda (label = host); link yang bukan http/https ditampilkan sebagai teks biasa. */
 export function MediaLink({ media }: { media: string }) {
+  const label = linkLabel(media);
   const href = toExternalHref(media);
   const className =
-    "mt-2 inline-flex max-w-full items-center gap-1 truncate rounded-md bg-info/10 px-2 py-1 text-xs text-info";
+    "inline-flex max-w-full items-center gap-1 truncate rounded-md bg-info/10 px-2 py-1 text-xs text-info";
   if (!href) {
     return (
-      <span className={className}>
-        <Link2 className="size-3 shrink-0" /> {media}
+      <span className={className} title={media}>
+        <Link2 className="size-3 shrink-0" /> {label}
       </span>
     );
   }
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className={cn(className, "hover:underline")}>
-      <Link2 className="size-3 shrink-0" /> {media}
+    <a href={href} target="_blank" rel="noopener noreferrer" title={media} className={cn(className, "hover:underline")}>
+      <Link2 className="size-3 shrink-0" /> {label}
     </a>
   );
 }

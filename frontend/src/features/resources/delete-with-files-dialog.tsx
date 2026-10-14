@@ -1,5 +1,5 @@
 import { FileText, Library, Link2, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,6 +29,8 @@ interface DeleteWithFilesDialogProps {
   confirmLabel?: string;
   /** `keepIds` = ID lampiran yang dipertahankan sebagai Resource global */
   onConfirm: (keepIds: string[]) => void;
+  /** Isi tambahan di atas daftar berkas (mis. pilihan cakupan seri agenda) */
+  children?: ReactNode;
 }
 
 /**
@@ -61,6 +63,7 @@ export function DeleteWithFilesDialog(props: DeleteWithFilesDialogProps) {
 }
 
 function DeleteWithFilesBody({
+  children,
   files,
   shared = new Set(),
   confirmLabel = "Hapus",
@@ -80,6 +83,7 @@ function DeleteWithFilesBody({
 
   return (
     <>
+      {children}
       {files.length > 0 && (
         <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1">
           <div className="flex flex-wrap items-center justify-between gap-2">

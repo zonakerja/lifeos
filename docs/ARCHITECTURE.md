@@ -194,9 +194,13 @@ berkas (`sourceType = "asset"`) — dengan embedding `gemini-embedding-2` 768 di
   `view | comment | edit`, unik per item+penerima) dan `record_comments` (`owner_id` = pemilik item, `author_id`,
   `body`). `assets.uploaded_by_id` = kolaborator yang mengunggah ke ruang pemilik.
 - **Item induk yang bisa dibagikan**: `para_project`, `para_area`, `para_resource` (termasuk arsip File Control),
-  `free_note`, `ai_note`, `list`, `schedule`. Akses dihitung saat request (logika murni `share-graph.ts` + test):
+  `free_note`, `ai_note`, `list`, `schedule`, dan item virtual **`schedule_series`** (`record_id` = `seriesId` agenda
+  berulang). Akses dihitung saat request (logika murni `share-graph.ts` + test):
   1. **Turunan** ikut dengan izin yang sama: project → action & agenda; area → sub area/kegiatan/sub kegiatan, project
-     di area, dan semua task & agenda-nya (`schedules.project_id`); agenda → Notes AI terhubung.
+     di area, dan semua task & agenda-nya (`schedules.project_id`); agenda → Notes AI terhubung; seri agenda → semua
+     pertemuan dengan `seriesId` itu (filter JSON `extra->seriesId`), masing-masing berstatus **root** (hanya pemilik
+     yang menghapus) — pertemuan yang ditambahkan kemudian otomatis ikut. `parentRefsOf` agenda menyertakan
+     `["schedule_series", seriesId]` sehingga kolaborator izin edit bisa menambah pertemuan ke ruang pemilik.
   2. **Rujukan** (catatan/resource yang dilampirkan, klasifikasi/JRA/wadah arsip beserta induk wadahnya, agenda dari
      Notes AI) ikut **baca-saja** dan tidak menurunkan turunannya.
   3. **Berkas**: semua `uploadId` (key berakhiran `uploadId`, termasuk gambar editor & berita acara) di payload item yang
@@ -245,7 +249,7 @@ dengan `ON DELETE CASCADE`, soft delete `deleted_at` pada tabel domain.
 | Record type (API) | Tabel | Kolom utama |
 |---|---|---|
 | `agenda_type` | `agenda_types` | name, order |
-| `schedule` | `schedules` | title, start_date, end_date, start_time, end_time, is_all_day, type, location, media, project_id (project / item area pemilik agenda) (di `extra`: description, resources = dasar pelaksanaan, results + outcome = hasil agenda — format lampiran PARA) |
+| `schedule` | `schedules` | title, start_date, end_date, start_time, end_time, is_all_day, type, location, media, project_id (project / item area pemilik agenda) (di `extra`: description, resources = dasar pelaksanaan, results + outcome = hasil agenda — format lampiran PARA, seriesId + recurrence = agenda berulang, satu record per pertemuan; reschedules = riwayat jadwal ulang; `media` = link dipisah baris baru) |
 | `routine` | `routines` | title, frequency, days, interval, interval_type, month_dates, start_date, active, archived, freeze_periods |
 | `todo` | `todos` | title, completed, date, priority |
 | `completion` | `routine_completions` | routine_id, date, actual_date, note, completed_at |

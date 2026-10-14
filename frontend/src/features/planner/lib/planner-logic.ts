@@ -239,3 +239,27 @@ export const summarizeDay = (
 /** Status penanda: tidak ada item / ada yang belum selesai / semua selesai. */
 export const indicatorState = (items: { done: boolean }[]): IndicatorState =>
   items.length === 0 ? "none" : items.some((i) => !i.done) ? "open" : "done";
+
+/** Semua link media agenda (satu per baris; data lama berisi satu link tetap terbaca). */
+export const scheduleLinks = (s: Pick<Schedule, "media">) =>
+  (s.media ?? "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+/** Daftar link → nilai `media` yang disimpan. */
+export const joinLinks = (links: string[]) =>
+  links
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join("\n");
+
+/** Label ringkas link: host tanpa "www." (mis. "meet.google.com"), atau teks aslinya bila bukan URL. */
+export const linkLabel = (link: string) => {
+  try {
+    const url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(link) ? link : `https://${link}`);
+    return url.hostname.replace(/^www\./, "") || link;
+  } catch {
+    return link;
+  }
+};

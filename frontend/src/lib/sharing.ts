@@ -27,6 +27,7 @@ export const SHAREABLE_LABEL: Record<ShareableType, string> = {
   ai_note: "Notes AI",
   list: "List",
   schedule: "Agenda",
+  schedule_series: "Seri Agenda",
 };
 
 /** Yang ikut terbagi bersama item induk (ditampilkan di dialog Bagikan). */
@@ -38,6 +39,8 @@ export const SHARE_SCOPE_HINT: Record<ShareableType, string> = {
   ai_note: "Rekaman, dokumen, dan agenda terhubung ikut terbagi (baca saja).",
   list: "Seluruh item di dalam list ikut terbagi.",
   schedule: "Dasar pelaksanaan, hasil agenda, berkas, dan Notes AI terhubung ikut terbagi.",
+  schedule_series:
+    "Seluruh pertemuan dalam seri — termasuk yang ditambahkan nanti — beserta dasar pelaksanaan, hasil, berkas, dan Notes AI terhubung ikut terbagi.",
 };
 
 export interface ItemAccess {
@@ -89,6 +92,8 @@ export function sharedItemPath(type: ShareableType | RecordType, id: string): st
       return links.list(id);
     case "schedule":
       return links.schedule(id);
+    case "schedule_series":
+      return links.series(id);
     default:
       return null;
   }

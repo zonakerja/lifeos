@@ -8,6 +8,7 @@ import {
   type SharePermission,
   type ShareRoot,
   type ShareStructure,
+  SERIES_TYPE,
   accessKey,
   addReference,
   expandDescendants,
@@ -92,6 +93,8 @@ export class ShareAccessService {
         const key = accessKey(entry.type, entry.id);
         if (loaded.has(key)) continue;
         loaded.add(key);
+        // Seri agenda = item virtual: tetap di peta akses (izin menambah pertemuan) tanpa dimuat dari tabel
+        if (entry.type === SERIES_TYPE) continue;
         if (!Object.hasOwn(RECORD_TABLES, entry.type)) {
           records.delete(key);
           continue;
@@ -125,7 +128,8 @@ export class ShareAccessService {
     const types = new Set(roots.map((r) => r.type));
     const needPara = types.has("para_project") || types.has("para_area");
     const where = { userId: ownerId, deletedAt: null };
-    const [projects, activities, tasks, schedules, aiNotes] = await Promise.all([
+    const seriesIds = roots.filter((r) => r.type === SERIES_TYPE).map((r) => r.id);
+    const [projects, activities, tasks, schedules, aiNotes, seriesSchedules] = await Promise.all([
       types.has("para_area")
         ? this.prisma.project.findMany({ where, select: { clientId: true, areaId: true } })
         : Promise.resolve([]),
@@ -142,8 +146,15 @@ export class ShareAccessService {
           })
         : Promise.resolve([]),
       // Notes AI terhubung ke agenda (agenda bisa dibagikan langsung atau sebagai turunan project/area)
-      types.has("schedule") || needPara
+      types.has("schedule") || types.has(SERIES_TYPE) || needPara
         ? this.prisma.aiNote.findMany({ where, select: { clientId: true, linkedScheduleId: true } })
+        : Promise.resolve([]),
+      // Anggota seri agenda berulang (seriesId ada di kolom extra)
+      seriesIds.length
+        ? this.prisma.schedule.findMany({
+            where: { ...where, OR: seriesIds.map((id) => ({ extra: { path: ["seriesId"], equals: id } })) },
+            select: { clientId: true, extra: true },
+          })
         : Promise.resolve([]),
     ]);
     return {
@@ -152,6 +163,10 @@ export class ShareAccessService {
       tasks: tasks.map((t) => ({ id: t.clientId, projectId: t.projectId })),
       schedules: schedules.map((s) => ({ id: s.clientId, projectId: s.projectId })),
       aiNotes: aiNotes.map((n) => ({ id: n.clientId, linkedScheduleId: n.linkedScheduleId })),
+      seriesSchedules: seriesSchedules.flatMap((s) => {
+        const seriesId = (s.extra as { seriesId?: unknown } | null)?.seriesId;
+        return typeof seriesId === "string" ? [{ id: s.clientId, seriesId }] : [];
+      }),
     };
   }
 }

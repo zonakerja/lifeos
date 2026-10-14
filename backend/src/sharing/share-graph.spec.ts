@@ -180,3 +180,35 @@ describe("agenda milik project / item area", () => {
     expect(parentRefsOf("schedule", {})).toEqual([]);
   });
 });
+
+describe("seri agenda berulang", () => {
+  const withSeries: ShareStructure = {
+    projects: [],
+    activities: [],
+    tasks: [],
+    seriesSchedules: [
+      { id: "k1", seriesId: "ser-1" },
+      { id: "k2", seriesId: "ser-1" },
+      { id: "x1", seriesId: "ser-2" },
+    ],
+    aiNotes: [{ id: "n-k2", linkedScheduleId: "k2" }],
+  };
+
+  it("membagikan seri = semua pertemuannya (sebagai root) + Notes AI terhubung", () => {
+    const access = expandDescendants([{ type: "schedule_series", id: "ser-1", permission: "comment" }], withSeries);
+    expect([...access.keys()].sort()).toEqual(["ai_note:n-k2", "schedule:k1", "schedule:k2", "schedule_series:ser-1"]);
+    expect(access.get("schedule:k1")).toMatchObject({ permission: "comment", root: true });
+    // Notes AI tetap turunan biasa
+    expect(access.get("ai_note:n-k2")?.root).toBe(false);
+  });
+
+  it("pertemuan baru dari kolaborator merujuk seri sebagai induk", () => {
+    expect(parentRefsOf("schedule", { seriesId: "ser-1" })).toEqual([["schedule_series", "ser-1"]]);
+    expect(parentRefsOf("schedule", { seriesId: "ser-1", projectId: "p1" })).toEqual([
+      ["para_project", "p1"],
+      ["para_activity", "p1"],
+      ["schedule_series", "ser-1"],
+    ]);
+    expect(parentRefsOf("para_task", { seriesId: "ser-1" })).toEqual([]);
+  });
+});

@@ -640,6 +640,37 @@ try {
   ok("no access after leaving", r.d.length === 0, r);
   r = await j("GET", `/uploads/${sharedAsset}`, null, pt);
   ok("file 403 after leaving", r.s === 403, r);
+
+  // Berbagi seri agenda berulang (item virtual schedule_series = semua pertemuan dengan seriesId sama)
+  const occ = (id, date) => ({ id, title: "Kuliah Seri", startDate: date, endDate: date, seriesId: "sm-ser" });
+  await j("PUT", "/records/schedule/sm-o1", { payload: occ("sm-o1", "2026-10-20") }, at);
+  await j("PUT", "/records/schedule/sm-o2", { payload: occ("sm-o2", "2026-10-27") }, at);
+  r = await j(
+    "POST",
+    "/shares",
+    { recordType: "schedule_series", recordId: "sm-ser", email: partnerEmail, permission: "edit" },
+    at,
+  );
+  ok("share schedule series", r.s === 201, r);
+  const seriesShareId = r.d?.id;
+  r = await j("GET", "/records/schedule", null, pt);
+  ok(
+    "recipient sees all series meetings as roots",
+    r.d.length === 2 && r.d.every((x) => x.payload.seriesId === "sm-ser" && x.share?.root),
+    r,
+  );
+  r = await j("PUT", "/records/schedule/sm-o3", { payload: occ("sm-o3", "2026-11-03"), userId: tempUserId }, pt);
+  ok("collaborator adds meeting to shared series", r.s === 200 && r.d.userId === tempUserId, r);
+  r = await j("DELETE", `/records/schedule/sm-o1?userId=${tempUserId}`, null, pt);
+  ok("collaborator cannot delete series meeting", r.s === 403, r);
+  r = await j("GET", "/shares/outgoing", null, at);
+  ok(
+    "series share title",
+    r.d.some((x) => x.recordType === "schedule_series" && /seri · 3 pertemuan/.test(x.item?.title ?? "")),
+    r,
+  );
+  r = await j("DELETE", `/shares/${seriesShareId}`, null, at);
+  ok("revoke series share", r.s === 200, r);
   r = await j("POST", "/auth/change-password", { currentPassword: "salah", newPassword: "1234" }, pt);
   ok("change pw wrong 400", r.s === 400, r);
   r = await j("POST", "/auth/logout", null, null, "x".repeat(30));

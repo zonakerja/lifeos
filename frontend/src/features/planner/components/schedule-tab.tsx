@@ -1,20 +1,30 @@
-import { CalendarDays, CalendarRange, Clock, Eye, MapPin, PencilLine, Plus, Trash2 } from "lucide-react";
+import {
+  CalendarClock,
+  CalendarDays,
+  CalendarRange,
+  Clock,
+  Eye,
+  MapPin,
+  PencilLine,
+  Plus,
+  Repeat,
+  Trash2,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { PaginationControl } from "@/components/common/pagination-control";
 import { SectionCard } from "@/components/common/section-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSchedules } from "@/data/collections";
-import { ownedFiles } from "@/features/resources/attachment-cleanup";
-import { DeleteWithFilesDialog } from "@/features/resources/delete-with-files-dialog";
-import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
 import { usePagination } from "@/hooks/use-pagination";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSearchParam, useSetSearchParams } from "@/hooks/use-search-param";
 import { useToday } from "@/hooks/use-today";
-import { formatDayMonth, formatLocalYMD } from "@/lib/dates";
+import { formatDayMonth, formatLocalYMD, parseLocalYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { Schedule } from "@/types/entities";
 import {
@@ -23,9 +33,12 @@ import {
   SCHEDULE_FILTER_LABELS,
   type ScheduleFilter,
   scheduleEnd,
+  scheduleLinks,
   scheduleStart,
   scheduleTimeLabel,
 } from "../lib/planner-logic";
+import { collapseSeries, seriesPosition } from "../lib/recurrence";
+import { ScheduleDeleteDialog } from "./schedule-delete-dialog";
 import { scheduleTypeStyle } from "../lib/schedule-style";
 import { useAgendaTypeList } from "../use-agenda-types";
 import { ShareButton } from "@/features/sharing/share-dialog";
@@ -38,17 +51,14 @@ const isScheduleFilter = (value: string | null): value is ScheduleFilter =>
   value === "upcoming" || value === "past" || value === "all";
 
 export function ScheduleTab() {
-  const { items: schedules, setItems } = useSchedules();
+  const { items: schedules } = useSchedules();
   const { items: types } = useAgendaTypeList();
   const { canEdit } = usePermissions();
   const [deleting, setDeleting] = useState<Schedule | null>(null);
-  // Dialog edit dikendalikan URL: ?edit=<id> | ?edit=new (mendukung deep link)
+  // Agenda berulang ditampilkan satu baris per seri (pertemuan terdekat sesuai filter)
+  const [grouped, setGrouped] = useState(true);
   // Dialog lihat/ubah agenda dikendalikan URL (?agenda=<id>|new, ?edit=<id>) — lihat ScheduleDialogs
   const setParams = useSetSearchParams();
-  const cleanup = useAttachmentCleanup();
-  // Semua lampiran agenda yang akan dihapus (dasar pelaksanaan + hasil); berkasnya ditawarkan untuk dipertahankan
-  const deletingAttachments = deleting ? [...(deleting.resources ?? []), ...(deleting.results ?? [])] : [];
-  const deletingFiles = ownedFiles(deletingAttachments);
   // Filter waktu di URL: ?sub=upcoming|past|all (default akan datang)
   const [subParam, setSubParam] = useSearchParam("sub");
   const filter: ScheduleFilter = isScheduleFilter(subParam) ? subParam : "upcoming";
@@ -59,7 +69,9 @@ export function ScheduleTab() {
     return { upcoming: schedules.length - past, past, all: schedules.length };
   }, [schedules, today]);
   const filtered = useMemo(() => filterSchedules(schedules, filter, today), [schedules, filter, today]);
-  const { pageItems, setPage, controlProps } = usePagination(filtered, 10);
+  const displayed = useMemo(() => (grouped ? collapseSeries(filtered) : filtered), [filtered, grouped]);
+  const hasSeries = useMemo(() => schedules.some((s) => s.seriesId), [schedules]);
+  const { pageItems, setPage, controlProps } = usePagination(displayed, 10);
 
   return (
     <SectionCard
@@ -84,7 +96,7 @@ export function ScheduleTab() {
           setSubParam(v === "upcoming" ? null : v);
           setPage(1);
         }}
-        className="mb-4 flex-wrap"
+        className="flex-wrap"
       >
         {(Object.keys(SCHEDULE_FILTER_LABELS) as ScheduleFilter[]).map((key) => (
           <ToggleGroupItem
@@ -99,6 +111,22 @@ export function ScheduleTab() {
           </ToggleGroupItem>
         ))}
       </ToggleGroup>
+      {hasSeries && (
+        <div className="mt-3 flex items-center gap-2">
+          <Switch
+            id="sch-group-series"
+            checked={grouped}
+            onCheckedChange={(v) => {
+              setGrouped(v);
+              setPage(1);
+            }}
+          />
+          <Label htmlFor="sch-group-series" className="text-xs font-normal text-muted-foreground">
+            Gabungkan agenda berulang (tampilkan pertemuan terdekat saja)
+          </Label>
+        </div>
+      )}
+      <div className="mb-4" />
 
       {filtered.length === 0 ? (
         <Empty className="border border-dashed">
@@ -124,6 +152,8 @@ export function ScheduleTab() {
             const past = isSchedulePast(sch, today);
             const ongoing = !past && start <= today;
             const { icon: TypeIcon, className } = scheduleTypeStyle(sch.type, types);
+            const series = sch.seriesId ? seriesPosition(schedules, sch) : null;
+            const mediaLinks = scheduleLinks(sch);
             return (
               <li
                 key={sch.id}
@@ -164,13 +194,26 @@ export function ScheduleTab() {
                         </Badge>
                       )}
                       {past && <Badge variant="secondary">Selesai</Badge>}
+                      {sch.reschedules?.length ? (
+                        <Badge
+                          className="bg-warning/15 text-warning-foreground dark:text-warning"
+                          title={`Semula ${formatDayMonth(parseLocalYMD(sch.reschedules[0].fromDate))}`}
+                        >
+                          <CalendarClock /> Dijadwal ulang
+                        </Badge>
+                      ) : null}
+                      {series && (
+                        <Badge className="bg-module-soft text-module" title="Agenda berulang">
+                          <Repeat /> {series.index}/{series.total}
+                        </Badge>
+                      )}
                       <SharedBadge item={sch} recordType="schedule" />
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1.5">
                         <CalendarDays className="size-3.5 text-module" />
-                        {formatDayMonth(start)}
-                        {start !== end && ` - ${formatDayMonth(end)}`}
+                        {formatDayMonth(parseLocalYMD(start))}
+                        {start !== end && ` - ${formatDayMonth(parseLocalYMD(end))}`}
                       </span>
                       <span className="flex items-center gap-1.5">
                         <Clock className="size-3.5 text-module" /> {scheduleTimeLabel(sch)}
@@ -181,7 +224,13 @@ export function ScheduleTab() {
                         </span>
                       )}
                     </div>
-                    {sch.media && <MediaLink media={sch.media} />}
+                    {mediaLinks.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {mediaLinks.map((link, i) => (
+                          <MediaLink key={`${link}-${i}`} media={link} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex justify-end gap-1 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100">
@@ -224,26 +273,7 @@ export function ScheduleTab() {
       </div>
 
       <ScheduleDialogs />
-      <DeleteWithFilesDialog
-        open={!!deleting}
-        onOpenChange={(open) => !open && setDeleting(null)}
-        title="Hapus Agenda?"
-        description="Agenda beserta dasar pelaksanaan & hasilnya akan dihapus:"
-        itemName={deleting?.title}
-        files={deletingFiles}
-        shared={deleting ? cleanup.referenced(deletingAttachments) : undefined}
-        onConfirm={(keepIds) => {
-          if (deleting) {
-            setItems((prev) => prev.filter((s) => s.id !== deleting.id));
-            cleanup.release(deletingFiles, keepIds, {
-              contextTag: "Agenda",
-              exclude: deletingAttachments,
-              ownerId: deleting.userId,
-            });
-          }
-          setDeleting(null);
-        }}
-      />
+      <ScheduleDeleteDialog schedule={deleting} onOpenChange={(open) => !open && setDeleting(null)} />
     </SectionCard>
   );
 }

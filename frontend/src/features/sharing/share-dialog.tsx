@@ -211,18 +211,28 @@ interface ShareButtonProps {
   iconOnly?: boolean;
   size?: "sm" | "default";
   className?: string;
+  /** Teks tombol (default "Bagikan") */
+  label?: string;
 }
 
 /**
  * Tombol "Bagikan" + dialognya. Hanya tampil untuk item milik sendiri; jumlah penerima ditampilkan bila sudah
  * dibagikan.
  */
-export function ShareButton({ item, recordType, title, iconOnly, size = "sm", className }: ShareButtonProps) {
+export function ShareButton({
+  item,
+  recordType,
+  title,
+  iconOnly,
+  size = "sm",
+  className,
+  label: baseLabel = "Bagikan",
+}: ShareButtonProps) {
   const [open, setOpen] = useState(false);
   const { canEdit } = usePermissions();
   const count = useSharedOutKeys().get(`${recordType}:${item.id}`) ?? 0;
   if (!itemAccess(item).isOwner || !canEdit) return null;
-  const label = count ? `Dibagikan (${count})` : "Bagikan";
+  const label = count ? `${baseLabel === "Bagikan" ? "Dibagikan" : baseLabel} (${count})` : baseLabel;
   return (
     <>
       {iconOnly ? (

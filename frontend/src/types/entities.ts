@@ -32,6 +32,33 @@ export interface AgendaType extends Owned {
   icon?: AgendaIcon;
 }
 
+/** Satu kali jadwal ulang agenda (dari → ke). */
+export interface ScheduleReschedule {
+  /** YYYY-MM-DD jadwal sebelum dipindah */
+  fromDate: string;
+  fromStartTime?: string;
+  fromEndTime?: string;
+  /** YYYY-MM-DD jadwal baru */
+  toDate: string;
+  toStartTime?: string;
+  reason?: string;
+  /** Waktu perubahan (ISO) */
+  at: string;
+}
+
+/** Pola agenda berulang (mis. kuliah setiap Selasa & Kamis s.d. akhir semester). */
+export interface ScheduleRecurrence {
+  frequency: "daily" | "weekly" | "monthly";
+  /** Setiap N hari/minggu/bulan (min. 1) */
+  interval: number;
+  /** Hari dalam minggu (0 = Minggu) untuk `weekly` */
+  days?: number[];
+  /** Batas tanggal terakhir (YYYY-MM-DD, inklusif) — salah satu dari `until` / `count` */
+  until?: string;
+  /** Jumlah pertemuan */
+  count?: number;
+}
+
 export interface Schedule extends Owned {
   id: string;
   title: string;
@@ -49,8 +76,13 @@ export interface Schedule extends Owned {
   isAllDay?: boolean;
   type?: string;
   location?: string;
-  /** Link meeting / media online */
+  /** Link meeting / media online — boleh lebih dari satu, dipisah baris baru (baca lewat `scheduleLinks()`) */
   media?: string;
+  /** Seri agenda berulang: semua pertemuan memakai `seriesId` & `recurrence` yang sama */
+  seriesId?: string;
+  recurrence?: ScheduleRecurrence;
+  /** Riwayat jadwal ulang (dimajukan/dimundurkan); entri pertama = jadwal semula */
+  reschedules?: ScheduleReschedule[];
   /** Keterangan / susunan acara */
   description?: string;
   /** Dasar pelaksanaan (undangan, surat tugas, ...) — opsional, format sama dengan lampiran Action/Task PARA */

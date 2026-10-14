@@ -11,6 +11,11 @@ import {
   Sparkles,
   Video,
   Layers,
+  Repeat,
+  ChevronLeft,
+  ChevronRight,
+  CalendarClock,
+  Undo2,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useNavigate } from "react-router";
@@ -44,10 +49,21 @@ import { formatFullDate, formatLocalYMD, formatShortDate, parseLocalYMD } from "
 import { toExternalHref } from "@/lib/urls";
 import { cn } from "@/lib/utils";
 import type { AttachedResource, Schedule } from "@/types/entities";
-import { isSchedulePast, scheduleEnd, scheduleStart, scheduleTimeLabel } from "../lib/planner-logic";
+import {
+  isSchedulePast,
+  linkLabel,
+  scheduleEnd,
+  scheduleLinks,
+  scheduleStart,
+  scheduleTimeLabel,
+} from "../lib/planner-logic";
+import { describeRecurrence, seriesPosition } from "../lib/recurrence";
+import { lastReschedule, originalSlot, revertReschedule } from "../lib/reschedule";
+import { RescheduleDialog } from "./reschedule-dialog";
 import { scheduleTypeStyle } from "../lib/schedule-style";
 import { useAgendaTypeList } from "../use-agenda-types";
 import { emptySchedule, type ReleasedFiles, ScheduleFormDialog } from "./schedule-form";
+import { planSeriesSave, seriesMembers, type SeriesScope } from "../lib/recurrence";
 import { AccessScope } from "@/components/common/access-scope";
 import { CommentsPanel } from "@/features/sharing/comments-panel";
 import { ShareButton } from "@/features/sharing/share-dialog";
@@ -57,6 +73,9 @@ import { itemAccess } from "@/lib/sharing";
 /** Tag konteks saat lampiran agenda disimpan ke Resource global. */
 const GLOBAL_TAG = "Agenda";
 
+/** Cap waktu untuk ID pertemuan baru (helper modul — aturan purity oxlint). */
+const nowStamp = () => Date.now();
+
 /**
  * Dialog agenda yang dikendalikan URL — pasang sekali di halaman yang menampilkan agenda (Overview, Planner Harian,
  * Jadwal):
@@ -65,13 +84,22 @@ const GLOBAL_TAG = "Agenda";
  * - `?edit=<id>`   → form ubah (tanpa izin ubah — agenda yang dibagikan dengan izin Lihat/Komentar — diarahkan ke tampilan lihat; `?edit=new` = agenda baru)
  */
 export function ScheduleDialogs({ defaultDate }: { defaultDate?: string }) {
-  const { items: schedules, upsert } = useSchedules();
+  const { items: schedules, upsert, setItems: setSchedules } = useSchedules();
   const { setItems: setResources } = useResources();
   const { names: agendaTypes } = useAgendaTypeList();
   const { canEdit } = usePermissions();
   const [agendaParam] = useSearchParam("agenda");
   const [editParam] = useSearchParam("edit");
   const [parentParam] = useSearchParam("agendaParent");
+  // ?series=<seriesId> (mis. dari Pengaturan → Berbagi) → pertemuan terdekat yang belum lewat, atau yang terakhir
+  const [seriesParam] = useSearchParam("series");
+  const today = formatLocalYMD(useToday());
+  const seriesTarget = seriesParam
+    ? (() => {
+        const members = seriesMembers(schedules, seriesParam);
+        return members.find((m) => scheduleEnd(m) >= today) ?? members.at(-1) ?? null;
+      })()
+    : null;
   const setParams = useSetSearchParams();
   const { items: projects } = useProjects();
   const { items: activities } = useActivities();
@@ -85,7 +113,7 @@ export function ScheduleDialogs({ defaultDate }: { defaultDate?: string }) {
   const editTarget = editParam && editParam !== "new" ? schedules.find((s) => s.id === editParam) : undefined;
   const canEditTarget = canEdit && (!editTarget || itemAccess(editTarget).canEdit);
   const viewId = agendaParam && agendaParam !== "new" ? agendaParam : !canEditTarget ? editParam : null;
-  const viewing = viewId ? (schedules.find((s) => s.id === viewId) ?? null) : null;
+  const viewing = viewId ? (schedules.find((s) => s.id === viewId) ?? null) : seriesTarget;
   const editing: Schedule | null = !canEditTarget
     ? null
     : agendaParam === "new" || editParam === "new"
@@ -97,6 +125,68 @@ export function ScheduleDialogs({ defaultDate }: { defaultDate?: string }) {
       : editParam
         ? (schedules.find((s) => s.id === editParam) ?? null)
         : null;
+
+  /**
+   * Simpan dari form. Agenda berulang (baru / bagian seri) → rencana seri: pertemuan dibuat, diperbarui, atau dihapus
+   * sesuai cakupan. Berkas hasil dari pertemuan yang terhapus dipertahankan sebagai Resource global (tanpa kehilangan
+   * data); berkas dasar yang masih dipakai pertemuan lain dilindungi oleh `useAttachmentCleanup`.
+   */
+  const saveFromForm = (schedule: Schedule, released: ReleasedFiles[], scope: SeriesScope) => {
+    const original = schedules.find((s) => s.id === schedule.id) ?? null;
+    if (!schedule.recurrence && !original?.seriesId) {
+      save(schedule);
+      for (const r of released)
+        cleanup.release(r.files, r.keepIds, { contextTag: GLOBAL_TAG, ownerId: schedule.userId });
+      return schedule.id;
+    }
+    const members = seriesMembers(schedules, original?.seriesId);
+    const stamp = nowStamp();
+    const plan = planSeriesSave(
+      schedule,
+      original,
+      members,
+      scope,
+      (i) => `sch-${stamp}-${i}`,
+      () => `series-${stamp}`,
+    );
+    const removeIds = new Set(plan.remove.map((s) => s.id));
+    const byId = new Map(plan.upsert.map((s) => [s.id, s]));
+    setSchedules((prev) => {
+      const next = prev.filter((s) => !removeIds.has(s.id)).map((s) => byId.get(s.id) ?? s);
+      const existing = new Set(prev.map((s) => s.id));
+      return [...next, ...plan.upsert.filter((s) => !existing.has(s.id))];
+    });
+    const attachments = [...(schedule.resources ?? []), ...(schedule.results ?? [])];
+    if (attachments.some((a) => a.addToGlobal)) {
+      setResources((prev) => mergeIntoGlobalResources(prev, attachments, GLOBAL_TAG));
+    }
+    // Lampiran yang dilepas di form: pengecualian = lampiran lama semua pertemuan yang diperbarui (berkas yang masih
+    // dirujuk pertemuan di luar cakupan tetap aman)
+    const touched = members.filter((m) => byId.has(m.id) || removeIds.has(m.id));
+    for (const r of released) {
+      const uploadIds = new Set(r.files.map((f) => f.uploadId));
+      const exclude = touched.flatMap((m) => (m.resources ?? []).filter((a) => uploadIds.has(a.uploadId)));
+      cleanup.release(r.files, r.keepIds, {
+        contextTag: GLOBAL_TAG,
+        ownerId: schedule.userId,
+        exclude: [...r.files, ...exclude],
+      });
+    }
+    if (plan.remove.length) {
+      const removedAttachments = plan.remove.flatMap((m) => [...(m.resources ?? []), ...(m.results ?? [])]);
+      const files = ownedFiles(removedAttachments);
+      cleanup.release(
+        files,
+        files.map((f) => f.id),
+        {
+          contextTag: GLOBAL_TAG,
+          ownerId: schedule.userId,
+          exclude: removedAttachments,
+        },
+      );
+    }
+    return schedule.id;
+  };
 
   /** Simpan agenda + lampiran bertanda "Simpan ke Resource Global". */
   const save = (schedule: Schedule) => {
@@ -112,8 +202,9 @@ export function ScheduleDialogs({ defaultDate }: { defaultDate?: string }) {
       <ScheduleDetailDialog
         schedule={viewing}
         canEdit={canEdit && itemAccess(viewing).canEdit}
-        onOpenChange={(open) => !open && setParams({ agenda: null })}
-        onEdit={(id) => setParams({ agenda: null, edit: id })}
+        onOpenChange={(open) => !open && setParams({ agenda: null, series: null })}
+        onEdit={(id) => setParams({ agenda: null, series: null, edit: id })}
+        onOpen={(id) => setParams({ agenda: id, series: null })}
         onChange={save}
       />
       <AccessScope item={editing}>
@@ -121,13 +212,11 @@ export function ScheduleDialogs({ defaultDate }: { defaultDate?: string }) {
           schedule={editing}
           agendaTypes={agendaTypes}
           onOpenChange={(open) => !open && setParams({ agenda: null, edit: null, agendaParent: null })}
-          onSave={(schedule, released: ReleasedFiles[]) => {
-            save(schedule);
-            // Berkas yang dilepas di form: hapus / jadikan Resource global sesuai pilihan user
-            for (const r of released)
-              cleanup.release(r.files, r.keepIds, { contextTag: GLOBAL_TAG, ownerId: schedule.userId });
+          seriesMembers={seriesMembers(schedules, editing?.seriesId)}
+          onSave={(schedule, released, scope) => {
+            const id = saveFromForm(schedule, released, scope);
             // Setelah disimpan tampilkan hasilnya
-            setParams({ agenda: schedule.id, edit: null, agendaParent: null });
+            setParams({ agenda: id, edit: null, agendaParent: null });
           }}
         />
       </AccessScope>
@@ -141,6 +230,8 @@ interface ScheduleDetailDialogProps {
   canEdit: boolean;
   onOpenChange: (open: boolean) => void;
   onEdit: (id: string) => void;
+  /** Buka agenda lain (pertemuan sebelumnya/berikutnya dalam seri) */
+  onOpen: (id: string) => void;
   onChange: (schedule: Schedule) => void;
 }
 
@@ -165,8 +256,14 @@ function ScheduleDetail({
   canEdit,
   onOpenChange,
   onEdit,
+  onOpen,
   onChange,
 }: ScheduleDetailDialogProps & { schedule: Schedule }) {
+  const { items: allSchedules } = useSchedules();
+  const series = seriesPosition(allSchedules, schedule);
+  const [rescheduling, setRescheduling] = useState(false);
+  const original = originalSlot(schedule);
+  const latest = lastReschedule(schedule);
   const navigate = useNavigate();
   const { items: types } = useAgendaTypeList();
   const { items: aiNotes } = useAiNotes();
@@ -186,7 +283,7 @@ function ScheduleDetail({
       ? { label: start === end ? "Hari ini" : "Berlangsung", className: "bg-success/15 text-success" }
       : { label: "Akan datang", className: "bg-info/15 text-info" };
   const { icon: TypeIcon, className: typeClass } = scheduleTypeStyle(schedule.type, types);
-  const mediaHref = toExternalHref(schedule.media);
+  const mediaLinks = scheduleLinks(schedule);
   const linkedNotes = aiNotes.filter((n) => n.linkedScheduleId === schedule.id);
   // Agenda milik Project / item Area (Productivity)
   const { items: projects } = useProjects();
@@ -206,9 +303,9 @@ function ScheduleDetail({
     void navigate(path);
   };
 
-  const copyMedia = async () => {
+  const copyMedia = async (link: string) => {
     try {
-      await navigator.clipboard.writeText(mediaHref ?? schedule.media ?? "");
+      await navigator.clipboard.writeText(toExternalHref(link) ?? link);
       toast.success("Link disalin.");
     } catch {
       toast.error("Gagal menyalin link.");
@@ -231,6 +328,11 @@ function ScheduleDetail({
                 </span>
               )}
               <Badge className={status.className}>{status.label}</Badge>
+              {original && (
+                <Badge className="bg-warning/15 text-warning-foreground dark:text-warning">
+                  <CalendarClock /> Dijadwal ulang
+                </Badge>
+              )}
               <SharedBadge item={schedule} recordType="schedule" />
             </DialogDescription>
           </div>
@@ -246,30 +348,110 @@ function ScheduleDetail({
           <InfoRow icon={Clock} label="Waktu">
             {scheduleTimeLabel(schedule)}
           </InfoRow>
+          {original && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning/10 p-3 sm:col-span-2">
+              <CalendarClock className="size-4 shrink-0 text-warning-foreground dark:text-warning" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-semibold text-muted-foreground">
+                  Jadwal semula{schedule.reschedules!.length > 1 ? ` · dipindah ${schedule.reschedules!.length}×` : ""}
+                </span>
+                <span className="font-medium">
+                  {formatFullDate(parseLocalYMD(original.fromDate))}
+                  {original.fromStartTime &&
+                    ` · ${original.fromStartTime}${original.fromEndTime ? ` - ${original.fromEndTime}` : ""}`}
+                </span>
+                {latest?.reason && <span className="block text-xs text-muted-foreground">Alasan: {latest.reason}</span>}
+              </span>
+              {canEdit && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7"
+                  onClick={() => {
+                    onChange(revertReschedule(schedule));
+                    toast.success("Agenda dikembalikan ke jadwal semula.");
+                  }}
+                >
+                  <Undo2 /> Kembalikan
+                </Button>
+              )}
+            </div>
+          )}
           <InfoRow icon={MapPin} label="Lokasi">
             {schedule.location || <span className="text-muted-foreground">-</span>}
           </InfoRow>
-          <InfoRow icon={Video} label="Link Meeting / Media">
-            {schedule.media ? (
-              <span className="flex flex-wrap items-center gap-2">
-                {mediaHref ? (
-                  <Button size="sm" className="h-7" asChild>
-                    <a href={mediaHref} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink /> Buka Link
-                    </a>
-                  </Button>
-                ) : null}
-                <Button size="sm" variant="outline" className="h-7" onClick={() => void copyMedia()}>
-                  <Copy /> Salin
-                </Button>
-                <span className="w-full truncate text-xs text-muted-foreground" title={schedule.media}>
-                  {schedule.media}
-                </span>
-              </span>
+          <InfoRow
+            icon={Video}
+            label={mediaLinks.length > 1 ? `Link Meeting / Media (${mediaLinks.length})` : "Link Meeting / Media"}
+          >
+            {mediaLinks.length ? (
+              <ul className="flex flex-col gap-1.5">
+                {mediaLinks.map((link, i) => {
+                  const href = toExternalHref(link);
+                  return (
+                    <li key={`${link}-${i}`} className="flex min-w-0 items-center gap-1.5">
+                      {href ? (
+                        <Button size="sm" className="h-7 min-w-0 max-w-full justify-start" asChild>
+                          <a href={href} target="_blank" rel="noopener noreferrer" title={link}>
+                            <ExternalLink /> <span className="truncate">{linkLabel(link)}</span>
+                          </a>
+                        </Button>
+                      ) : (
+                        <span className="truncate text-sm" title={link}>
+                          {link}
+                        </span>
+                      )}
+                      <Button
+                        size="icon-sm"
+                        variant="outline"
+                        className="shrink-0"
+                        title="Salin link"
+                        aria-label={`Salin ${link}`}
+                        onClick={() => void copyMedia(link)}
+                      >
+                        <Copy />
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
             ) : (
               <span className="text-muted-foreground">-</span>
             )}
           </InfoRow>
+          {series && schedule.recurrence && (
+            <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+              <Repeat className="size-4 shrink-0 text-module" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-semibold text-muted-foreground">Agenda Berulang</span>
+                <span className="font-medium">
+                  Pertemuan {series.index} dari {series.total} · {describeRecurrence(schedule.recurrence)}
+                </span>
+              </span>
+              <span className="flex gap-1">
+                <Button
+                  size="icon-sm"
+                  variant="outline"
+                  title="Pertemuan sebelumnya"
+                  aria-label="Pertemuan sebelumnya"
+                  disabled={series.index <= 1}
+                  onClick={() => onOpen(series.members[series.index - 2].id)}
+                >
+                  <ChevronLeft />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="outline"
+                  title="Pertemuan berikutnya"
+                  aria-label="Pertemuan berikutnya"
+                  disabled={series.index >= series.total}
+                  onClick={() => onOpen(series.members[series.index].id)}
+                >
+                  <ChevronRight />
+                </Button>
+              </span>
+            </div>
+          )}
           {parent && (
             <InfoRow icon={Layers} label={`Bagian dari ${parent.label}`}>
               {parentPath ? (
@@ -435,16 +617,47 @@ function ScheduleDetail({
       </div>
 
       <DialogFooter>
-        <ShareButton item={schedule} recordType="schedule" title={schedule.title} className="sm:mr-auto" />
+        <div className="flex flex-wrap gap-2 sm:mr-auto">
+          <ShareButton
+            item={schedule}
+            recordType="schedule"
+            title={schedule.title}
+            label={schedule.seriesId ? "Bagikan Pertemuan" : "Bagikan"}
+          />
+          {schedule.seriesId && (
+            // Seluruh seri (termasuk pertemuan yang ditambahkan nanti); hanya pemilik
+            <ShareButton
+              item={{ id: schedule.seriesId, share: schedule.share }}
+              recordType="schedule_series"
+              title={`${schedule.title} (seri)`}
+              label="Bagikan Seri"
+            />
+          )}
+        </div>
         <Button variant="outline" onClick={() => onOpenChange(false)}>
           Tutup
         </Button>
+        {canEdit && (
+          <Button variant="outline" onClick={() => setRescheduling(true)}>
+            <CalendarClock /> Jadwal Ulang
+          </Button>
+        )}
         {canEdit && (
           <Button onClick={() => onEdit(schedule.id)}>
             <PencilLine /> Ubah Agenda
           </Button>
         )}
       </DialogFooter>
+      <RescheduleDialog
+        schedule={rescheduling ? schedule : null}
+        schedules={allSchedules}
+        onOpenChange={(open) => !open && setRescheduling(false)}
+        onSave={(next) => {
+          onChange(next);
+          setRescheduling(false);
+          toast.success(`Agenda dipindah ke ${formatFullDate(parseLocalYMD(next.startDate ?? ""))}.`);
+        }}
+      />
 
       <ResourceAiDialog
         resource={aiTarget?.item ?? null}
