@@ -56,7 +56,38 @@ services:
       - lifeos-storage-data:/data
       - ./infra/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
 
+  onlyoffice:
+    # Editor dokumen ONLYOFFICE Docs Community (menu Tools → ONLYOFFICE, docs/ONLYOFFICE.md).
+    # Opsional & berat (± 1–2 GB RAM) → hanya menyala dengan profile: docker compose --profile office up -d
+    image: onlyoffice/documentserver:10.0
+    container_name: lifeos-onlyoffice
+    restart: unless-stopped
+    profiles: ["office"]
+    environment:
+      JWT_ENABLED: "true"
+      # Secret khusus development; harus sama dengan ONLYOFFICE_JWT_SECRET di backend/.env.
+      JWT_SECRET: lifeos-dev-onlyoffice-jwt-secret-0123456789abcdef
+      # Header JWT terpisah dari "Authorization" (Bearer milik LifeOS) agar tidak tertukar.
+      JWT_HEADER: AuthorizationJwt
+      # Berkas diunduh dari backend di alamat privat (IP gateway WSL di dev, jaringan Docker di produksi).
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+    ports:
+      - "8080:80"
+    volumes:
+      - lifeos-onlyoffice-cache:/var/lib/onlyoffice
+      - lifeos-onlyoffice-logs:/var/log/onlyoffice
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost/healthcheck | grep -q true"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
 volumes:
+  lifeos-onlyoffice-cache:
+    name: lifeos-onlyoffice-cache
+  lifeos-onlyoffice-logs:
+    name: lifeos-onlyoffice-logs
   lifeos-postgres18-data:
     name: lifeos-postgres18-data
   lifeos-redis-data:

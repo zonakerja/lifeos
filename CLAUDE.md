@@ -3,13 +3,15 @@
 Knowledge base utama untuk Claude Code di proyek LifeOS. **Baca seluruh file ini di awal setiap chat/thread.**
 Dokumen ini menggantikan memori percakapan: keputusan, konteks user, status, dan pola wajib tercatat di sini.
 Perbarui **§11 Status** dan **§12 Log Keputusan** setiap selesai satu langkah berarti.
-Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE = fondasi + tech stack & versi, UPGRADE-PLAN, FILE-CONTROL).
+Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE = fondasi + tech stack & versi, UPGRADE-PLAN, FILE-CONTROL,
+ONLYOFFICE = riset & rencana integrasi editor dokumen).
 
 ## 0. Memulai Thread Baru (checklist wajib)
 
 1. Baca file ini sampai habis (terutama §11 Status, §14 Resep, §15 Jebakan). Untuk modul File Control baca juga
    `docs/FILE-CONTROL.md`; untuk deploy `docs/DEPLOYMENT.md`; untuk arsitektur & versi tech stack
-   `docs/ARCHITECTURE.md` (fondasi); untuk upgrade dependensi `docs/UPGRADE-PLAN.md`.
+   `docs/ARCHITECTURE.md` (fondasi); untuk upgrade dependensi `docs/UPGRADE-PLAN.md`; untuk menu Tools → ONLYOFFICE
+   `docs/ONLYOFFICE.md`.
 2. Cek kondisi repo: `git status`, `git log --oneline -10` (commit terakhir = pekerjaan terakhir).
 3. **Cek status lingkungan dulu (§2a)** — jangan menyalakan yang sudah aktif. Yang belum aktif: nyalakan (lihat §2):
    `wsl -e sh -c "sleep infinity"` (background) →
@@ -57,7 +59,7 @@ Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE = fond
 - Folder kerja: `D:\Development\Application\LifeOS`. `.claude/launch.json` berisi konfigurasi `backend` & `frontend`
   untuk preview browser Claude. Panel browser Claude sering tersembunyi → uji UI lewat `javascript_tool`.
 - **Aturan port (semua thread sama, tidak boleh diganti)**: frontend 5173, backend 4000, PostgreSQL 5432, Redis 6379,
-  SeaweedFS 8333/8888 (opsional: Prisma Studio 5555, Vite preview 4173, stack prod uji 80/443). Satu komponen = satu
+  SeaweedFS 8333/8888, ONLYOFFICE 8080 (profile `office`) (opsional: Prisma Studio 5555, Vite preview 4173, stack prod uji 80/443). Satu komponen = satu
   proses: cek §2a dulu; bila port sudah dipakai (mis. user menjalankan dev server di terminalnya), **pakai yang ada**
   — jangan `preview_start {name}` lagi; untuk melihat UI cukup `preview_start {url: "http://localhost:5173"}`. Vite
   `strictPort: true` → gagal alih-alih pindah ke 5174. Panduan user: `docs/SETUP.md` §2–§6.
@@ -78,6 +80,7 @@ ingatan percakapan.
 | PostgreSQL (Docker) | 5432 | … | Docker (WSL) | DB `lifeos` + `lifeos_shadow` |
 | Redis (Docker) | 6379 | … | Docker (WSL) | |
 | SeaweedFS S3 / filer (Docker) | 8333 / 8888 | … | Docker (WSL) | filer UI http://localhost:8888 |
+| ONLYOFFICE (Docker, opsional) | 8080 | … | Docker (WSL), profile `office` | http://localhost:8080/healthcheck |
 | WSL | — | berjalan / berhenti | — | proses penjaga `sleep infinity` milik Claude (bila ada) |
 
 Tambahkan baris lain bila relevan (mis. stack produksi uji `lifeos-*test` di port 80/443, proses latar belakang Claude).
@@ -87,7 +90,7 @@ Akhiri dengan satu kalimat: apa yang masih menyala dan apakah aman menutup lapto
 
 ```powershell
 # Port yang sedang dipakai + prosesnya (wslrelay.exe = port container Docker)
-Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 80,443,4000,5173,5432,6379,8333,8888 } |
+Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 80,443,4000,5173,5432,6379,8080,8333,8888 } |
   ForEach-Object { "{0} pid={1} {2}" -f $_.LocalPort, $_.OwningProcess, (Get-Process -Id $_.OwningProcess).ProcessName }
 # Proses node milik LifeOS (dev server frontend/backend, termasuk dari terminal user)
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*LifeOS*' } |
@@ -102,7 +105,7 @@ Claude terlihat di `preview_list`.
 **"Matikan semua"** (data tetap aman; urutan):
 1. Frontend & backend: `preview_stop` untuk server yang dijalankan Claude; yang dijalankan user di terminal → minta
    user menekan `Ctrl+C`, atau (dengan persetujuan) `Stop-Process -Id <pid>` untuk proses node LifeOS di atas.
-2. Docker: `wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose stop"` — **`stop`, bukan
+2. Docker: `wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose --profile office stop"` — **`stop`, bukan
    `down -v`** (volume/data tetap ada). Stack uji lain (`docker compose -p <nama> ...`) ikut dihentikan.
 3. Hentikan proses latar belakang Claude (mis. `wsl -e sh -c "sleep infinity"`) dengan TaskStop.
 4. Opsional (membebaskan RAM): `wsl --shutdown`.
@@ -146,9 +149,9 @@ LifeOS/
 ├── .env.example              variabel produksi (disalin ke .env di VPS)
 ├── .github/                  workflows/ci.yml + dependabot.yml
 ├── infra/                    caddy/Caddyfile · backup/{Dockerfile,backup.sh} (image backup) · seaweedfs/s3.json (S3 dev)
-├── backend/                  NestJS (Dockerfile, prisma/, src/, test/smoke.mjs)
+├── backend/                  NestJS (Dockerfile, prisma/, src/, templates/office/ = dokumen kosong ONLYOFFICE, test/smoke.mjs)
 ├── frontend/                 React SPA (Dockerfile, nginx.conf, src/)
-└── docs/                     SETUP.md · DEPLOYMENT.md · ARCHITECTURE.md · UPGRADE-PLAN.md · FILE-CONTROL.md
+└── docs/                     SETUP.md · DEPLOYMENT.md · ARCHITECTURE.md · UPGRADE-PLAN.md · FILE-CONTROL.md · ONLYOFFICE.md
 ```
 
 ## 7. Infrastruktur
@@ -160,6 +163,7 @@ LifeOS/
 | PostgreSQL 18 + pgvector 0.8.7 | lifeos-postgres | 5432 | db `lifeos`, `postgres/postgres`; DB tambahan `lifeos_shadow` (cek drift); volume `lifeos-postgres18-data` |
 | Redis 8.10 | lifeos-redis | 6379 | tanpa password |
 | SeaweedFS 4.48 (S3) | lifeos-storage | 8333 (S3), 8888 (filer UI) | `lifeos` / `lifeos-secret`, bucket `lifeos-assets` (dibuat otomatis) |
+| ONLYOFFICE Docs 10.0 (opsional, profile `office`) | lifeos-onlyoffice | 8080 | JWT secret dev di compose, header `AuthorizationJwt`; nyala: `docker compose --profile office up -d --wait onlyoffice` |
 
 Seed development: `admin@lifeos.com` / `123` (super_admin), `user@lifeos.com` / `123` (member, untuk uji berbagi).
 Akun `viewer@lifeos.com` lama (dev) kini member ("Tamu Viewer") — boleh dihapus.
@@ -257,7 +261,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     `20261011150000_ai_fallback` + `20261011160000_ai_chunks` + `20261011170000_sharing` (viewer → member, `shares`,
     `record_comments`, `assets.uploaded_by_id`) + `20261011180000_schedule_project` (`schedules.project_id`, data lama dari
     `extra` dipindah) + `20261014120000_file_control_opt_in` (resource berkas lama → `archival_status = 'pending'`) +
-  `20261014130000_notebooks` (My Notebook) + `20261014140000_notebook_message_attachments` (gambar di pesan chat). Migrasi baru → lihat docs/SETUP.md §10
+  `20261014130000_notebooks` (My Notebook) + `20261014140000_notebook_message_attachments` (gambar di pesan chat) +
+  `20261015120000_asset_versions` (versi berkas ONLYOFFICE). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
@@ -266,9 +271,21 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   (soft delete; item induk bersama hanya oleh pemiliknya). `share` di payload dibuang server.
 - **Uploads** (`ownerId` opsional = unggah ke item bersama berizin edit → berkas milik pemilik, `uploaded_by_id` =
   pengunggah; baca: pemilik/pengunggah/penerima item yang merujuk berkas; hapus: pemilik/pengunggah): multer diskStorage (tmp) → SHA-256 streaming → S3 `<userId>/<yyyy>/<mm>/<ts>-<uuid><ext>` → `assets` +
-  `asset_extractions` → job BullMQ `asset-extraction` (≤ 20 MB: teks, PDF, DOCX, XLSX; gambar/PDF scan → OCR Gemini milik
+  `asset_extractions` → job BullMQ `asset-extraction` (≤ 20 MB: teks, PDF, DOCX, XLSX; format kantor lain → konversi
+  ONLYOFFICE ke TXT/CSV bila diatur (`OfficeTextConverter`); gambar/PDF scan → OCR Gemini milik
   pemilik berkas; selesai → indeks RAG). `GET /uploads/:id` (Bearer), `POST /uploads/:id/link`
   → `/uploads/:id/download?token=` 10 menit. Respons berkas: `CSP: sandbox`, konten aktif dipaksa attachment.
+- **ONLYOFFICE** (`src/office/`, detail: `docs/ARCHITECTURE.md` §3.5 & `docs/ONLYOFFICE.md`): `GET /office/status`,
+  `POST /office/documents` (dokumen kosong dari `templates/office/`), `POST /office/config` (config editor ditandatangani
+  `ONLYOFFICE_JWT_SECRET`; tema & seluler ikut dikirim ke backend karena config bertanda tangan **tidak boleh** diubah
+  browser), riwayat/unduh/pulihkan versi, dan endpoint untuk server ONLYOFFICE `files/:id/content?token=` +
+  `callback?token=` (JWT ONLYOFFICE di header `AuthorizationJwt`; link berkas hasil edit hanya dari host ONLYOFFICE).
+  Akses = akses berkas (`UploadsService.findWithPermission`: pemilik/pengunggah edit, berbagi sesuai izin). Format =
+  daftar resmi ONLYOFFICE (`office-formats.ts`, 74 format edit/lossy/view, disalin dari
+  `document-formats/onlyoffice-docs-formats.json` di container — perbarui saat upgrade ONLYOFFICE; salinan frontend sama). Versi: satu
+  sesi edit = satu versi, maks. 10 (`asset_versions`), `document.key = <assetId>-<office_key>` berganti saat sesi selesai.
+  Env opsional `ONLYOFFICE_URL`, `ONLYOFFICE_INTERNAL_URL`, `ONLYOFFICE_JWT_SECRET`, `ONLYOFFICE_BACKEND_URL` (`auto` =
+  IP WSL). Logika murni + test: `office-logic.ts`. Hapus berkas/user menghapus objek versinya juga.
 - **Health**: `/health` (readiness, 503 bila dependensi down), `/health/live` (liveness).
 - **Seed**: `src/database/seed.ts` (dev: akun demo via `prisma db seed` → `tsx`; production: super admin dari env,
   `node dist/database/seed.js`).
@@ -299,7 +316,7 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   status `success | warning | info | destructive`. Font Figtree. Setiap halaman memakai `<ModulePage module="...">`.
   Pakai komponen shadcn; jangan membuat modal/tombol custom.
 - **Bundle**: rute, halaman login, `Markdown` (react-markdown + KaTeX, `markdown-renderer.tsx`), `html5-qrcode`, dan
-  editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±390 kB; tanpa
+  editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±410 kB (termasuk host editor ONLYOFFICE); tanpa
   peringatan ukuran chunk. Tab My Notebook = chunk `notebook-tab` (±42 kB).
 - **CSP produksi** (`nginx.conf`): `script-src 'self'`, `connect-src 'self'` (AI lewat backend), `style-src 'self'
   'unsafe-inline'`, `img/media blob: data:`. Domain eksternal baru → tambahkan di sini (lebih baik lewat backend).
@@ -378,7 +395,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 - **Pratinjau berkas (modal, bersama semua fitur)**: `previewFile({ uploadId, name, mimeType })` dari
   `components/common/file-preview.tsx` (`FilePreviewHost` dipasang di `AppShell`). PDF (iframe) & gambar ditampilkan
   dari blob lokal (header `CSP: sandbox` berkas tidak menghalangi penampil PDF; CSP produksi `frame-src blob:`), SVG tidak
-  dipratinjau; jenis lain (DOCX/XLSX/PPTX) menampilkan Unduh/Tab baru — pratinjaunya menyusul bersama **ONLYOFFICE**.
+  dipratinjau; dokumen kantor (DOCX/XLSX/PPTX/ODT, …) tampil lewat **ONLYOFFICE mode lihat** bila server aktif, dan berkas
+  yang bisa diedit (DOCX/XLSX/PPTX/PDF) punya tombol "Edit di ONLYOFFICE"; jenis lain menampilkan Unduh/Tab baru.
   Dipakai semua fitur: `openAttachment()` (lampiran Productivity/Planner/Notes AI, Resource Global, File Control) membuka
   berkas di modal ini — nama/jenis yang tidak dibawa lampiran dilengkapi dari `GET /uploads/:id/metadata`; web link tetap
   di tab baru. Tata letak (keputusan user 2026-10-14): bingkai tipis (padding 6 px, header satu baris 28 px: ikon · nama ·
@@ -391,6 +409,15 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   konteks. Opsi tambahan (default tidak mengubah perilaku lama): `AttachmentForm types={[...]}` membatasi jenis (jenis
   pertama = pilihan awal), `AddAttachmentButton label`. `AttachmentTable` membuka lampiran **catatan** di dalam aplikasi
   (Notes Space), bukan tab baru.
+  - **Buat dokumen ONLYOFFICE** = pilihan Tipe UI `"office"` ("Buat Dokumen (ONLYOFFICE)", `OFFICE_ATTACHMENT_TYPE`) yang
+    disimpan sebagai tipe `file` (state `fileSource`): `NewOfficeDocumentPicker` (4 jenis, judul = Nama Resource,
+    `uploadContext`/`uploadOwnerId` sama dengan upload) → `acceptAsset` (pending + dibuang bila batal) → `editInOffice`
+    membuka editor; `onClosed` → bila "Ringkas dengan AI" dicentang, `summarizer.summarizeUpload(uploadId)` (teks ekstraksi
+    server). Tag, File Control, tanggal, deskripsi sama dengan berkas biasa. Berkas DOCX/XLSX/PPTX/PDF di form punya tombol
+    "Edit di ONLYOFFICE". Form Resource Global sama (hanya untuk resource baru). Membuang dokumen yang dibuat di form
+    (Batal, ganti Tipe, X/Esc dialog Tambah Resource lewat `closeGuardRef`) → `useOfficeDiscardConfirm().confirm(id)`:
+    konfirmasi hanya bila dokumen sudah berisi (versi > 1); tombol "Hapus dokumen" → `confirm(id, { explicit: true })`
+    (selalu konfirmasi).
   - **Ringkasan AI saat upload = opsional** (keputusan user): `AttachmentForm offerAiSummary` (form Project/Action/Task) dan
     form Resource menampilkan centang **"Ringkas dengan AI"** — default mati, pilihan terakhir diingat per browser
     (`resources/ai-summary-preference.ts`). AI hanya dipanggil bila dicentang (centang setelah upload → langsung diringkas);
@@ -539,7 +566,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
     Rutinitas: judul + pola frekuensi. Referensi: nama tipe + label ikon. Mengetik → halaman paginasi kembali ke 1.
   - Form agenda: mengubah Tanggal Mulai menggeser Tanggal Selesai (durasi tetap); konten form di-`key` per sesi buka &
     per agenda (`useOpenSession`).
-- **Layout & Pengaturan** (keputusan user 2026-10-15): sidebar = modul Workspace + grup Sistem berisi **Pengaturan**
+- **Layout & Pengaturan** (keputusan user 2026-10-15): sidebar = modul Workspace + grup Sistem berisi **Tools** dan **Pengaturan**
+  (`ModuleDef.sidebarGroup: "system"`, keduanya menu ber-sub-menu `SubmenuModuleItem`); Pengaturan
   (sub menu berurutan **Aplikasi, Manajemen User, Berbagi, AI** — urutan tab di `navigation.ts` sama dengan sub menu).
   **Profil Saya bukan bagian Pengaturan**: halaman sendiri `/profile` (`features/profile/`, modul `profile` dengan
   `hiddenInSidebar`, warna = Pengaturan) dibuka dari menu user kiri bawah. **Tema** hanya diatur dari tombol tema di header
@@ -547,6 +575,16 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   `COLLAPSIBLE_ITEM_CLASS` (tanpa padding) agar tepat di tengah. Logo aplikasi dibaca lewat `appLogoUrl(settings)`
   (`use-app-settings.ts`). Dialog yang punya kontrol di pojok kanan atas (mis. pencarian global) memakai
   `showCloseButton={false}` + `DialogClose` sendiri di baris kontrolnya agar tidak bertumpuk.
+- **Tools → ONLYOFFICE** (`features/tools/`, detail: `docs/ONLYOFFICE.md` §3.3): modul `tools` ber-sub-menu di sidebar
+  (`ModuleDef.sidebarSubmenu` → `SubmenuModuleItem`, juga dipakai Pengaturan; sub menu baru = tab baru di `navigation.ts`).
+  Editor dibuka dari mana saja lewat `openOfficeEditor({ uploadId, name?, mode? })` (`OfficeEditorHost` di AppShell, editor
+  `office-editor.tsx` dimuat malas; placeholder dibuat di luar React karena ONLYOFFICE menggantinya dengan iframe). Config
+  dari `officeApi.config` dipakai **apa adanya** (hanya `events` ditambah) — opsi tampilan (tema, seluler) dikirim ke
+  backend. Jenis berkas: `office-formats.ts` (+ test). **Keputusan user: Tools hanya halaman pengaturan/status**
+  (`onlyoffice-settings.tsx`, `GET /office/diagnostics`), bukan daftar dokumen — ONLYOFFICE dipanggil dari fitur yang
+  punya berkas: pratinjau (`previewFile`), tombol "Edit di ONLYOFFICE", dan tipe "Buat Dokumen (ONLYOFFICE)" di
+  `AttachmentForm` & form Resource (lihat Lampiran). Menutup modal (X/Esc) = `requestClose` → `officeApi.forceSave` lalu tutup (simpan otomatis). Hook
+  `useOfficeStatus`, `useOfficeDiagnostics`, `useOfficeVersions`, `useRestoreOfficeVersion` (`data/use-office.ts`).
 - **Komponen umum**: `ConfirmDialog`, `SectionCard`, `RenameDialog`, `SearchableSelect`, `PaginationControl`+`paginate()`,
   `Markdown`, `PriorityBadge`, `PageLoader`, `DateRangeFilter`, `SearchInput`.
 - **Paginasi daftar**: `usePagination(items, ukuranAwal)` (`hooks/use-pagination.ts`) → `{ pageItems, setPage,
@@ -555,6 +593,10 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 - **Tombol aksi yang muncul saat hover**: `pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100
   pointer-fine:group-focus-within:opacity-100` — selalu terlihat di layar sentuh (HP/tablet), bukan `md:opacity-0`.
 - **Dialog & animasi tutup**: `useRetained(itemProp)` / `useLatchedWhileOpen(open, value)` (nilai harus stabil).
+- **Penjaga tutup dialog** (`components/common/dialog-close-guard.ts`, dipasang di `components/ui/dialog.tsx`): isi dialog
+  memanggil `useDialogCloseGuard(() => boolean | Promise<boolean>)` untuk menahan X / Esc / klik luar dialog terdekat;
+  tombol Batal milik form yang menutup lewat kode memakai `useGuardedClose()(onCancel)` (atau `DialogClose`). Dipakai
+  form lampiran (dokumen ONLYOFFICE berisi).
 - **Tanggal** (`src/lib/dates.ts`): YMD `"2026-10-08"` (schedule/routine/task.dueDate/ai_note) dan `toDateString()`
   `"Thu Oct 08 2026"` (todo.date, completion.date). YMD selalu dibaca dengan `parseLocalYMD`, **jangan**
   `new Date("YYYY-MM-DD")` (dibaca UTC → bergeser sehari di zona waktu barat UTC).
@@ -607,8 +649,8 @@ VPS, CI, dokumentasi). Berikutnya:
    Lanjutan My Notebook: berbagi notebook, sumber item bersama, Studio lain (FAQ, panduan belajar, briefing, timeline,
    ringkasan audio).
 3. (Opsional) tampilan riwayat audit arsip di UI (`GET /archive-audit` sudah tersedia).
-4. **Dokumen dibuat di aplikasi** (jenis resource baru) dengan editor berbasis **ONLYOFFICE** — dikerjakan user di
-   thread & **branch baru**. Titik sambung: Resource Global (`para_resource`, berkas = `uploadId` Asset backend), centang
+4. **Dokumen dibuat di aplikasi** (jenis resource baru) dengan editor berbasis **ONLYOFFICE** — thread dimulai
+   2026-10-15: menu **Tools → ONLYOFFICE**; riset, arsitektur, tahapan & to-do user di `docs/ONLYOFFICE.md`. Titik sambung: Resource Global (`para_resource`, berkas = `uploadId` Asset backend), centang
    "Masukkan ke File Control" (`file-control-intake.ts`), ekstraksi/indeks RAG berkas (DOCX/XLSX sudah didukung), CSP
    `nginx.conf` bila editor dimuat dari domain lain.
 
@@ -645,6 +687,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | File Control: uji menyeluruh + perbaikan aturan penyusutan, peminjaman, referensi, penataan & tampilan detail/kartu (11 temuan prioritas tinggi & sedang) | ✅ 2026-10-14 — unit test (`archive.test.ts` +6), lint, typecheck, build, UI diuji di browser dengan data `[UJI]`. Lanjutan: konfirmasi Restore, BA auto-dispose (tanggal lokal + pelaksana), Penataan khusus fisik, Lihat Dokumen seragam, pratinjau cetak layar penuh, modal pratinjau berkas lebih besar — diuji di browser |
 | Pengaturan & Layout: Profil Saya keluar dari Pengaturan (`/profile`), urutan sub menu, satu pengatur tema, sidebar ciut simetris, tombol tutup pencarian global, form tanpa sinkronisasi `useEffect`, logo lewat endpoint ber-cache | ✅ 2026-10-15 — unit backend & frontend, smoke (+7 skenario logo), lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Perbaikan Overview (proyek berjalan, tugas mendesak + terlambat, to-do & rutinitas hari ini bisa dicentang, status & Gabung agenda, label Indonesia, notifikasi tugas terlambat & baru dibagikan) | ✅ 2026-10-15 — unit test (`overview-logic.test.ts`: 9), lint, typecheck, build, UI diuji di browser (desktop + HP; centang rutinitas/todo/task, tambah agenda, popover notifikasi) |
+| Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); berikutnya tahap 3 (AI di editor, templat, font) & tahap 4 (produksi) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -994,6 +1037,43 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   hanya "Lihat Semua" yang berpindah menu. URL logika modal Project/Area dipindah ke `ParaDetailDialogs` (dipakai
   bersama). Ditemukan & diperbaiki saat uji: dialog todo baru mewarisi tanggal todo yang dibuka sebelumnya → `key`
   `useOpenSession`.
+- 2026-10-15 — Thread **integrasi ONLYOFFICE** dimulai (menu baru **Tools**, sub menu pertama **ONLYOFFICE**). Riset:
+  ONLYOFFICE Docs **Community** self-hosted (`onlyoffice/documentserver`, amd64+arm64, **tanpa akun**), batas 20 koneksi
+  dihapus sejak 9.4, 9.4 = satu proses tanpa RabbitMQ/DB; 10.0 baru rilis 12 Okt → mulai **9.4**, 10.0 setelah ± 9 Nov.
+  Integrasi lewat Docs API (config JWT ditandatangani backend, unduh bertoken, callback → versi baru Asset di S3 +
+  ekstraksi/RAG). Uji jaringan laptop: container di WSL **tidak** menjangkau Windows lewat `host.docker.internal`
+  (host-gateway = VM WSL), tetapi **bisa** lewat IP gateway default WSL (backend 4000 → 200). Usulan: port dev 8080
+  (profile compose `office`), produksi di sub-path `/office/` via Caddy, VPS disarankan 8 GB. Detail & keputusan
+  yang menunggu user: `docs/ONLYOFFICE.md` §4.
+  Keputusan user (hari yang sama): **langsung 10.0** (stabil), cakupan + **edit PDF**, **10 versi terakhir**, AI di editor
+  **bisa dipilih** (AI LifeOS lewat backend sebagai penyedia kustom plugin AI ONLYOFFICE, atau AI bawaan ONLYOFFICE, atau
+  mati), sisanya sesuai rekomendasi (Community, Resource Global + File Control, berbagi, Bahasa Indonesia). Tahap 0 selesai:
+  service compose `onlyoffice` (profile `office`, port 8080, `JWT_HEADER=AuthorizationJwt`, `ALLOW_PRIVATE_IP_ADDRESS`);
+  backend nanti membaca IP WSL dari antarmuka Windows `vEthernet (WSL…)` (`ONLYOFFICE_BACKEND_URL=auto`).
+  Tahap 1 (backend) selesai: modul `src/office/` + migrasi `20261015120000_asset_versions`. Desain: berkas tetap Asset
+  (tidak ada record type baru — dokumen baru dijadikan Resource Global oleh frontend); versi disimpan per **sesi edit**
+  (Ctrl+S berkali-kali dalam satu sesi = satu versi) agar batas 10 versi tidak habis oleh simpanan antara; pulihkan versi =
+  salinan sebagai versi terbaru; edit hanya untuk DOCX/XLSX/PPTX/PDF (format lain dibuka baca saja agar ONLYOFFICE tidak
+  menyimpan dalam format berbeda); AI bawaan ONLYOFFICE sementara dimatikan di config sampai pilihan AI per user (tahap 3).
+  Templat kosong = berkas `new.*` locale id-ID dari image ONLYOFFICE (`backend/templates/office/`, ikut image Docker).
+  Tahap 2 (frontend) selesai: modul **Tools** ber-sub-menu (sub menu ONLYOFFICE), daftar dokumen dari Resource Global,
+  Buat baru → Resource Global tag `ONLYOFFICE` + opsi File Control, editor modal yang bisa dibuka dari mana saja,
+  riwayat versi + pulihkan, pratinjau dokumen kantor lewat ONLYOFFICE mode lihat. Ditemukan saat uji: Pulihkan saat editor
+  terbuka tertimpa isi sesi lama (ONLYOFFICE membuat ulang berkas → checksum beda) → callback sesi lama kini hanya masuk
+  riwayat (`planVersionSave` aksi `archive`).
+  Revisi tahap 2 (arahan user): menu **Tools = pengaturan/status ONLYOFFICE saja** (daftar dokumen & dialog "Buat baru"
+  dihapus, tag konteks `ONLYOFFICE` tidak dipakai); dokumen baru dibuat dari form lampiran Project/Action/Task/Tandai
+  Selesai/Agenda dan form Resource ("Buat dokumen", konteks & pemilik sama dengan upload lampiran); menutup modal editor
+  = **simpan paksa** (`POST /office/files/:id/forcesave`, Command Service) dan menunggu sampai tersimpan.
+  Revisi berikutnya (arahan user): "Buat dokumen" menjadi **pilihan Tipe** "Buat Dokumen (ONLYOFFICE)" (tombol lama sulit
+  ditemukan) dengan pola sama seperti resource berkas (tag, File Control, Ringkas AI dari teks ekstraksi setelah editor
+  ditutup); menu **Tools dipindah ke kategori Sistem** bersama Pengaturan.
+  Lanjutan (permintaan user): batal tambah resource/lampiran dengan dokumen ONLYOFFICE yang sudah berisi → modal
+  konfirmasi dulu; tombol "Hapus dokumen" di form (selalu dikonfirmasi) untuk membuang dokumen yang tidak jadi dipakai.
+  Lanjutan (permintaan user): dialog induk (Project, Action/Task, Tandai Selesai, Agenda) juga dijaga lewat penjaga tutup
+  generik di `Dialog`; format ONLYOFFICE tidak lagi dibatasi 4 jenis — mengikuti daftar resmi server (edit / lossy-edit /
+  view, disimpan dalam format asli); ekstraksi teks format kantor lain lewat konversi ONLYOFFICE (TXT/CSV) agar Ringkas AI
+  & RAG ikut membaca PPTX, ODT, RTF, ODS, dll.
 
 ## 13. Konvensi Kode
 
@@ -1209,6 +1289,13 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Tool Write mengubah escape `\u0300` di konten menjadi karakter Unicode literal (regex `[\u0300-\u036f]` jadi karakter
   kombinasi yang tak terbaca, walau tetap berfungsi). Tulis escape lewat skrip yang menyusun `String.fromCharCode(92)`,
   atau periksa hasilnya dengan `grep` setelah menulis.
+- Container Docker di WSL (mode NAT) **tidak** menjangkau layanan Windows lewat `host.docker.internal`
+  (`host-gateway` = VM WSL). Pakai IP gateway default WSL = IPv4 antarmuka Windows `vEthernet (WSL (Hyper-V firewall))`
+  (berubah setelah restart → baca dinamis). `docker compose stop` tanpa `--profile office` tidak menyentuh service ber-profile.
+- ONLYOFFICE membuat ulang berkas setiap menyimpan (zip & metadata baru) → isi sama bisa ber-checksum berbeda; jangan
+  mengandalkan checksum untuk mendeteksi "tidak ada perubahan" lintas sesi. Esc/klik di dalam editor ONLYOFFICE (iframe)
+  tidak sampai ke dialog Radix — sediakan tombol tutup; uji UI klik tombol header lewat `javascript_tool` bila fokus ada di
+  iframe.
 - Tool Write dengan path relatif (`....Users...`) dihitung dari folder kerja (drive D:) → file tertulis ke
   `D:Users...`, bukan scratchpad. Selalu pakai path absolut scratchpad.
 

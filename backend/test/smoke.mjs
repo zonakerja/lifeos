@@ -825,6 +825,219 @@ try {
   ok("notebook keeps LifeOS file after notebook delete", r.s === 200, r);
   await j("DELETE", `/uploads/${linkedAsset.d.id}`, null, at);
   await j("DELETE", "/records/free_note/sm-nb-note", null, at);
+  // ---------------------------------------------------------------- ONLYOFFICE (Tools → ONLYOFFICE)
+  r = await j("GET", "/office/status", null, at);
+  ok("office status", r.s === 200 && typeof r.d.enabled === "boolean", r);
+  const office = r.d;
+  const dsUp =
+    office.enabled &&
+    (await fetch(`${office.documentServerUrl}/healthcheck`, { signal: AbortSignal.timeout(5000) })
+      .then((res) => res.text())
+      .then((t) => t.trim() === "true")
+      .catch(() => false));
+  // Secret JWT ONLYOFFICE untuk mensimulasikan callback (default = secret development di docker-compose.yml)
+  const dsSecret =
+    process.env.SMOKE_ONLYOFFICE_JWT_SECRET ??
+    (B === "http://localhost:4000/api/v1" ? "lifeos-dev-onlyoffice-jwt-secret-0123456789abcdef" : null);
+  if (!office.enabled) {
+    r = await j("POST", "/office/documents", { format: "docx" }, at);
+    ok("office disabled → 503", r.s === 503, r);
+  } else {
+    const { createHmac } = await import("node:crypto");
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+    const dsSign = (payload) => {
+      const head = `${b64({ alg: "HS256", typ: "JWT" })}.${b64(payload)}`;
+      return `${head}.${createHmac("sha256", dsSecret).update(head).digest("base64url")}`;
+    };
+    const decode = (token) => JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+
+    r = await j("POST", "/office/documents", { format: "xlsx", title: "Anggaran: 2027?" }, at);
+    ok("office new xlsx", r.s === 201 && r.d.originalName === "Anggaran 2027.xlsx" && r.d.size > 0, r);
+    await j("DELETE", `/uploads/${r.d.id}`, null, at);
+    r = await j("POST", "/office/documents", { format: "pptx", title: "Paparan", context: "task" }, at);
+    ok("office new doc for attachment keeps context", r.s === 201 && r.d.context === "task", r);
+    await j("DELETE", `/uploads/${r.d.id}`, null, at);
+    r = await j("POST", "/office/documents", { format: "docx", ownerId: tempUserId }, pt);
+    ok("office new doc into other user's space without share 403", r.s === 403, r);
+    r = await j("GET", "/office/diagnostics", null, at);
+    ok(
+      "office diagnostics (member: no technical details)",
+      r.s === 200 && typeof r.d.healthy === "boolean" && r.d.details === null,
+      r,
+    );
+    r = await j("POST", "/office/documents", { format: "exe" }, at);
+    ok("office new invalid format 400", r.s === 400, r);
+    r = await j("POST", "/office/documents", { format: "docx", title: "Notulen Smoke" }, at);
+    ok("office new docx", r.s === 201 && r.d.originalName === "Notulen Smoke.docx", r);
+    const docId = r.d.id;
+
+    r = await j("POST", "/office/config", { uploadId: docId }, at);
+    const cfg = r.d.config;
+    ok(
+      "office config owner → edit",
+      r.s === 200 && r.d.access === "edit" && cfg.editorConfig.mode === "edit" && cfg.document.fileType === "docx",
+      r,
+    );
+    ok("office config signed", !!cfg.token && decode(cfg.token).document.key === cfg.document.key, cfg);
+    const fileRes = await fetch(cfg.document.url);
+    ok("office file url (token) 200", fileRes.status === 200 && (await fileRes.arrayBuffer()).byteLength > 0);
+    const badFile = await fetch(cfg.document.url.replace(/token=[^&]+/, "token=salah"));
+    ok("office file url bad token 401", badFile.status === 401);
+    r = await j("POST", "/office/config", { uploadId: docId, mode: "view" }, at);
+    ok("office config view mode", r.d.access === "view" && r.d.config.editorConfig.mode === "view", r);
+    r = await j("POST", "/office/config", { uploadId: docId }, pt);
+    ok("office config other user 403", r.s === 403, r);
+    r = await j("POST", `/office/files/${docId}/forcesave`, null, pt);
+    ok("office forcesave other user 403", r.s === 403, r);
+    if (dsUp) {
+      r = await j("POST", `/office/files/${docId}/forcesave`, null, at);
+      ok("office forcesave without open editor → no-session", r.s === 200 && r.d.status === "no-session", r);
+    }
+
+    // Berbagi Lihat → partner hanya bisa melihat
+    await j(
+      "PUT",
+      "/records/para_resource/sm-office",
+      { payload: { title: "Notulen", type: "file", uploadId: docId } },
+      at,
+    );
+    await j(
+      "POST",
+      "/shares",
+      { recordType: "para_resource", recordId: "sm-office", email: partnerEmail, permission: "view" },
+      at,
+    );
+    await new Promise((res) => setTimeout(res, 3100)); // cache akses baca 3 detik
+    r = await j("POST", "/office/config", { uploadId: docId }, pt);
+    ok("office config shared view → view", r.s === 200 && r.d.access === "view", r);
+
+    const callbackUrl = (p) => p.replace(/^http:\/\/[^/]+\/api\/v1/, B);
+    const cb = (body, token = dsSign({ payload: body })) =>
+      fetch(callbackUrl(cfg.editorConfig.callbackUrl), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", AuthorizationJwt: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      }).then(async (res) => ({ s: res.status, d: await res.json().catch(() => null) }));
+    if (!dsSecret) {
+      console.log("SKIP simulasi callback ONLYOFFICE (SMOKE_ONLYOFFICE_JWT_SECRET tidak diisi)");
+    } else {
+      r = await cb({ key: cfg.document.key, status: 1, users: [tempUserId] }, "x.y.z");
+      ok("office callback bad JWT 401", r.s === 401, r);
+      r = await cb({ key: cfg.document.key, status: 1, users: [tempUserId] });
+      ok("office callback editing → error 0", r.s === 200 && r.d.error === 0, r);
+      r = await cb({
+        key: cfg.document.key,
+        status: 2,
+        url: "http://169.254.169.254/latest/meta-data",
+        users: [tempUserId],
+      });
+      ok("office callback foreign URL rejected (error 1)", r.s === 200 && r.d.error === 1, r);
+
+      if (!dsUp) {
+        console.log("SKIP simpan versi lewat ONLYOFFICE (container ONLYOFFICE tidak menyala)");
+      } else {
+        // Isi "hasil edit" dibuat ONLYOFFICE sendiri: konversi DOCX lain lewat /converter → link di host ONLYOFFICE
+        const editedForm = new FormData();
+        editedForm.append("file", new Blob([await makeDocx("Isi versi kedua")]), "v2.docx");
+        const edited = await j("POST", "/uploads", editedForm, at);
+        const editedCfg = (await j("POST", "/office/config", { uploadId: edited.d.id }, at)).d.config;
+        const convert = async () => {
+          const body = {
+            async: false,
+            filetype: "docx",
+            outputtype: "docx",
+            key: `smoke-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            url: editedCfg.document.url,
+          };
+          const res = await fetch(`${office.documentServerUrl}/converter`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ ...body, token: dsSign(body) }),
+          });
+          return (await res.json()).fileUrl;
+        };
+        const fileUrl = await convert();
+        ok("office converter produced file", typeof fileUrl === "string", fileUrl);
+
+        r = await cb({
+          key: cfg.document.key,
+          status: 6,
+          url: fileUrl,
+          filetype: "docx",
+          users: [tempUserId],
+          forcesavetype: 1,
+        });
+        ok("office force save → error 0", r.d?.error === 0, r);
+        r = await j("GET", `/office/files/${docId}/versions`, null, at);
+        ok(
+          "office version 2 after save",
+          r.d.versions?.length === 2 && r.d.versions[0].version === 2 && r.d.canRestore,
+          r,
+        );
+        // Simpan lagi di sesi yang sama → tetap 2 versi (ditimpa)
+        r = await cb({ key: cfg.document.key, status: 6, url: await convert(), filetype: "docx", users: [tempUserId] });
+        r = await j("GET", `/office/files/${docId}/versions`, null, at);
+        ok("office same session save keeps versions", r.d.versions?.length === 2, r);
+        // Editor terakhir ditutup → kunci sesi berganti
+        r = await cb({ key: cfg.document.key, status: 4, users: [] });
+        r = await j("POST", "/office/config", { uploadId: docId }, at);
+        ok("office key rotates after session end", r.d.config.document.key !== cfg.document.key, r.d.config?.document);
+
+        r = await j("POST", `/office/files/${docId}/versions/1/restore`, null, pt);
+        ok("office restore by viewer 403", r.s === 403, r);
+        r = await j("POST", `/office/files/${docId}/versions/1/restore`, null, at);
+        ok("office restore v1 → v3", r.s === 200 && r.d.versions[0].version === 3 && r.d.versions.length === 3, r);
+        const v1 = await fetch(`${B}/office/files/${docId}/versions/1`, { headers: { Authorization: `Bearer ${at}` } });
+        const cur = await fetch(`${B}/uploads/${docId}`, { headers: { Authorization: `Bearer ${at}` } });
+        ok(
+          "office restored content = v1",
+          v1.status === 200 && Buffer.from(await v1.arrayBuffer()).equals(Buffer.from(await cur.arrayBuffer())),
+        );
+        // Format "lossy" (ODT) bisa disunting & teksnya dibaca lewat konversi ONLYOFFICE (ekstraktor bawaan tidak mendukung)
+        const odtBody = {
+          async: false,
+          filetype: "docx",
+          outputtype: "odt",
+          key: `smoke-odt-${Date.now()}`,
+          url: editedCfg.document.url,
+        };
+        const odtUrl = (
+          await fetch(`${office.documentServerUrl}/converter`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ ...odtBody, token: dsSign(odtBody) }),
+          }).then((res) => res.json())
+        ).fileUrl;
+        const odtForm = new FormData();
+        odtForm.append(
+          "file",
+          new Blob([await (await fetch(odtUrl)).arrayBuffer()], { type: "application/vnd.oasis.opendocument.text" }),
+          "uji.odt",
+        );
+        const odt = await j("POST", "/uploads", odtForm, at);
+        let odtMeta;
+        for (let i = 0; i < 40; i++) {
+          odtMeta = await j("GET", `/uploads/${odt.d.id}/metadata`, null, at);
+          if (!["pending", "extracting"].includes(odtMeta.d?.extraction?.status)) break;
+          await new Promise((res) => setTimeout(res, 500));
+        }
+        ok(
+          "office ODT text extracted via ONLYOFFICE",
+          odtMeta.d.extraction?.status === "completed" &&
+            /Isi versi kedua/.test(odtMeta.d.extraction.extractedText ?? ""),
+          odtMeta.d.extraction,
+        );
+        r = await j("POST", "/office/config", { uploadId: odt.d.id }, at);
+        ok("office ODT editable (lossy)", r.d.access === "edit" && r.d.lossy === true, r.d);
+        await j("DELETE", `/uploads/${odt.d.id}`, null, at);
+        await j("DELETE", `/uploads/${edited.d.id}`, null, at);
+      }
+    }
+    await j("DELETE", "/records/para_resource/sm-office", null, at);
+    r = await j("DELETE", `/uploads/${docId}`, null, at);
+    ok("office doc delete (with versions)", r.s === 200, r);
+  }
+
   r = await j("POST", "/auth/change-password", { currentPassword: "salah", newPassword: "1234" }, pt);
   ok("change pw wrong 400", r.s === 400, r);
   r = await j("POST", "/auth/logout", null, null, "x".repeat(30));

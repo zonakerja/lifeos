@@ -11,6 +11,7 @@ import { redisConnectionOptions } from "../redis/redis.module";
 import { ASSET_EXTRACTION_QUEUE } from "./extraction-queue.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { OfficeTextConverter } from "../office/office-text-converter";
 import { type ExtractionMethod, extractDocumentText, isExtractable, normalizeMimeType } from "./text-extractors";
 
 /** Batas ukuran berkas yang dibaca ke memori untuk ekstraksi (lebih besar → unsupported). */
@@ -36,6 +37,7 @@ export class ExtractionWorkerService implements OnModuleInit, OnModuleDestroy {
     private readonly storage: ObjectStorageService,
     @Inject(forwardRef(() => AiService)) private readonly ai: AiService,
     @Inject(forwardRef(() => AiIndexQueueService)) private readonly indexQueue: AiIndexQueueService,
+    private readonly officeText: OfficeTextConverter,
   ) {}
 
   onModuleInit() {
@@ -75,7 +77,7 @@ export class ExtractionWorkerService implements OnModuleInit, OnModuleDestroy {
 
     const mimeType = normalizeMimeType(asset.mimeType, asset.originalName);
     try {
-      const result = await this.readText(asset.userId, asset.objectKey, asset.size, mimeType, asset.originalName);
+      const result = await this.readText(asset, mimeType);
       const text = "text" in result ? result.text.slice(0, MAX_EXTRACTED_CHARS) : null;
 
       await this.prisma.assetExtraction.update({
@@ -122,13 +124,18 @@ export class ExtractionWorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async readText(
-    userId: string,
-    objectKey: string,
-    size: number,
+    asset: { id: string; userId: string; objectKey: string; size: number; originalName: string; checksum: string },
     mimeType: string,
-    name: string,
   ): Promise<{ text: string; method: ExtractionMethod; pages?: number } | { reason: SkipReason }> {
-    if (!isExtractable(mimeType)) return { reason: "unsupported_type" };
+    const { userId, objectKey, size, originalName: name } = asset;
+    if (!isExtractable(mimeType)) {
+      // Dokumen kantor lain (PPTX, ODT, RTF, DOC, ODS, XLS, …) dibaca lewat konversi ONLYOFFICE bila server diatur
+      if (!this.officeText.canConvert(name)) return { reason: "unsupported_type" };
+      if (size > MAX_EXTRACT_BYTES) return { reason: "too_large" };
+      const text = await this.officeText.convert(asset);
+      if (text === null) return { reason: "unsupported_type" };
+      return text.trim() ? { text, method: "onlyoffice" } : { reason: "empty" };
+    }
     if (size > MAX_EXTRACT_BYTES) return { reason: "too_large" };
 
     const buffer = await this.storage.getObjectBuffer(objectKey);

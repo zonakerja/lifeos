@@ -2,7 +2,7 @@ import { CheckSquare, FolderOpen } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -176,15 +176,10 @@ function TaskQuickDialogInner({ task, kind, open, onOpenChange, onSave }: TaskQu
             </div>
           )}
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                edits.discard();
-                onOpenChange(false);
-              }}
-            >
-              {canEdit ? "Batal" : "Tutup"}
-            </Button>
+            {/* Lewat DialogClose: penjaga tutup (dokumen ONLYOFFICE berisi) + handler onOpenChange dialog (buang upload sesi) */}
+            <DialogClose asChild>
+              <Button variant="outline">{canEdit ? "Batal" : "Tutup"}</Button>
+            </DialogClose>
             {canEdit ? (
               <Button onClick={submit}>Simpan Perubahan</Button>
             ) : (

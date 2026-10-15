@@ -24,6 +24,7 @@ export const router = createBrowserRouter([
               { path: "notes/:tab?", lazy: () => import("@/features/notes/notes-page") },
               { path: "productivity/:tab?", lazy: () => import("@/features/productivity/productivity-page") },
               { path: "file-control/:tab?", lazy: () => import("@/features/file-control/file-control-page") },
+              { path: "tools/:tab?", lazy: () => import("@/features/tools/tools-page") },
               { path: "settings/:tab?", lazy: () => import("@/features/settings/settings-page") },
               { path: "profile", lazy: () => import("@/features/profile/profile-page") },
               { path: "*", element: <NotFoundPage /> },

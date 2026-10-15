@@ -1,3 +1,4 @@
+import { useGuardedClose } from "@/components/common/dialog-close-guard";
 import {
   BookOpen,
   CalendarDays,
@@ -626,6 +627,8 @@ function TaskForm({
   onCancel: () => void;
   onSave: (values: TaskValues) => void;
 }) {
+  // Batal melewati penjaga tutup dialog (mis. dokumen ONLYOFFICE berisi di form lampiran)
+  const guardedClose = useGuardedClose();
   const [form, setForm] = useState<TaskValues>(() =>
     task ? { ...task, resources: task.resources ?? [] } : emptyTask(),
   );
@@ -660,7 +663,7 @@ function TaskForm({
       <div className="flex items-center justify-between gap-3 border-b p-5 pr-16">
         <h3 className="text-xl font-bold">{task ? `Edit ${label}` : `Buat ${label} Baru`}</h3>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={cancel}>
+          <Button variant="outline" onClick={() => void guardedClose(cancel)}>
             Batal
           </Button>
           <Button onClick={save}>Simpan {label}</Button>

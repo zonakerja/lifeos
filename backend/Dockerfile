@@ -30,6 +30,8 @@ WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/prisma ./prisma
+# Templat dokumen kosong ONLYOFFICE (POST /office/documents)
+COPY --from=build --chown=node:node /app/templates ./templates
 COPY --from=build --chown=node:node /app/package.json /app/prisma.config.ts ./
 USER node
 EXPOSE 4000

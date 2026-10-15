@@ -83,7 +83,11 @@ export class UsersService {
     if (id === actor.id) throw new BadRequestException("Tidak dapat menghapus akun Anda sendiri.");
     const target = await this.findById(id);
     this.ensureCanManage(actor, target.role);
-    const assets = await this.prisma.asset.findMany({ where: { userId: id }, select: { objectKey: true } });
+    const assets = [
+      ...(await this.prisma.asset.findMany({ where: { userId: id }, select: { objectKey: true } })),
+      // Versi lama dokumen yang diedit di ONLYOFFICE
+      ...(await this.prisma.assetVersion.findMany({ where: { asset: { userId: id } }, select: { objectKey: true } })),
+    ];
     await this.prisma.user.delete({ where: { id } });
     // Data di database ikut terhapus (cascade); berkasnya dihapus dari object storage
     for (const { objectKey } of assets) {

@@ -1,16 +1,22 @@
-import { Download, ExternalLink, FileQuestion, FileText, Image as ImageIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Download, ExternalLink, FilePen, FileQuestion, FileText, Image as ImageIcon } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { create } from "zustand";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { errorMessage } from "@/lib/api/client";
 import { uploadsApi } from "@/lib/api/endpoints";
+import { useOfficeStatus } from "@/data/use-office";
+import { OFFICE_KIND_ICON, openOfficeEditor } from "@/features/tools/onlyoffice/office-editor-host";
+import { isOfficeEditable, officeKindOf, OFFICE_KIND_LABELS } from "@/features/tools/onlyoffice/office-formats";
+
+// Penampil dokumen kantor (DOCX/XLSX/PPTX, …) = editor ONLYOFFICE mode lihat, dimuat malas
+const OfficeEditor = lazy(() => import("@/features/tools/onlyoffice/office-editor"));
 
 /**
  * Pratinjau berkas dalam modal — dipakai bersama semua fitur: `previewFile({ uploadId, name, mimeType })`.
- * PDF & gambar ditampilkan langsung; jenis lain (DOCX, XLSX, PPTX, …) menyusul setelah editor dokumen (ONLYOFFICE)
- * terpasang — untuk sementara bisa diunduh / dibuka di tab baru.
+ * PDF & gambar ditampilkan langsung; dokumen kantor (DOCX, XLSX, PPTX, ODT, …) lewat ONLYOFFICE mode lihat bila server
+ * ONLYOFFICE aktif. Berkas yang bisa diedit (DOCX/XLSX/PPTX/PDF) punya tombol "Edit di ONLYOFFICE".
  *
  * Berkas diambil sebagai blob lalu ditampilkan dari URL `blob:` agar header keamanan respons berkas
  * (`Content-Security-Policy: sandbox`) tidak menghalangi penampil PDF browser. CSP produksi mengizinkan `frame-src blob:`.
@@ -74,6 +80,11 @@ function PreviewBody({ file: input }: { file: PreviewableFile }) {
   const [error, setError] = useState<string | null>(null);
   const file = { uploadId: input.uploadId, name: info?.name ?? input.name ?? "Berkas", mimeType: info?.mimeType };
   const kind = info ? previewKind(info.mimeType, info.name) : null;
+  const office = useOfficeStatus().data?.enabled ?? false;
+  const officeKind = info ? officeKindOf(info.name, info.mimeType) : null;
+  // Dokumen kantor non-PDF ditampilkan ONLYOFFICE; PDF tetap memakai penampil PDF browser (lebih ringan)
+  const officeView = office && kind === "unsupported" && !!officeKind;
+  const canEditInOffice = office && !!info && isOfficeEditable(info.name, info.mimeType);
 
   useEffect(() => {
     if (!needsInfo) return;
@@ -135,7 +146,19 @@ function PreviewBody({ file: input }: { file: PreviewableFile }) {
     }
   };
 
-  const Icon = kind === "image" ? ImageIcon : kind === "pdf" ? FileText : FileQuestion;
+  const editInOffice = () => {
+    useFilePreviewStore.getState().set(null);
+    openOfficeEditor({ uploadId: file.uploadId, name: file.name });
+  };
+
+  const Icon =
+    officeView && officeKind
+      ? OFFICE_KIND_ICON[officeKind]
+      : kind === "image"
+        ? ImageIcon
+        : kind === "pdf"
+          ? FileText
+          : FileQuestion;
 
   return (
     <>
@@ -143,15 +166,22 @@ function PreviewBody({ file: input }: { file: PreviewableFile }) {
         <Icon className="size-4 shrink-0 text-module" />
         <DialogTitle className="min-w-0 truncate text-sm">{file.name}</DialogTitle>
         <DialogDescription className="hidden shrink-0 text-xs sm:block">
-          {kind === "pdf"
-            ? "· Dokumen PDF"
-            : kind === "image"
-              ? "· Gambar"
-              : kind === "unsupported"
-                ? "· Pratinjau belum tersedia"
-                : "· Memuat…"}
+          {officeView && officeKind
+            ? `· ${OFFICE_KIND_LABELS[officeKind]}`
+            : kind === "pdf"
+              ? "· Dokumen PDF"
+              : kind === "image"
+                ? "· Gambar"
+                : kind === "unsupported"
+                  ? "· Pratinjau belum tersedia"
+                  : "· Memuat…"}
         </DialogDescription>
         <span className="flex-1" />
+        {canEditInOffice && (
+          <Button variant="ghost" size="xs" onClick={editInOffice}>
+            <FilePen /> <span className="hidden sm:inline">Edit di ONLYOFFICE</span>
+          </Button>
+        )}
         <Button variant="ghost" size="xs" onClick={() => void download()}>
           <Download /> <span className="hidden sm:inline">Unduh</span>
         </Button>
@@ -163,14 +193,15 @@ function PreviewBody({ file: input }: { file: PreviewableFile }) {
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl bg-muted/40">
         {error ? (
           <p className="p-6 text-center text-sm text-destructive">{error}</p>
+        ) : officeView ? (
+          <Suspense fallback={<Spinner className="size-6" />}>
+            <OfficeEditor uploadId={file.uploadId} mode="view" />
+          </Suspense>
         ) : kind === "unsupported" ? (
           <div className="flex max-w-sm flex-col items-center gap-2 p-6 text-center text-sm text-muted-foreground">
             <FileQuestion className="size-10" />
             <p className="font-semibold text-foreground">Pratinjau untuk jenis berkas ini belum tersedia</p>
-            <p>
-              Pratinjau DOCX, XLSX, PPTX, dan sejenisnya akan hadir bersama editor dokumen. Untuk sementara, unduh atau
-              buka di tab baru.
-            </p>
+            <p>Unduh berkas atau buka di tab baru untuk melihat isinya.</p>
           </div>
         ) : !blobUrl ? (
           <Spinner className="size-6" />

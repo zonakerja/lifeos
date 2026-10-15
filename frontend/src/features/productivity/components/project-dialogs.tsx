@@ -1,3 +1,4 @@
+import { useGuardedClose } from "@/components/common/dialog-close-guard";
 import { BookOpen } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -96,6 +97,8 @@ function ProjectForm({
   onCancel: () => void;
   onSaved: (project: Project) => void;
 }) {
+  // Batal melewati penjaga tutup dialog (mis. dokumen ONLYOFFICE berisi di form lampiran)
+  const guardedClose = useGuardedClose();
   const [form, setForm] = useState<Project>(initial);
   const [adding, setAdding] = useState(false);
   const [aiTarget, setAiTarget] = useState<AttachedResource | null>(null);
@@ -225,7 +228,7 @@ function ProjectForm({
         </section>
       </div>
       <DialogFooter>
-        <Button variant="outline" onClick={onCancel}>
+        <Button variant="outline" onClick={() => void guardedClose(onCancel)}>
           Batal
         </Button>
         <Button onClick={save}>Simpan Project</Button>

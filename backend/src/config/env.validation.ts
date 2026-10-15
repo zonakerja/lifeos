@@ -106,6 +106,32 @@ class EnvironmentVariables {
   @IsBoolean()
   COOKIE_SECURE?: boolean;
 
+  /**
+   * ONLYOFFICE Docs (menu Tools → ONLYOFFICE, docs/ONLYOFFICE.md). Kosong = fitur editor dokumen nonaktif.
+   * URL yang dibuka BROWSER (dev `http://localhost:8080`, produksi `https://<domain>/office`).
+   */
+  @IsOptional()
+  @Matches(/^https?:\/\/\S+$/, { message: "ONLYOFFICE_URL harus URL http(s)." })
+  ONLYOFFICE_URL?: string;
+
+  /** URL ONLYOFFICE yang dihubungi BACKEND (produksi `http://onlyoffice`). Kosong = sama dengan ONLYOFFICE_URL. */
+  @IsOptional()
+  @Matches(/^https?:\/\/\S+$/, { message: "ONLYOFFICE_INTERNAL_URL harus URL http(s)." })
+  ONLYOFFICE_INTERNAL_URL?: string;
+
+  /** Secret JWT bersama ONLYOFFICE (= `JWT_SECRET` container). Wajib bila ONLYOFFICE_URL diisi. */
+  @IsOptional()
+  @IsString()
+  @MinLength(32)
+  ONLYOFFICE_JWT_SECRET?: string;
+
+  /**
+   * Alamat backend yang dihubungi container ONLYOFFICE. `auto` = development di Windows + Docker WSL (IP gateway WSL
+   * dibaca otomatis); produksi `http://backend:4000`.
+   */
+  @IsString()
+  ONLYOFFICE_BACKEND_URL = "auto";
+
   /** true bila API berada di belakang reverse proxy (nginx) agar IP klien asli terbaca (rate limit). */
   @Transform(({ value }) => value === true || ["true", "1"].includes(String(value).toLowerCase()))
   @IsBoolean()
@@ -120,6 +146,12 @@ export function validateEnv(config: Record<string, unknown>) {
   const errors = validateSync(env, { skipMissingProperties: false });
 
   env.COOKIE_SECURE ??= env.NODE_ENV === "production";
+
+  if (env.ONLYOFFICE_URL && !env.ONLYOFFICE_JWT_SECRET) {
+    throw new Error(
+      "Konfigurasi environment tidak valid:\n- ONLYOFFICE_JWT_SECRET wajib diisi bila ONLYOFFICE_URL diisi.",
+    );
+  }
 
   if (errors.length > 0) {
     const details = errors

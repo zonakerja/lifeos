@@ -61,13 +61,12 @@ export function AppSidebar() {
   const { pathname } = useLocation();
   const { settings } = useAppSettings();
   const logoUrl = appLogoUrl(settings);
-  const role = useAuthStore((s) => s.user?.role);
   const { setOpenMobile } = useSidebar();
   const closeMobile = () => setOpenMobile(false);
 
-  const mainModules = MODULES.filter((m) => m.key !== "settings" && !m.hiddenInSidebar);
-  const settingsModule = MODULES.find((m) => m.key === "settings")!;
-  const settingsActive = isModuleActive(settingsModule, pathname);
+  const visible = MODULES.filter((m) => !m.hiddenInSidebar);
+  const mainModules = visible.filter((m) => m.sidebarGroup !== "system");
+  const systemModules = visible.filter((m) => m.sidebarGroup === "system");
 
   return (
     <Sidebar collapsible="icon" variant="inset">
@@ -104,6 +103,7 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu className="gap-1">
               {mainModules.map((module) => {
+                if (module.sidebarSubmenu) return <SubmenuModuleItem key={module.key} module={module} />;
                 const active = isModuleActive(module, pathname);
                 return (
                   <SidebarMenuItem key={module.key}>
@@ -129,34 +129,9 @@ export function AppSidebar() {
           <SidebarGroupLabel>Sistem</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              <Collapsible asChild defaultOpen={settingsActive} className="group/collapsible">
-                <SidebarMenuItem>
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton
-                      isActive={settingsActive}
-                      tooltip={settingsModule.label}
-                      className={COLLAPSIBLE_ITEM_CLASS}
-                    >
-                      <ModuleIcon module={settingsModule} active={settingsActive} />
-                      <span>{settingsModule.label}</span>
-                      <ChevronRight className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-90" />
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <SidebarMenuSub>
-                      {visibleTabs(settingsModule, role).map((tab) => (
-                        <SidebarMenuSubItem key={tab.id}>
-                          <SidebarMenuSubButton asChild isActive={pathname === `${settingsModule.path}/${tab.id}`}>
-                            <NavLink to={`${settingsModule.path}/${tab.id}`} onClick={closeMobile}>
-                              <span>{tab.label}</span>
-                            </NavLink>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                      ))}
-                    </SidebarMenuSub>
-                  </CollapsibleContent>
-                </SidebarMenuItem>
-              </Collapsible>
+              {systemModules.map((module) => (
+                <SubmenuModuleItem key={module.key} module={module} />
+              ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -167,6 +142,40 @@ export function AppSidebar() {
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
+  );
+}
+
+/** Modul dengan sub menu (tab) yang bisa dibuka-tutup di sidebar — Tools, Pengaturan. */
+function SubmenuModuleItem({ module }: { module: ModuleDef }) {
+  const { pathname } = useLocation();
+  const role = useAuthStore((s) => s.user?.role);
+  const { setOpenMobile } = useSidebar();
+  const active = isModuleActive(module, pathname);
+  return (
+    <Collapsible asChild defaultOpen={active} className="group/collapsible">
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton isActive={active} tooltip={module.label} className={COLLAPSIBLE_ITEM_CLASS}>
+            <ModuleIcon module={module} active={active} />
+            <span>{module.label}</span>
+            <ChevronRight className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-90" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {visibleTabs(module, role).map((tab) => (
+              <SidebarMenuSubItem key={tab.id}>
+                <SidebarMenuSubButton asChild isActive={pathname === `${module.path}/${tab.id}`}>
+                  <NavLink to={`${module.path}/${tab.id}`} onClick={() => setOpenMobile(false)}>
+                    <span>{tab.label}</span>
+                  </NavLink>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
   );
 }
 

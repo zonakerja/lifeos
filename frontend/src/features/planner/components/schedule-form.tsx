@@ -1,3 +1,4 @@
+import { useGuardedClose } from "@/components/common/dialog-close-guard";
 import { FolderOpen, Link2, MapPin, PencilLine, Plus, Repeat } from "lucide-react";
 import { type FormEvent, type RefObject, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -124,6 +125,8 @@ function ScheduleForm({
   discardRef: RefObject<(() => void) | null>;
   seriesMembers: Schedule[];
 }) {
+  // Batal melewati penjaga tutup dialog (mis. dokumen ONLYOFFICE berisi di form lampiran)
+  const guardedClose = useGuardedClose();
   const cleanup = useAttachmentCleanup();
   // Berkas yang diunggah di sesi form ini: dibuang bila form ditutup tanpa disimpan
   const sessionUploadsRef = useRef(new Set<string>());
@@ -415,7 +418,7 @@ function ScheduleForm({
         </div>
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onCancel}>
+          <Button type="button" variant="outline" onClick={() => void guardedClose(onCancel)}>
             Batal
           </Button>
           <Button type="submit">

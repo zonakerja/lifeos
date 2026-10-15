@@ -7,6 +7,7 @@ import {
   BookOpenText,
   CalendarDays,
   CalendarRange,
+  FilePen,
   FileX,
   FolderTree,
   Grid2x2,
@@ -26,10 +27,11 @@ import {
   type LucideIcon,
   UserRound,
   Users,
+  Wrench,
 } from "lucide-react";
 import type { UserRole } from "@/types/api";
 
-export type ModuleKey = "overview" | "planner" | "notes" | "productivity" | "files" | "settings" | "profile";
+export type ModuleKey = "overview" | "planner" | "notes" | "productivity" | "files" | "tools" | "settings" | "profile";
 
 export interface ModuleTab {
   id: string;
@@ -48,6 +50,10 @@ export interface ModuleDef {
   tabs?: ModuleTab[];
   /** Tidak tampil sebagai modul di sidebar (dibuka dari menu lain, mis. menu user). */
   hiddenInSidebar?: boolean;
+  /** Di sidebar tampil sebagai menu yang bisa dibuka berisi sub menu (= tab), seperti Pengaturan. */
+  sidebarSubmenu?: boolean;
+  /** Kelompok sidebar: `workspace` (default) atau `system` (Tools, Pengaturan). */
+  sidebarGroup?: "workspace" | "system";
 }
 
 /** Sumber tunggal navigasi: sidebar, router, breadcrumb, hero halaman. */
@@ -118,11 +124,23 @@ export const MODULES: ModuleDef[] = [
     ],
   },
   {
+    key: "tools",
+    label: "Tools",
+    description: "Pengaturan alat bantu kerja yang dipakai di seluruh aplikasi, seperti editor dokumen ONLYOFFICE.",
+    path: "/tools",
+    icon: Wrench,
+    sidebarSubmenu: true,
+    sidebarGroup: "system",
+    tabs: [{ id: "onlyoffice", label: "ONLYOFFICE", icon: FilePen }],
+  },
+  {
     key: "settings",
     label: "Pengaturan",
     description: "Branding aplikasi, pengguna, berbagi, dan API key AI.",
     path: "/settings",
     icon: Settings,
+    sidebarSubmenu: true,
+    sidebarGroup: "system",
     tabs: [
       { id: "app", label: "Aplikasi", icon: Settings2, roles: ["super_admin", "admin"] },
       { id: "users", label: "Manajemen User", icon: Users, roles: ["super_admin", "admin"] },

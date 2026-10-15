@@ -4,11 +4,30 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
+import {
+  DialogCloseGuardContext,
+  type DialogCloseGuard,
+  runDialogCloseGuards,
+} from "@/components/common/dialog-close-guard"
 
 function Dialog({
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+  // LifeOS: X / Esc / klik luar melewati penjaga tutup dari isi dialog (components/common/dialog-close-guard.ts)
+  const [guards] = React.useState(() => new Set<{ current: DialogCloseGuard }>())
+  const handleOpenChange = React.useCallback(
+    async (open: boolean) => {
+      if (!open && guards.size > 0 && !(await runDialogCloseGuards(guards))) return
+      onOpenChange?.(open)
+    },
+    [guards, onOpenChange],
+  )
+  return (
+    <DialogCloseGuardContext.Provider value={guards}>
+      <DialogPrimitive.Root data-slot="dialog" onOpenChange={(open) => void handleOpenChange(open)} {...props} />
+    </DialogCloseGuardContext.Provider>
+  )
 }
 
 function DialogTrigger({

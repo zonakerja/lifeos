@@ -111,6 +111,7 @@ NestJS (CommonJS), prefix `api/v1`, port 4000.
 | `settings` | branding aplikasi (`GET` publik) |
 | `records` | API domain generik + audit kearsipan |
 | `uploads` / `extraction` | upload berkas, link unduh bertanda tangan, job ekstraksi teks (§3.2) |
+| `office` | editor dokumen ONLYOFFICE: config bertanda tangan, link berkas & callback simpan, riwayat 10 versi (§3.5) |
 | `ai` | AI multi-provider: pengaturan provider/key/model per user, `POST /ai/generate` (§3.1); indeks pengetahuan RAG `ai/index/` (§3.2) |
 | `health` | `/health` readiness (database, redis, storage) · `/health/live` liveness |
 | `database/seed.ts` | seed dev (akun demo) / produksi (super admin dari env) |
@@ -163,7 +164,9 @@ unduhan disensor; health check tidak dicatat.
 PDF berlapis teks (`unpdf`, penanda `[Halaman N]`), DOCX (`mammoth`), XLSX (`read-excel-file`, `[Sheet: …]`, baris
 `a | b`). Gambar dan PDF hasil scan (< 10 karakter/halaman) dibaca lewat **Gemini milik pemilik berkas** (OCR); tanpa
 key Gemini → `unsupported` (`metadata.reason = needs_gemini_key`). MIME `application/octet-stream` ditebak dari
-ekstensi. Logika murni di `text-extractors.ts` (diuji dengan berkas PDF/DOCX/XLSX buatan test).
+ekstensi. Logika murni di `text-extractors.ts` (diuji dengan berkas PDF/DOCX/XLSX buatan test). Format kantor lain
+(PPTX, ODT, ODP, RTF, DOC, PPT, EPUB, ODS, XLS, …) dibaca lewat **konversi ONLYOFFICE** ke TXT/CSV bila ONLYOFFICE diatur
+(`office/office-text-converter.ts`, metode `onlyoffice`; §3.5).
 
 **Indeks** (`ai/index/`): tabel `ai_chunks` = potongan teks (± 1.800 karakter, tumpang-tindih 200) per sumber —
 record (17 tipe di `INDEXED_TYPES`, teks generik `key: nilai` dari payload sehingga field baru otomatis ikut) dan isi
@@ -251,6 +254,41 @@ muat ulang web/hapus), `/:id/chat` + `/:id/messages` (riwayat permanen), `/:id/s
 - **Belum**: indeks RAG/chatbot hanya mencari data milik sendiri (item bersama tidak ikut); notifikasi saat item
   dibagikan; tautan publik.
 
+### 3.5 Editor dokumen ONLYOFFICE (`src/office/`, menu Tools → ONLYOFFICE)
+
+Riset, keputusan user, dan tahapan: [ONLYOFFICE.md](ONLYOFFICE.md). Server ONLYOFFICE Docs = container terpisah; berkas
+tetap Asset LifeOS di object storage.
+
+| Endpoint | Fungsi |
+|---|---|
+| `GET /office/status` | aktif? (`ONLYOFFICE_URL` diisi), URL server ONLYOFFICE, format yang bisa diedit |
+| `GET /office/diagnostics` | halaman Tools → ONLYOFFICE: server sehat (`/healthcheck`), versi (Command Service `version`); alamat teknis hanya untuk admin |
+| `POST /office/documents` `{ format: docx\|xlsx\|pptx\|pdf, title?, context?, ownerId? }` | dokumen kosong dari templat `backend/templates/office/` (A4, id-ID) → Asset seperti upload lampiran (context default `office`; `ownerId` = pemilik item bersama berizin edit) |
+| `POST /office/files/:id/forcesave` | simpan paksa sesi edit yang terbuka (Command Service `forcesave`) dan menunggu versi tersimpan (≤ 15 detik) → `saved \| pending \| no-changes \| no-session`; dipanggil saat modal editor ditutup |
+| `POST /office/config` `{ uploadId, mode?, mobile?, theme? }` | config `DocsAPI.DocEditor` ditandatangani `ONLYOFFICE_JWT_SECRET` (HS256) |
+| `GET /office/files/:id/versions` · `GET …/versions/:v` · `POST …/versions/:v/restore` | riwayat versi, unduh versi lama, pulihkan (izin edit) |
+| `GET /office/files/:id/content?token=` | dipanggil ONLYOFFICE (`document.url`), token 1 hari |
+| `POST /office/callback?token=` | dipanggil ONLYOFFICE saat status dokumen berubah; jawaban `{ error: 0 }` |
+
+- **Hak akses** = akses berkas: pemilik/pengunggah → edit; penerima berbagi → izin item yang merujuk berkas (Edit / Komentar
+  / Lihat). Format mengikuti daftar resmi ONLYOFFICE (`office-formats.ts`): `edit` & `lossy` bisa disunting (respons
+  config membawa `lossy`), `view` & `mode: view` → baca saja; komentar/tinjau/isi formulir hanya bila format mendukung.
+- **Token**: link berkas & callback memakai secret turunan `JWT_ACCESS_SECRET:office` (mengikat ke satu berkas);
+  isi callback hanya dipercaya dari JWT ONLYOFFICE (header `AuthorizationJwt`, berisi `{ payload }`). Link berkas hasil
+  edit hanya diterima dari host ONLYOFFICE (URL publik dialihkan ke `ONLYOFFICE_INTERNAL_URL`) → mencegah SSRF.
+- **Kunci dokumen** `document.key = <assetId>-<assets.office_key>`; berganti saat sesi edit selesai (status 2/4) atau versi
+  dipulihkan. Pengguna yang membuka kunci yang sama = edit bersama.
+- **Versi** (`assets.version`, `version_author_id`, `versioned_at`; riwayat di `asset_versions`): simpan pertama
+  dalam satu sesi (force save tombol Simpan = status 6, atau tutup = status 2) memindahkan isi lama ke riwayat; simpanan
+  berikutnya di sesi yang sama menimpa (satu sesi = satu versi). Maks. 10 versi termasuk saat ini; yang lebih lama
+  dihapus beserta objeknya. Isi identik tidak membuat versi. Setiap simpan → ekstraksi teks + indeks AI diulang.
+  Pulihkan = salin objek versi lama sebagai versi terbaru (tidak ada yang hilang). Hapus berkas/user → objek versi ikut.
+  Callback dari **sesi lama** (kunci sudah berganti karena dipulihkan — editor yang ditutup sesudahnya mengirim ulang isinya,
+  dibuat ulang ONLYOFFICE sehingga checksum berbeda walau isi sama) hanya masuk **riwayat** tepat di bawah versi saat ini;
+  isi saat ini (hasil pemulihan) tidak pernah diganti.
+- **Alamat backend untuk ONLYOFFICE** (`ONLYOFFICE_BACKEND_URL`): `auto` (dev) = IPv4 antarmuka Windows `vEthernet (WSL…)`
+  dibaca setiap membuat config; produksi `http://backend:4000`. Logika murni + test: `office-logic.ts`.
+
 ### Keamanan
 - **Access token** JWT 15 menit, dikirim via header `Authorization`, hanya disimpan di memori frontend.
 - **Refresh token** JWT (`jti` = `refresh_tokens.id`, DB hanya menyimpan hash SHA-256) dikirim sebagai cookie
@@ -270,8 +308,8 @@ Konvensi: model Prisma PascalCase, **tabel & kolom snake_case**, timestamp `time
 dengan `ON DELETE CASCADE`, soft delete `deleted_at` pada tabel domain.
 
 ### 4.1 Tabel inti
-`users` (+ `ai_provider`, `ai_fallback`, `ai_index_enabled`), `refresh_tokens`, `app_settings`, `assets` (+ `uploaded_by_id`),
-`asset_extractions`, `archive_audit_logs`, `ai_credentials` (§3.1), `ai_chunks` (pgvector, §3.2),
+`users` (+ `ai_provider`, `ai_fallback`, `ai_index_enabled`), `refresh_tokens`, `app_settings`, `assets` (+ `uploaded_by_id`,
+`version`, `version_author_id`, `versioned_at`, `office_key`), `asset_versions` (§3.5), `asset_extractions`, `archive_audit_logs`, `ai_credentials` (§3.1), `ai_chunks` (pgvector, §3.2),
 `shares` & `record_comments` (§3.3).
 
 ### 4.2 Tabel domain (20)
@@ -351,7 +389,8 @@ src/
   stores/       auth-store, ui-store
   hooks/        useSearchParam, useToday, usePermissions, useRetained
   components/   ui/ (shadcn), layout/ (AppShell, ModulePage), common/ (komponen bersama)
-  features/     overview, planner, notes, productivity, resources, file-control, settings, assistant, focus, auth
+  features/     overview, planner, notes, productivity, resources, file-control, tools (ONLYOFFICE), settings, assistant,
+                focus, auth
 ```
 
 ### Data layer

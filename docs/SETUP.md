@@ -70,6 +70,7 @@ test) semuanya mengandalkan angka yang sama.
 | PostgreSQL | **5432** | db `lifeos` (+ `lifeos_shadow`) | `docker-compose.yml` |
 | Redis | **6379** | — | `docker-compose.yml` |
 | SeaweedFS S3 API / filer UI | **8333** / **8888** | filer: http://localhost:8888 | `docker-compose.yml` |
+| ONLYOFFICE Docs (opsional, profile `office`) | **8080** | http://localhost:8080 (`/healthcheck` → `true`) | `docker-compose.yml` |
 | Prisma Studio (opsional) | 5555 | `npm --prefix backend run prisma:studio` | default Prisma |
 | Vite preview build (opsional) | 4173 | `npm --prefix frontend run preview` | default Vite |
 | Stack produksi uji lokal (opsional) | 80 / 443 | http://localhost | `docker-compose.prod.yml` (Caddy) |
@@ -199,6 +200,13 @@ Setelah ini, cukup ikuti §4 setiap mulai bekerja. Ulangi `npm install` (backend
    npm --prefix frontend run dev
    ```
 5. Buka http://localhost:5173. Cek API: http://localhost:4000/api/v1/health (harus `"status":"ok"`).
+6. **Opsional — ONLYOFFICE** (editor dokumen, menu Tools → ONLYOFFICE; butuh ± 1–2 GB RAM, start pertama ± 1–2 menit):
+   ```powershell
+   wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose --profile office up -d --wait onlyoffice"
+   ```
+   Cek: http://localhost:8080/healthcheck menampilkan `true`. Tanpa langkah ini aplikasi tetap jalan, hanya editor
+   ONLYOFFICE yang tidak tersedia. `backend/.env` harus berisi variabel `ONLYOFFICE_*` (salin dari
+   `backend/.env.example`, lalu restart backend). Detail: [ONLYOFFICE.md](ONLYOFFICE.md).
 
 Alternatif: minta Claude menyalakannya — Claude memakai konfigurasi yang sama (`.claude/launch.json`, port 4000 &
 5173) setelah mengecek status, jadi tidak akan bentrok dengan yang sudah berjalan.
@@ -214,9 +222,9 @@ Data tetap aman — semua langkah di bawah hanya menghentikan proses, tidak meng
    dinyalakan Claude, minta Claude "matikan semua".
 2. **Infrastruktur Docker**:
    ```powershell
-   wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose stop"
+   wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose --profile office stop"
    ```
-   (Di lazydocker: pilih container → tekan `s` untuk stop.) Gunakan **`stop`**, bukan `down -v` — `-v` menghapus data.
+   (`--profile office` ikut menghentikan ONLYOFFICE bila menyala; aman walau tidak menyala. Di lazydocker: pilih container → tekan `s` untuk stop.) Gunakan **`stop`**, bukan `down -v` — `-v` menghapus data.
 3. **Tab A**: keluar dari lazydocker (`q`) atau tekan `Ctrl+C` pada `sleep infinity`.
 4. Opsional, membebaskan RAM laptop: `wsl --shutdown`.
 5. Pastikan semua sudah mati dengan §6 (tidak ada port tersisa).
@@ -240,7 +248,7 @@ npm --prefix backend run prisma:seed
 ```powershell
 # Port LifeOS yang sedang dipakai + prosesnya (wslrelay = container Docker, node = dev server)
 Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
-  Where-Object { $_.LocalPort -in 80,443,4000,5173,5432,6379,8333,8888 } |
+  Where-Object { $_.LocalPort -in 80,443,4000,5173,5432,6379,8080,8333,8888 } |
   Sort-Object LocalPort -Unique |
   ForEach-Object { "{0}  pid={1}  {2}" -f $_.LocalPort, $_.OwningProcess, (Get-Process -Id $_.OwningProcess).ProcessName }
 

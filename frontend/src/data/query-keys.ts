@@ -18,4 +18,7 @@ export const queryKeys = {
   notebook: (id: string) => ["notebooks", id] as const,
   notebookMessages: (id: string) => ["notebooks", id, "messages"] as const,
   notebookNotes: (id: string) => ["notebooks", id, "notes"] as const,
+  officeStatus: ["office", "status"] as const,
+  officeDiagnostics: ["office", "diagnostics"] as const,
+  officeVersions: (uploadId: string) => ["office", "versions", uploadId] as const,
 };

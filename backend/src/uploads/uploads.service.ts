@@ -5,11 +5,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { unlink } from "node:fs/promises";
 import { extname } from "node:path";
+import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { AuthUser } from "../common/types/auth-user";
 import { ASSET_SOURCE } from "../ai/index/index-text";
 import { ExtractionQueueService } from "../extraction/extraction-queue.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { type SharePermission } from "../sharing/share-graph";
 import { ShareAccessService } from "../sharing/share-access.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 
@@ -55,20 +57,70 @@ export class UploadsService {
     const originalName = Buffer.from(file.originalname, "latin1").toString("utf8");
     const hasher = createHash("sha256");
     await pipeline(createReadStream(file.path), hasher);
-    const checksum = hasher.digest("hex");
+    return this.persist({
+      ownerId,
+      uploaderId: user.id,
+      originalName,
+      mimeType: file.mimetype || "application/octet-stream",
+      size: file.size,
+      checksum: hasher.digest("hex"),
+      body: () => createReadStream(file.path),
+      context,
+    });
+  }
+
+  /**
+   * Berkas baru dari isi di memori (mis. dokumen kosong dari templat ONLYOFFICE). `ownerId` = pemilik item bersama
+   * (izin edit) tempat berkas dilampirkan, sama seperti upload biasa.
+   */
+  async createFromBuffer(
+    buffer: Buffer,
+    originalName: string,
+    mimeType: string,
+    user: AuthUser,
+    context?: string,
+    ownerId?: string,
+  ) {
+    return this.persist({
+      ownerId: await this.resolveOwner(user, ownerId),
+      uploaderId: user.id,
+      originalName,
+      mimeType,
+      size: buffer.length,
+      checksum: createHash("sha256").update(buffer).digest("hex"),
+      body: () => buffer,
+      context,
+    });
+  }
+
+  /** Key objek storage baru di ruang pemilik: `<userId>/<yyyy>/<mm>/<ts>-<uuid><ext>`. */
+  newObjectKey(ownerId: string, originalName: string) {
     const now = new Date();
-    const objectKey = [
+    return [
       ownerId,
       now.getUTCFullYear(),
       String(now.getUTCMonth() + 1).padStart(2, "0"),
       `${now.getTime()}-${randomUUID()}${extname(originalName).toLowerCase()}`,
     ].join("/");
-    const mimeType = file.mimetype || "application/octet-stream";
+  }
+
+  private async persist(params: {
+    ownerId: string;
+    uploaderId: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+    checksum: string;
+    body: () => Buffer | Readable;
+    context?: string;
+  }) {
+    const { ownerId, originalName, mimeType, checksum, context } = params;
+    const objectKey = this.newObjectKey(ownerId, originalName);
 
     await this.storage.putObject({
       key: objectKey,
-      body: createReadStream(file.path),
-      contentLength: file.size,
+      body: params.body(),
+      contentLength: params.size,
       contentType: mimeType,
       checksum,
     });
@@ -78,12 +130,12 @@ export class UploadsService {
       asset = await this.prisma.asset.create({
         data: {
           userId: ownerId,
-          uploadedById: ownerId === user.id ? null : user.id,
+          uploadedById: ownerId === params.uploaderId ? null : params.uploaderId,
           bucket: this.storage.bucket,
           objectKey,
           originalName,
           mimeType,
-          size: file.size,
+          size: params.size,
           checksum,
           status: AssetStatus.queued,
           context,
@@ -164,16 +216,23 @@ export class UploadsService {
     if (asset.userId !== user.id && asset.uploadedById !== user.id) {
       throw new ForbiddenException("Hanya pemilik yang dapat menghapus file ini.");
     }
+    // Versi lama (editor ONLYOFFICE) ikut terhapus (cascade); objek storage-nya dihapus di bawah
+    const versions = await this.prisma.assetVersion.findMany({
+      where: { assetId: asset.id },
+      select: { objectKey: true },
+    });
     // Potongan indeks AI (RAG) dari isi berkas ikut dihapus
     await this.prisma.$transaction([
       this.prisma.aiChunk.deleteMany({ where: { sourceType: ASSET_SOURCE, sourceId: asset.id } }),
       this.prisma.asset.delete({ where: { id: asset.id } }),
     ]);
-    await this.storage
-      .deleteObject(asset.objectKey)
-      .catch((error) =>
-        this.logger.warn(`Objek ${asset.objectKey} gagal dihapus: ${error instanceof Error ? error.message : error}`),
-      );
+    for (const objectKey of [asset.objectKey, ...versions.map((v) => v.objectKey)]) {
+      await this.storage
+        .deleteObject(objectKey)
+        .catch((error) =>
+          this.logger.warn(`Objek ${objectKey} gagal dihapus: ${error instanceof Error ? error.message : error}`),
+        );
+    }
     return { success: true };
   }
 
@@ -191,6 +250,24 @@ export class UploadsService {
     const shared = (await this.shareAccess.forUser(user.id)).get(asset.userId)?.uploads.has(asset.id);
     if (!shared) throw new ForbiddenException("Anda tidak memiliki akses ke file ini.");
     return asset;
+  }
+
+  /**
+   * Berkas + tingkat akses user: pemilik/pengunggah = `edit`, penerima berbagi = izin tertinggi item yang merujuknya.
+   * `fresh` = hitung ulang tanpa cache (pemeriksaan tulis).
+   */
+  async findWithPermission(id: string, user: AuthUser, fresh = false) {
+    const asset = await this.prisma.asset.findUnique({ where: { id } });
+    if (!asset) throw new NotFoundException("File tidak ditemukan.");
+    if (asset.userId === user.id || asset.uploadedById === user.id) {
+      return { asset, permission: "edit" as SharePermission };
+    }
+    const access = fresh
+      ? await this.shareAccess.forOwner(user.id, asset.userId)
+      : (await this.shareAccess.forUser(user.id)).get(asset.userId);
+    const permission = access?.uploads.get(asset.id);
+    if (!permission) throw new ForbiddenException("Anda tidak memiliki akses ke file ini.");
+    return { asset, permission };
   }
 
   /** Pemilik berkas: diri sendiri, atau pemilik item bersama yang memberi izin edit kepada pengunggah. */

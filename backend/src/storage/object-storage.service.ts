@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import {
+  CopyObjectCommand,
   CreateBucketCommand,
   DeleteObjectCommand,
   GetObjectCommand,
@@ -81,6 +82,16 @@ export class ObjectStorageService implements OnModuleInit {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
     }
     return Buffer.concat(chunks);
+  }
+
+  async copyObject(sourceKey: string, targetKey: string) {
+    await this.client.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        Key: targetKey,
+        CopySource: `${this.bucket}/${sourceKey.split("/").map(encodeURIComponent).join("/")}`,
+      }),
+    );
   }
 
   async deleteObject(key: string) {

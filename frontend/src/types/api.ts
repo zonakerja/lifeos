@@ -355,3 +355,57 @@ export type AddNotebookSourceInput =
   | { kind: "record"; recordType: NotebookRecordType; recordId: string }
   | { kind: "text"; content: string; title?: string }
   | { kind: "web"; url: string; title?: string };
+
+// ---------------------------------------------------------------------------- ONLYOFFICE (Tools → ONLYOFFICE)
+
+export type OfficeFormat = "docx" | "xlsx" | "pptx" | "pdf";
+export type OfficeAccess = "edit" | "comment" | "view";
+
+export interface OfficeStatus {
+  enabled: boolean;
+  /** URL server ONLYOFFICE yang dibuka browser (memuat `api.js`) */
+  documentServerUrl: string | null;
+  /** Format yang bisa disunting (edit + lossy-edit, daftar resmi ONLYOFFICE) */
+  editableFormats: string[];
+  /** Semua format yang bisa dibuka */
+  viewableFormats: string[];
+}
+
+/** Halaman Tools → ONLYOFFICE: kesehatan server; `details` hanya untuk admin. */
+export interface OfficeDiagnostics extends OfficeStatus {
+  jwtConfigured: boolean;
+  healthy: boolean;
+  version: string | null;
+  details: { internalUrl: string; backendUrl: string; maxVersions: number } | null;
+}
+
+/** Config `DocsAPI.DocEditor` bertanda tangan dari backend — dipakai apa adanya (tidak boleh diubah). */
+export interface OfficeEditorConfig {
+  documentType: string;
+  document: { fileType: string; key: string; title: string };
+  editorConfig: { mode: "edit" | "view" };
+  token: string;
+  [key: string]: unknown;
+}
+
+export interface OfficeConfigResult {
+  documentServerUrl: string;
+  access: OfficeAccess;
+  /** Format bisa disunting tetapi sebagian format bisa hilang saat disimpan (ODT, RTF, CSV, TXT, …) */
+  lossy: boolean;
+  version: number;
+  config: OfficeEditorConfig;
+}
+
+export interface OfficeVersion {
+  version: number;
+  current: boolean;
+  size: number;
+  createdAt: string;
+  authorName: string | null;
+}
+
+export interface OfficeVersions {
+  canRestore: boolean;
+  versions: OfficeVersion[];
+}

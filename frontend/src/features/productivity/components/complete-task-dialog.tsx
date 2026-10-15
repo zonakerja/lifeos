@@ -1,3 +1,4 @@
+import { useGuardedClose } from "@/components/common/dialog-close-guard";
 import { CheckCircle2, Paperclip } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -100,6 +101,8 @@ function CompleteTaskForm({
   onCancel: () => void;
   onConfirm: (values: CompletionValues) => void;
 }) {
+  // Batal melewati penjaga tutup dialog (mis. dokumen ONLYOFFICE berisi di form lampiran)
+  const guardedClose = useGuardedClose();
   const [values, setValues] = useState(defaults);
   const [added, setAdded] = useState<AttachedResource[]>([]);
   const [adding, setAdding] = useState(false);
@@ -205,7 +208,7 @@ function CompleteTaskForm({
       </section>
 
       <DialogFooter>
-        <Button type="button" variant="outline" onClick={onCancel}>
+        <Button type="button" variant="outline" onClick={() => void guardedClose(onCancel)}>
           Batal
         </Button>
         <Button type="button" onClick={confirm}>

@@ -1,4 +1,5 @@
 import { apiUrl, request } from "@/lib/api/client";
+import { useAuthStore } from "@/stores/auth-store";
 import type {
   AddNotebookSourceInput,
   AiGenerateResult,
@@ -9,6 +10,11 @@ import type {
   NotebookNote,
   NotebookSource,
   NotebookSummary,
+  OfficeConfigResult,
+  OfficeDiagnostics,
+  OfficeFormat,
+  OfficeStatus,
+  OfficeVersions,
   AiIndexStatus,
   AiSearchHit,
   AiProviderId,
@@ -139,6 +145,35 @@ export const uploadsApi = {
       method: "POST",
     });
     return apiUrl(url);
+  },
+};
+
+/** Editor dokumen ONLYOFFICE (menu Tools → ONLYOFFICE). */
+export const officeApi = {
+  status: () => request<OfficeStatus>("/office/status"),
+  /** Dokumen kosong baru dari templat (berkas milik user; dijadikan Resource Global oleh pemanggil). */
+  /** `context`/`ownerId` sama seperti upload lampiran (ownerId = pemilik item bersama berizin edit). */
+  createDocument: (format: OfficeFormat, options: { title?: string; context?: string; ownerId?: string } = {}) =>
+    request<UploadedAsset>("/office/documents", { method: "POST", body: { format, ...options } }),
+  diagnostics: () => request<OfficeDiagnostics>("/office/diagnostics"),
+  /** Simpan paksa sesi edit yang terbuka (modal editor ditutup); menunggu sampai versi tersimpan. */
+  forceSave: (uploadId: string) =>
+    request<{ status: "saved" | "pending" | "no-changes" | "no-session" }>(`/office/files/${uploadId}/forcesave`, {
+      method: "POST",
+    }),
+  config: (input: { uploadId: string; mode?: "edit" | "view"; mobile?: boolean; theme?: "light" | "dark" }) =>
+    request<OfficeConfigResult>("/office/config", { method: "POST", body: input }),
+  versions: (uploadId: string) => request<OfficeVersions>(`/office/files/${uploadId}/versions`),
+  restore: (uploadId: string, version: number) =>
+    request<OfficeVersions>(`/office/files/${uploadId}/versions/${version}/restore`, { method: "POST" }),
+  /** Isi versi lama sebagai Blob (butuh header Authorization, jadi diunduh lewat fetch). */
+  versionBlob: async (uploadId: string, version: number) => {
+    const response = await fetch(apiUrl(`/office/files/${uploadId}/versions/${version}`), {
+      headers: { Authorization: `Bearer ${useAuthStore.getState().accessToken ?? ""}` },
+      credentials: "include",
+    });
+    if (!response.ok) throw new Error(`Versi tidak dapat diunduh (status ${response.status}).`);
+    return response.blob();
   },
 };
 

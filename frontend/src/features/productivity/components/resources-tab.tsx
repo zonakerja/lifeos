@@ -1,5 +1,17 @@
-import { Archive, BookOpen, Bot, Database, FileText, Globe, PencilLine, Plus, Trash2, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import {
+  Archive,
+  BookOpen,
+  Bot,
+  Database,
+  FilePen,
+  FileText,
+  Globe,
+  PencilLine,
+  Plus,
+  Trash2,
+  Upload,
+} from "lucide-react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { DateRangeFilter } from "@/components/common/date-range-filter";
@@ -20,6 +32,16 @@ import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useAiNotes, useFreeNotes, useLists, useResources } from "@/data/collections";
+import {
+  NewOfficeDocumentPicker,
+  OFFICE_ATTACHMENT_LABEL,
+  OFFICE_ATTACHMENT_TYPE,
+  useOfficeEnabled,
+} from "@/features/tools/onlyoffice/new-office-document-button";
+import { openOfficeEditor } from "@/features/tools/onlyoffice/office-editor-host";
+import { isOfficeEditable } from "@/features/tools/onlyoffice/office-formats";
+import { useOfficeDiscardConfirm } from "@/features/tools/onlyoffice/use-office-discard-confirm";
+import type { UploadedAsset } from "@/types/api";
 import { ResourceAiDialog } from "@/features/resources/resource-ai-dialog";
 import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
 import { openAttachment } from "@/features/resources/resource-utils";
@@ -313,12 +335,15 @@ function ResourceFormDialog({
   const resource = useRetained(resourceProp);
   const session = useOpenSession(resourceProp !== null);
   const { register, discardAll } = useDiscardScope();
-  const close = () => {
+  // Penjaga dari form: false = jangan tutup (user memilih kembali di konfirmasi buang dokumen ONLYOFFICE)
+  const closeGuardRef = useRef<(() => Promise<boolean>) | null>(null);
+  const close = async () => {
+    if (closeGuardRef.current && !(await closeGuardRef.current())) return;
     discardAll(); // Batal / X / Esc: buang berkas yang diunggah tetapi tidak jadi disimpan
     onOpenChange(false);
   };
   return (
-    <Dialog open={resourceProp !== null} onOpenChange={(open) => (open ? onOpenChange(true) : close())}>
+    <Dialog open={resourceProp !== null} onOpenChange={(open) => (open ? onOpenChange(true) : void close())}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{resource === "new" ? "Tambah Resource" : "Edit Resource"}</DialogTitle>
@@ -329,8 +354,9 @@ function ResourceFormDialog({
               <ResourceForm
                 key={session}
                 resource={resource === "new" ? null : resource}
-                onCancel={close}
+                onCancel={() => void close()}
                 onDone={() => onOpenChange(false)}
+                closeGuardRef={closeGuardRef}
               />
             </DiscardScope>
           </AccessScope>
@@ -344,10 +370,13 @@ function ResourceForm({
   resource,
   onCancel,
   onDone,
+  closeGuardRef,
 }: {
   resource: Resource | null;
   onCancel: () => void;
   onDone: () => void;
+  /** Diisi form: dipanggil dialog sebelum ditutup (Batal / X / Esc) */
+  closeGuardRef?: RefObject<(() => Promise<boolean>) | null>;
 }) {
   const { items: allResources, setItems: setResources } = useResources();
   const cleanup = useAttachmentCleanup();
@@ -367,6 +396,14 @@ function ResourceForm({
   const summarizer = useFileSummarizer();
   // "Ringkas dengan AI" opsional (default mati, diingat per browser); hasil lama diabaikan bila berkas diganti
   const [aiSummary, setAiSummary] = useState(readAiSummaryPreference);
+  // Dipakai callback editor ONLYOFFICE (ditutup setelah state berubah)
+  const aiSummaryRef = useRef(aiSummary);
+  useEffect(() => {
+    aiSummaryRef.current = aiSummary;
+  }, [aiSummary]);
+  // Tipe "Buat Dokumen (ONLYOFFICE)" = berkas (tipe `file`) yang dibuat dari templat, bukan diunggah
+  const [fileSource, setFileSource] = useState<"upload" | "office">("upload");
+  const officeEnabled = useOfficeEnabled();
   // "Masukkan ke File Control": resource baru mengikuti preferensi terakhir, resource lama mengikuti statusnya.
   // Arsip yang sudah diberkaskan (fisik/digital) dikelola File Control → centang terkunci.
   const [toFileControl, setToFileControl] = useState(() =>
@@ -410,26 +447,72 @@ function ResourceForm({
     if (title) patch({ noteId: value, title: form.title || title, content: "Linked Note / List", aiSummary });
   };
 
+  /** Berkas baru (upload atau dokumen ONLYOFFICE baru) di sesi form ini — dibuang bila diganti / form dibatalkan. */
+  const acceptAsset = (asset: UploadedAsset, title: string) => {
+    // Upload sebelumnya di sesi ini (belum pernah tersimpan) langsung dibuang saat diganti
+    if (form.uploadId && sessionUploads.current.delete(form.uploadId)) {
+      untrackPendingUpload(form.uploadId);
+      cleanup.discardUploads([form.uploadId]);
+    }
+    sessionUploads.current.add(asset.id);
+    trackPendingUpload(asset.id); // tetap dibersihkan bila tab di-reload/ditutup sebelum disimpan
+    patch({ uploadId: asset.id, mimeType: asset.mimeType, url: undefined, title, aiSummary: undefined });
+  };
+  const officeSource = form.type === "file" && fileSource === "office";
+  // Konfirmasi sebelum dokumen ONLYOFFICE yang dibuat di form ini dibuang (batal / tutup / ganti tipe / hapus)
+  const officeDiscard = useOfficeDiscardConfirm();
+  // Tipe "Buat Dokumen" hanya untuk resource baru → dokumennya pasti dibuat di sesi form ini
+  const sessionOfficeDoc = officeSource && !!form.uploadId;
+  useEffect(() => {
+    if (!closeGuardRef) return;
+    closeGuardRef.current = async () =>
+      savedRef.current || !sessionOfficeDoc || !form.uploadId || officeDiscard.confirm(form.uploadId);
+    return () => {
+      closeGuardRef.current = null;
+    };
+  });
+
+  /** Buang berkas sesi ini dari form (dan storage); ringkasan AI yang sedang berjalan diabaikan. */
+  const dropSessionUpload = () => {
+    if (!form.uploadId || !sessionUploads.current.delete(form.uploadId)) return;
+    untrackPendingUpload(form.uploadId);
+    cleanup.discardUploads([form.uploadId]);
+    summaryRunRef.current++;
+    summarizer.setStatus("idle");
+    lastFileRef.current = null;
+    patch({ uploadId: undefined, mimeType: undefined, aiSummary: undefined });
+  };
+
+  /** Tombol "Hapus dokumen": selalu dikonfirmasi; setelahnya jenis dokumen lain bisa dipilih. */
+  const deleteOfficeDoc = async () => {
+    if (!form.uploadId || !(await officeDiscard.confirm(form.uploadId, { explicit: true }))) return;
+    dropSessionUpload();
+  };
+
+  /** Buka berkas di ONLYOFFICE; setelah ditutup (tersimpan) ringkas ulang isinya bila "Ringkas dengan AI" dicentang. */
+  const editInOffice = (uploadId: string, name: string) =>
+    openOfficeEditor({
+      uploadId,
+      name,
+      onClosed: () => {
+        if (aiSummaryRef.current) void runSummaryUpload(uploadId);
+      },
+    });
+
+  /** Ringkas berkas yang sudah di server (dokumen ONLYOFFICE) dari teks ekstraksi backend. */
+  const runSummaryUpload = async (uploadId: string) => {
+    const run = ++summaryRunRef.current;
+    const summary = await summarizer.summarizeUpload(uploadId);
+    if (summary && run === summaryRunRef.current) patch({ aiSummary: summary });
+  };
+
   const handleFile = async (file?: File) => {
     if (!file) return;
     setUploading(true);
     try {
       const asset = await uploadsApi.upload(file, "resource", uploadOwnerId);
-      // Upload sebelumnya di sesi ini (belum pernah tersimpan) langsung dibuang saat diganti
-      if (form.uploadId && sessionUploads.current.delete(form.uploadId)) {
-        untrackPendingUpload(form.uploadId);
-        cleanup.discardUploads([form.uploadId]);
-      }
-      sessionUploads.current.add(asset.id);
-      trackPendingUpload(asset.id); // tetap dibersihkan bila tab di-reload/ditutup sebelum disimpan
+      acceptAsset(asset, form.title || asset.originalName);
       lastFileRef.current = file;
-      patch({
-        uploadId: asset.id,
-        mimeType: asset.mimeType,
-        url: undefined,
-        title: form.title || asset.originalName,
-        aiSummary: undefined,
-      });
     } catch (error) {
       toast.error("Upload file gagal", { description: errorMessage(error) });
       setUploading(false);
@@ -452,14 +535,19 @@ function ResourceForm({
     if (!enabled) {
       summaryRunRef.current++;
       summarizer.setStatus("idle");
-    } else if (lastFileRef.current && !form.aiSummary && summarizer.status !== "processing") {
-      void runSummary(lastFileRef.current);
+    } else if (!form.aiSummary && summarizer.status !== "processing") {
+      if (lastFileRef.current) void runSummary(lastFileRef.current);
+      else if (officeSource && form.uploadId) void runSummaryUpload(form.uploadId);
     }
   };
 
   const save = () => {
     if (!form.title.trim()) {
       toast.error("Nama resource wajib diisi.");
+      return;
+    }
+    if (officeSource && !form.uploadId) {
+      toast.error("Pilih jenis dokumen yang dibuat terlebih dahulu.");
       return;
     }
     const data: Resource = {
@@ -494,6 +582,7 @@ function ResourceForm({
 
   return (
     <FieldGroup className="gap-4">
+      {officeDiscard.dialog}
       <div className="grid gap-3 md:grid-cols-4">
         <Field>
           <FieldLabel htmlFor="res-number">Nomor</FieldLabel>
@@ -507,13 +596,29 @@ function ResourceForm({
         </Field>
         <Field>
           <FieldLabel>Tipe</FieldLabel>
-          <Select value={form.type} onValueChange={(v) => patch({ type: v })}>
+          <Select
+            value={officeSource ? OFFICE_ATTACHMENT_TYPE : form.type}
+            onValueChange={async (v) => {
+              const office = v === OFFICE_ATTACHMENT_TYPE;
+              // Berkas sesi ini dari sumber lain (upload ↔ dokumen baru) tidak dibawa; dokumen berisi dikonfirmasi dulu
+              if (form.uploadId && office !== officeSource && sessionUploads.current.has(form.uploadId)) {
+                if (sessionOfficeDoc && !(await officeDiscard.confirm(form.uploadId))) return;
+                dropSessionUpload();
+              }
+              setFileSource(office ? "office" : "upload");
+              patch({ type: office ? "file" : v });
+            }}
+          >
             <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="link">Web Link</SelectItem>
               <SelectItem value="file">File</SelectItem>
+              {/* Dokumen baru hanya untuk resource baru (resource lama sudah punya berkas) */}
+              {officeEnabled && !resource && (
+                <SelectItem value={OFFICE_ATTACHMENT_TYPE}>{OFFICE_ATTACHMENT_LABEL}</SelectItem>
+              )}
               <SelectItem value="note">Catatan / List</SelectItem>
             </SelectContent>
           </Select>
@@ -542,17 +647,33 @@ function ResourceForm({
       )}
       {form.type === "file" && (
         <Field>
-          <FieldLabel>Upload File</FieldLabel>
+          <FieldLabel>{officeSource ? "Jenis dokumen baru" : "Upload File"}</FieldLabel>
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={uploading}
-              onClick={() => fileRef.current?.click()}
-            >
-              {uploading ? <Spinner /> : <Upload />} {form.uploadId ? "Ganti File" : "Pilih File"}
-            </Button>
+            {!officeSource ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={uploading}
+                onClick={() => fileRef.current?.click()}
+              >
+                {uploading ? <Spinner /> : <Upload />} {form.uploadId ? "Ganti File" : "Pilih File"}
+              </Button>
+            ) : (
+              !form.uploadId && (
+                <NewOfficeDocumentPicker
+                  title={form.title}
+                  context="resource"
+                  ownerId={uploadOwnerId}
+                  onCreated={(asset) => {
+                    lastFileRef.current = null;
+                    const title = form.title.trim() || asset.originalName.replace(/\.[a-z0-9]+$/i, "");
+                    acceptAsset(asset, title);
+                    editInOffice(asset.id, title);
+                  }}
+                />
+              )
+            )}
             <span className="flex items-center gap-2">
               <Checkbox
                 id="res-ai-summary"
@@ -577,7 +698,25 @@ function ResourceForm({
               </Label>
             </span>
             {form.uploadId && (
-              <span className="truncate text-xs text-muted-foreground">File saat ini: {form.title}</span>
+              <span className="truncate text-xs text-muted-foreground">
+                {officeSource ? "Dokumen dibuat" : "File saat ini"}: {form.title}
+              </span>
+            )}
+            {form.uploadId && officeEnabled && isOfficeEditable(form.title, form.mimeType) && (
+              <Button type="button" variant="ghost" size="xs" onClick={() => editInOffice(form.uploadId!, form.title)}>
+                <FilePen /> Edit di ONLYOFFICE
+              </Button>
+            )}
+            {sessionOfficeDoc && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className="text-destructive"
+                onClick={() => void deleteOfficeDoc()}
+              >
+                <Trash2 /> Hapus dokumen
+              </Button>
             )}
             <input
               ref={fileRef}

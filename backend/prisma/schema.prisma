@@ -302,23 +302,31 @@ model AiChunk {
 // ---------------------------------------------------------------- Aset & berkas
 
 model Asset {
-  id           String           @id @default(cuid())
-  userId       String           @map("user_id")
-  bucket       String
-  objectKey    String           @unique @map("object_key")
-  originalName String           @map("original_name")
-  mimeType     String           @map("mime_type")
-  size         Int
-  checksum     String
-  status       AssetStatus      @default(uploaded)
-  source       String           @default("upload")
-  context      String?
+  id              String           @id @default(cuid())
+  userId          String           @map("user_id")
+  bucket          String
+  objectKey       String           @unique @map("object_key")
+  originalName    String           @map("original_name")
+  mimeType        String           @map("mime_type")
+  size            Int
+  checksum        String
+  status          AssetStatus      @default(uploaded)
+  source          String           @default("upload")
+  context         String?
   // Pengunggah bila berbeda dari pemilik (kolaborator dengan izin edit mengunggah ke item milik user lain)
-  uploadedById String?          @map("uploaded_by_id")
-  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
-  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  extraction   AssetExtraction?
+  uploadedById    String?          @map("uploaded_by_id")
+  // Editor ONLYOFFICE: nomor versi isi saat ini, siapa yang menyimpannya, dan kunci sesi edit (berganti setiap kali
+  // dokumen selesai disimpan; document.key = "<id>-<officeKey>")
+  version         Int              @default(1)
+  versionAuthorId String?          @map("version_author_id")
+  officeKey       String?          @map("office_key")
+  // Waktu isi saat ini disimpan (updated_at ikut berubah oleh ekstraksi, jadi tidak bisa dipakai); null = createdAt
+  versionedAt     DateTime?        @map("versioned_at") @db.Timestamptz(3)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  extraction      AssetExtraction?
+  versions        AssetVersion[]
 
   @@index([userId, status])
   @@index([userId, createdAt])
@@ -342,6 +350,27 @@ model AssetExtraction {
 
   @@index([status])
   @@map("asset_extractions")
+}
+
+/// Versi sebelumnya dari berkas yang diedit di ONLYOFFICE (isi saat ini tetap di `assets`). Dibatasi beberapa versi
+/// terakhir per berkas; objek storage versi yang dipangkas ikut dihapus.
+model AssetVersion {
+  id         String   @id @default(cuid())
+  assetId    String   @map("asset_id")
+  version    Int
+  objectKey  String   @unique @map("object_key")
+  size       Int
+  checksum   String
+  // Penulis isi versi ini (null = pengunggah awal / tidak diketahui)
+  authorId   String?  @map("author_id")
+  // Sesi edit ONLYOFFICE yang menggantikan versi ini: penyimpanan berikutnya di sesi yang sama tidak membuat versi baru
+  sessionKey String?  @map("session_key")
+  // Waktu isi versi ini dibuat (bukan waktu digantikan)
+  createdAt  DateTime @map("created_at") @db.Timestamptz(3)
+  asset      Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, version])
+  @@map("asset_versions")
 }
 
 // ---------------------------------------------------------------- Audit kearsipan

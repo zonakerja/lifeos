@@ -8,6 +8,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { useProfileSync } from "@/data/use-auth";
 import { usePendingUploadsJanitor } from "@/hooks/use-pending-uploads-janitor";
 import { FloatingChatbot } from "@/features/assistant/floating-chatbot";
+import { OfficeEditorHost } from "@/features/tools/onlyoffice/office-editor-host";
 import { GlobalSearchButton } from "@/features/assistant/global-search";
 import { FocusModeButton } from "@/features/focus/focus-mode";
 import { NotificationsPopover } from "@/features/overview/components/notifications-popover";
@@ -39,6 +40,8 @@ export function AppShell() {
       <FloatingChatbot />
       {/* Modal pratinjau berkas bersama (previewFile) */}
       <FilePreviewHost />
+      {/* Editor dokumen ONLYOFFICE (openOfficeEditor) */}
+      <OfficeEditorHost />
     </SidebarProvider>
   );
 }

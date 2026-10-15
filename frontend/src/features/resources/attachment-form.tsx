@@ -1,4 +1,4 @@
-import { Archive, CheckCircle2, Paperclip, Plus, Upload } from "lucide-react";
+import { Archive, CheckCircle2, FilePen, Paperclip, Plus, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type OptionGroup, SearchableSelect } from "@/components/common/searchable-select";
@@ -23,6 +23,17 @@ import { emptyAttachment } from "./resource-utils";
 import { SummaryStatusBadge } from "./summary-status-badge";
 import { useFileSummarizer } from "./use-file-summarizer";
 import { usePermissions } from "@/hooks/use-permissions";
+import {
+  NewOfficeDocumentPicker,
+  OFFICE_ATTACHMENT_LABEL,
+  OFFICE_ATTACHMENT_TYPE,
+  useOfficeEnabled,
+} from "@/features/tools/onlyoffice/new-office-document-button";
+import { openOfficeEditor } from "@/features/tools/onlyoffice/office-editor-host";
+import { isOfficeEditable } from "@/features/tools/onlyoffice/office-formats";
+import { useOfficeDiscardConfirm } from "@/features/tools/onlyoffice/use-office-discard-confirm";
+import { useDialogCloseGuard } from "@/components/common/dialog-close-guard";
+import type { UploadedAsset } from "@/types/api";
 
 const TYPE_LABELS: Record<AttachmentType, string> = {
   link: "Web Link",
@@ -68,6 +79,14 @@ export function AttachmentForm({
   const { uploadOwnerId } = usePermissions();
   const summarizer = useFileSummarizer();
   const [aiSummary, setAiSummary] = useState(() => offerAiSummary && readAiSummaryPreference());
+  // Dipakai callback editor ONLYOFFICE (ditutup setelah state berubah)
+  const aiSummaryRef = useRef(aiSummary);
+  useEffect(() => {
+    aiSummaryRef.current = aiSummary;
+  }, [aiSummary]);
+  // Tipe "Buat Dokumen (ONLYOFFICE)" = berkas (tipe `file`) yang dibuat dari templat, bukan diunggah
+  const [fileSource, setFileSource] = useState<"upload" | "office">("upload");
+  const officeEnabled = useOfficeEnabled();
   // "Masukkan ke File Control" (khusus berkas): default mati, pilihan terakhir diingat per browser
   const [toFileControl, setToFileControl] = useState(readFileControlPreference);
   const toggleFileControl = (enabled: boolean) => {
@@ -136,23 +155,67 @@ export function AttachmentForm({
     });
   };
 
+  /** Berkas baru (upload atau dokumen ONLYOFFICE baru) menjadi berkas lampiran yang belum disimpan. */
+  const acceptAsset = (asset: UploadedAsset, name: string) => {
+    discardPending(); // berkas sebelumnya (Ganti File)
+    pendingUploadRef.current = asset.id;
+    // Dicatat agar tetap dibersihkan bila tab di-reload/ditutup sebelum "Tambahkan" (lihat lib/pending-uploads.ts)
+    trackPendingUpload(asset.id);
+    patch({ uploadId: asset.id, url: undefined, mimeType: asset.mimeType, size: asset.size, name });
+  };
+  const officeSource = draft.type === "file" && fileSource === "office";
+  // Konfirmasi sebelum dokumen ONLYOFFICE yang dibuat di form ini dibuang (batal / ganti tipe / hapus)
+  const officeDiscard = useOfficeDiscardConfirm();
+  // Dialog induk (Project, Action/Task, Tandai Selesai, Agenda, …) ditutup lewat X/Esc saat form ini masih memegang
+  // dokumen ONLYOFFICE yang belum ditambahkan → dokumen berisi dikonfirmasi dulu (lalu dibuang saat form dilepas)
+  useDialogCloseGuard(() => (officeSource && draft.uploadId ? officeDiscard.confirm(draft.uploadId) : true));
+
+  /** Buang berkas sesi ini dari form (dan storage); ringkasan AI yang sedang berjalan diabaikan. */
+  const dropUpload = () => {
+    discardPending();
+    summaryRunRef.current++;
+    summarizer.setStatus("idle");
+    lastFileRef.current = null;
+    patch({ uploadId: undefined, mimeType: undefined, size: undefined, aiSummary: undefined });
+  };
+
+  /** Tombol "Hapus dokumen": selalu dikonfirmasi; setelahnya jenis dokumen lain bisa dipilih. */
+  const deleteOfficeDoc = async () => {
+    if (!draft.uploadId || !(await officeDiscard.confirm(draft.uploadId, { explicit: true }))) return;
+    dropUpload();
+  };
+
+  /** Batal: dokumen ONLYOFFICE yang sudah berisi dikonfirmasi dulu sebelum dibuang. */
+  const cancel = async () => {
+    if (officeSource && draft.uploadId && !(await officeDiscard.confirm(draft.uploadId))) return;
+    discardPending();
+    onCancel();
+  };
+
+  /** Buka berkas di ONLYOFFICE; setelah ditutup (tersimpan) ringkas ulang isinya bila "Ringkas dengan AI" dicentang. */
+  const editInOffice = (uploadId: string) =>
+    openOfficeEditor({
+      uploadId,
+      name: draft.name,
+      onClosed: () => {
+        if (aiSummaryRef.current) void runSummaryUpload(uploadId);
+      },
+    });
+
+  /** Ringkas berkas yang sudah di server (dokumen ONLYOFFICE) dari teks ekstraksi backend. */
+  const runSummaryUpload = async (uploadId: string) => {
+    const run = ++summaryRunRef.current;
+    const summary = await summarizer.summarizeUpload(uploadId);
+    if (summary && run === summaryRunRef.current) patch({ aiSummary: summary });
+  };
+
   const handleFile = async (file?: File) => {
     if (!file) return;
     setUploading(true);
     try {
       const asset = await uploadsApi.upload(file, uploadContext, uploadOwnerId);
-      discardPending(); // berkas sebelumnya (Ganti File)
-      pendingUploadRef.current = asset.id;
-      // Dicatat agar tetap dibersihkan bila tab di-reload/ditutup sebelum "Tambahkan" (lihat lib/pending-uploads.ts)
-      trackPendingUpload(asset.id);
+      acceptAsset(asset, draft.name || asset.originalName);
       lastFileRef.current = file;
-      patch({
-        uploadId: asset.id,
-        url: undefined,
-        mimeType: asset.mimeType,
-        size: asset.size,
-        name: draft.name || asset.originalName,
-      });
     } catch (error) {
       toast.error("Upload file gagal", { description: errorMessage(error) });
       setUploading(false);
@@ -177,8 +240,9 @@ export function AttachmentForm({
     if (!enabled) {
       summaryRunRef.current++;
       summarizer.setStatus("idle");
-    } else if (lastFileRef.current && draft.uploadId && !draft.aiSummary && summarizer.status !== "processing") {
-      void runSummary(lastFileRef.current);
+    } else if (draft.uploadId && !draft.aiSummary && summarizer.status !== "processing") {
+      if (lastFileRef.current) void runSummary(lastFileRef.current);
+      else if (officeSource) void runSummaryUpload(draft.uploadId);
     }
   };
 
@@ -188,7 +252,7 @@ export function AttachmentForm({
       return;
     }
     if (draft.type === "file" && !draft.uploadId) {
-      toast.error("Pilih file terlebih dahulu.");
+      toast.error(officeSource ? "Pilih jenis dokumen yang dibuat terlebih dahulu." : "Pilih file terlebih dahulu.");
       return;
     }
     if (summarizer.status === "processing") {
@@ -216,10 +280,12 @@ export function AttachmentForm({
       date: draft.date || defaultDate || new Date().toISOString().slice(0, 10),
     });
     setDraft(initialDraft());
+    setFileSource("upload");
   };
 
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-module/25 bg-card p-4 shadow-xs">
+      {officeDiscard.dialog}
       <div className="grid gap-3 md:grid-cols-4">
         <Field>
           <FieldLabel htmlFor="att-number">Nomor</FieldLabel>
@@ -232,16 +298,35 @@ export function AttachmentForm({
         </Field>
         <Field>
           <FieldLabel>Tipe</FieldLabel>
-          <Select value={draft.type} onValueChange={(v) => patch({ type: v as AttachmentType })}>
+          <Select
+            value={officeSource ? OFFICE_ATTACHMENT_TYPE : draft.type}
+            onValueChange={async (v) => {
+              const office = v === OFFICE_ATTACHMENT_TYPE;
+              // Berkas dari sumber lain (upload ↔ dokumen baru) tidak dibawa; dokumen berisi dikonfirmasi dulu
+              if (draft.uploadId && office !== officeSource) {
+                if (officeSource && !(await officeDiscard.confirm(draft.uploadId))) return;
+                dropUpload();
+              }
+              setFileSource(office ? "office" : "upload");
+              patch({ type: office ? "file" : (v as AttachmentType) });
+            }}
+          >
             <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {types.map((t) => (
+              {types.flatMap((t) => [
                 <SelectItem key={t} value={t}>
                   {TYPE_LABELS[t]}
-                </SelectItem>
-              ))}
+                </SelectItem>,
+                ...(t === "file" && officeEnabled
+                  ? [
+                      <SelectItem key={OFFICE_ATTACHMENT_TYPE} value={OFFICE_ATTACHMENT_TYPE}>
+                        {OFFICE_ATTACHMENT_LABEL}
+                      </SelectItem>,
+                    ]
+                  : []),
+              ])}
             </SelectContent>
           </Select>
         </Field>
@@ -267,15 +352,31 @@ export function AttachmentForm({
 
       {draft.type === "file" && (
         <div className="flex flex-wrap items-center gap-3">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={uploading}
-            onClick={() => fileRef.current?.click()}
-          >
-            {uploading ? <Spinner /> : <Upload />} {draft.uploadId ? "Ganti File" : "Pilih File"}
-          </Button>
+          {!officeSource ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={uploading}
+              onClick={() => fileRef.current?.click()}
+            >
+              {uploading ? <Spinner /> : <Upload />} {draft.uploadId ? "Ganti File" : "Pilih File"}
+            </Button>
+          ) : (
+            !draft.uploadId && (
+              <NewOfficeDocumentPicker
+                title={draft.name}
+                context={uploadContext}
+                ownerId={uploadOwnerId}
+                onCreated={(asset) => {
+                  lastFileRef.current = null;
+                  const name = draft.name?.trim() || asset.originalName.replace(/\.[a-z0-9]+$/i, "");
+                  acceptAsset(asset, name);
+                  editInOffice(asset.id);
+                }}
+              />
+            )
+          )}
           {offerAiSummary && (
             <span className="flex items-center gap-2">
               <Checkbox
@@ -301,8 +402,24 @@ export function AttachmentForm({
           </span>
           {draft.uploadId && (
             <span className="flex items-center gap-1 text-xs font-medium text-success">
-              <CheckCircle2 className="size-3.5" /> Terunggah: {draft.name}
+              <CheckCircle2 className="size-3.5" /> {officeSource ? "Dokumen dibuat" : "Terunggah"}: {draft.name}
             </span>
+          )}
+          {draft.uploadId && officeEnabled && isOfficeEditable(draft.name, draft.mimeType) && (
+            <Button type="button" variant="ghost" size="xs" onClick={() => editInOffice(draft.uploadId!)}>
+              <FilePen /> Edit di ONLYOFFICE
+            </Button>
+          )}
+          {draft.uploadId && officeSource && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="text-destructive"
+              onClick={() => void deleteOfficeDoc()}
+            >
+              <Trash2 /> Hapus dokumen
+            </Button>
           )}
           <input
             ref={fileRef}
@@ -385,15 +502,7 @@ export function AttachmentForm({
           </Label>
         </div>
         <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              discardPending();
-              onCancel();
-            }}
-          >
+          <Button type="button" variant="ghost" size="sm" onClick={() => void cancel()}>
             Batal
           </Button>
           <Button type="button" size="sm" onClick={submit} disabled={uploading}>
