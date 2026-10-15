@@ -39,21 +39,23 @@ import {
   isScheduleOnDate,
   scheduleLinks,
 } from "@/features/planner/lib/planner-logic";
+import { TodoDialog } from "@/features/planner/components/planner-dialogs";
 import { ScheduleDialogs } from "@/features/planner/components/schedule-dialogs";
 import { CompleteTaskDialog } from "@/features/productivity/components/complete-task-dialog";
+import { ParaDetailDialogs } from "@/features/productivity/components/para-detail-dialogs";
 import { completionDefaults } from "@/features/productivity/lib/para";
 import { projectTaskProgress, projectTimeProgress } from "@/features/productivity/lib/progress";
 import { useNow } from "@/hooks/use-now";
+import { useOpenSession } from "@/hooks/use-retained";
 import { useSearchParam } from "@/hooks/use-search-param";
 import { useToday } from "@/hooks/use-today";
 import { completionPatch } from "@/lib/completion";
 import { formatDayMonth, formatFullDate, formatLocalYMD, parseLocalYMD, toDateKey } from "@/lib/dates";
-import { links } from "@/lib/deep-links";
 import { itemAccess } from "@/lib/sharing";
 import { toExternalHref } from "@/lib/urls";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
-import { completionId, type ProjectTask } from "@/types/entities";
+import { type Area, completionId, type Priority, type ProjectTask } from "@/types/entities";
 import {
   AGENDA_STATUS_LABEL,
   agendaStatus,
@@ -71,6 +73,9 @@ const URGENT_LIMIT = 5;
 const TODAY_LIMIT = 8;
 const PROJECT_LIMIT = 4;
 
+/** ID todo baru (sama dengan Planner Harian). */
+const newTodoId = () => `todo-${Date.now()}`;
+
 const AGENDA_STATUS_STYLE: Record<AgendaStatus, string> = {
   upcoming: "bg-info/12 text-info",
   ongoing: "bg-success/15 text-success",
@@ -84,6 +89,8 @@ export function Component() {
   const todayYmd = formatLocalYMD(today);
   const todayKey = toDateKey(today);
   const [, setAgendaParam] = useSearchParam("agenda");
+  // Item dibuka sebagai modal di Overview (tanpa berpindah menu): ?todo=<id>|new, ?task=<id>, ?project=<id>
+  const [todoParam, setTodoParam] = useSearchParam("todo");
 
   const { items: routines } = useRoutines();
   const { items: completions, setItems: setCompletions } = useCompletions();
@@ -94,6 +101,18 @@ export function Component() {
   const { items: activities } = useActivities();
 
   const [completing, setCompleting] = useState<{ task: ProjectTask; isAction: boolean } | null>(null);
+  const [archivingArea, setArchivingArea] = useState<Area | null>(null);
+  const editingTodo = todoParam && todoParam !== "new" ? (todos.find((t) => t.id === todoParam) ?? null) : null;
+  const todoOpen = todoParam === "new" || !!editingTodo;
+  // Form todo dimulai ulang setiap dibuka (tanggal/judul tidak terbawa dari todo sebelumnya)
+  const todoSession = useOpenSession(todoOpen);
+
+  const saveTodo = (title: string, priority: Priority, todoYmd: string) => {
+    const date = toDateKey(parseLocalYMD(todoYmd));
+    const editing = editingTodo;
+    if (editing) setTodos((prev) => prev.map((t) => (t.id === editing.id ? { ...t, title, priority, date } : t)));
+    else setTodos((prev) => [...prev, { id: newTodoId(), title, completed: false, date, priority }]);
+  };
 
   // Rutinitas hari ini
   const activeRoutines = routines.filter((r) => isRoutineActiveOnDate(r, today));
@@ -169,7 +188,12 @@ export function Component() {
           {done && <Check className="size-3" strokeWidth={4} />}
         </button>
         <Link
-          to={entry.kind === "todo" ? links.todo(entry.item.id) : links.task(entry.item.id)}
+          to={{
+            search:
+              entry.kind === "todo"
+                ? `?todo=${encodeURIComponent(entry.item.id)}`
+                : `?task=${encodeURIComponent(entry.item.id)}`,
+          }}
           className="min-w-0 flex-1"
           title="Buka detail"
         >
@@ -420,7 +444,7 @@ export function Component() {
               contentClassName="flex flex-col gap-2"
               action={
                 <Button size="icon-sm" title="Tambah to-do" aria-label="Tambah to-do" asChild>
-                  <Link to={`/planner/daily?todo=new&date=${todayYmd}`}>
+                  <Link to={{ search: "?todo=new" }}>
                     <Plus />
                   </Link>
                 </Button>
@@ -491,7 +515,7 @@ export function Component() {
                   return (
                     <Link
                       key={p.id}
-                      to={links.project(p.id)}
+                      to={{ search: `?project=${encodeURIComponent(p.id)}` }}
                       className="flex min-w-0 flex-col gap-4 rounded-2xl border bg-muted/30 p-4 transition-all hover:border-module/40 hover:bg-card hover:shadow-md"
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -524,6 +548,15 @@ export function Component() {
       </div>
       {/* Dialog lihat/buat agenda (?agenda=<id>|new) */}
       <ScheduleDialogs defaultDate={todayYmd} />
+      <ParaDetailDialogs archivingArea={archivingArea} onArchivingAreaChange={setArchivingArea} />
+      <TodoDialog
+        key={todoSession}
+        open={todoOpen}
+        editing={editingTodo}
+        defaultDate={todayYmd}
+        onOpenChange={(open) => !open && setTodoParam(null)}
+        onSave={saveTodo}
+      />
       <CompleteTaskDialog
         task={completing?.task ?? null}
         label={completing?.isAction ? "Action" : "Task"}

@@ -473,6 +473,10 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   Centang task/action = dialog Tandai Selesai (sama dengan Planner). Angka di hero = jumlah penuh (bukan yang tampil).
   Lonceng notifikasi: agenda 3 hari, **Tugas Terlambat**, pengingat deadline project berjalan, **Baru Dibagikan**
   (`GET /shares/incoming` 7 hari terakhir). Label jam agenda berbahasa Indonesia: `agendaTimeLabel` ("Sepanjang hari").
+  **Item dibuka sebagai modal di Overview** (keputusan user, tanpa pindah menu): task/action `?task=`, proyek `?project=`,
+  todo `?todo=<id>|new` (`TodoDialog`, di-`key` `useOpenSession`); hanya tombol "Lihat Semua" / "+n lainnya di Planner"
+  yang berpindah menu. Modal Project/Area = komponen bersama `ParaDetailDialogs`
+  (`features/productivity/components/para-detail-dialogs.tsx`, dipasang di Productivity & Overview).
 - **Kalender Harian** (`planner-calendar.tsx`): sel tinggi tetap 56–64 px (bukan persegi); penanda dari `summarizeDay()`
   (`planner-logic.ts`, sumber sama dengan daftar Harian) — titik penuh = ada yang belum selesai, lingkaran = semua
   selesai (todo/task/rutinitas yang sudah selesai tetap ditandai); hover tanggal → tooltip ringkasan agenda, rutinitas,
@@ -985,6 +989,11 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   ("Task Completion", "Time Elapsed", "Project Reminder", "Overdue") diganti; (5) notifikasi: project selesai/ditunda
   tidak diingatkan, bagian Tugas Terlambat & Baru Dibagikan, tanggal agenda dibaca lokal; (6) kartu rutinitas memakai
   warna Planner. `scheduleTimeLabel` bersama (Planner) sengaja tidak diubah.
+  Lanjutan (permintaan user): klik Tugas Mendesak / To-do Hari Ini / Proyek Berjalan membuka **modal di Overview**
+  (modal Project/Area dari Productivity, dialog todo dari Planner) alih-alih berpindah ke menu Productivity/Planner;
+  hanya "Lihat Semua" yang berpindah menu. URL logika modal Project/Area dipindah ke `ParaDetailDialogs` (dipakai
+  bersama). Ditemukan & diperbaiki saat uji: dialog todo baru mewarisi tanggal todo yang dibuka sebelumnya → `key`
+  `useOpenSession`.
 
 ## 13. Konvensi Kode
 
