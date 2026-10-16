@@ -90,6 +90,8 @@ model User {
   aiFallback     Boolean     @default(true) @map("ai_fallback")
   // Indeks pengetahuan (RAG): data user di-embed dengan Gemini; dimatikan = indeks dihapus & tidak ada data dikirim
   aiIndexEnabled Boolean     @default(true) @map("ai_index_enabled")
+  // AI di editor ONLYOFFICE (tab AI memakai provider & key LifeOS); default mati agar isi dokumen tidak terkirim tanpa disadari
+  officeAi       Boolean     @default(false) @map("office_ai")
   createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 

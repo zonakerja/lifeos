@@ -28,7 +28,7 @@ updates:
       minor-and-patch: { update-types: [minor, patch] }
   # Dockerfile aplikasi + image service backup (base = image postgres; versi major PostgreSQL ada di sufiks tag)
   - package-ecosystem: docker
-    directories: [/backend, /frontend, /infra/backup]
+    directories: [/backend, /frontend, /infra/backup, /infra/onlyoffice]
     schedule: { interval: weekly }
     ignore:
       - dependency-name: "*"

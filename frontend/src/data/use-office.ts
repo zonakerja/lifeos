@@ -25,6 +25,29 @@ export function useRestoreOfficeVersion(uploadId: string) {
   });
 }
 
+/** Sakelar AI di editor milik user (+ provider AI LifeOS yang akan menjawab). */
+export function useOfficePreferences() {
+  return useQuery({ queryKey: queryKeys.officePreferences, queryFn: officeApi.preferences });
+}
+
+export function useUpdateOfficePreferences() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (ai: boolean) => officeApi.updatePreferences({ ai }),
+    onSuccess: (data) => client.setQueryData(queryKeys.officePreferences, data),
+  });
+}
+
+/** Templat dokumen milik user (Tools → ONLYOFFICE → Templat dokumen). */
+export function useOfficeTemplates(enabled = true) {
+  return useQuery({ queryKey: queryKeys.officeTemplates, queryFn: officeApi.templates, enabled });
+}
+
+/** Font yang terpasang di server ONLYOFFICE. */
+export function useOfficeFonts() {
+  return useQuery({ queryKey: queryKeys.officeFonts, queryFn: officeApi.fonts, staleTime: 60_000 });
+}
+
 /** Kesehatan & versi server ONLYOFFICE (halaman Tools → ONLYOFFICE). */
 export function useOfficeDiagnostics() {
   return useQuery({ queryKey: queryKeys.officeDiagnostics, queryFn: officeApi.diagnostics, refetchOnMount: "always" });

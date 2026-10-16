@@ -894,6 +894,122 @@ try {
       ok("office forcesave without open editor → no-session", r.s === 200 && r.d.status === "no-session", r);
     }
 
+    // AI di editor (sakelar per user): tab AI ONLYOFFICE memakai AI LifeOS lewat proxy backend
+    const AI_GUID = "asc.{9DC93CDB-B576-4F0C-B55E-FCC9C48DD007}";
+    r = await j("GET", "/office/preferences", null, at);
+    ok(
+      "office AI default off (no provider)",
+      r.s === 200 && r.d.ai === false && r.d.aiReady === false && r.d.provider === null,
+      r,
+    );
+    ok(
+      "office config AI off → no AI tab",
+      cfg.editorConfig.customization.ai.disabled === true && !cfg.editorConfig.plugins,
+      cfg.editorConfig,
+    );
+    r = await j("PATCH", "/office/preferences", { ai: "lifeos" }, at);
+    ok("office AI preference invalid 400", r.s === 400, r);
+    r = await j("PATCH", "/office/preferences", { ai: true }, at);
+    ok("office AI preference → on", r.s === 200 && r.d.ai === true, r);
+    r = await j("POST", "/office/config", { uploadId: docId, appOrigin: "https://jahat.example" }, at);
+    const aiOptions = r.d.config?.editorConfig?.plugins?.options?.[AI_GUID]?.lifeos;
+    ok(
+      "office config AI on → AI tab + LifeOS settings for AI plugin (registered origin only)",
+      r.d.ai === true &&
+        r.d.config.editorConfig.customization.ai.disabled === false &&
+        !!aiOptions?.token &&
+        /\/api\/v1\/office\/ai\/proxy$/.test(aiOptions.proxy) &&
+        !aiOptions.proxy.includes("jahat") &&
+        !r.d.config.editorConfig.plugins.pluginsData,
+      r.d.config?.editorConfig,
+    );
+    // Plugin mengirim JSON tanpa Content-Type (text/plain) → backend tetap membacanya
+    const aiProxy = (token, data, target = `${aiOptions?.url}/chat/completions`) =>
+      fetch(`${B}/office/ai/proxy`, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=UTF-8", Authorization: "Bearer editor-jwt" },
+        body: JSON.stringify({
+          target,
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          data: JSON.stringify(data),
+        }),
+      }).then(async (res) => ({ s: res.status, d: await res.json().catch(() => null) }));
+    const chat = { model: "lifeos", messages: [{ role: "user", content: "Ringkas: rapat koordinasi." }] };
+    r = await aiProxy(null, chat);
+    ok("office AI proxy without session token 401 (OpenAI error format)", r.s === 401 && !!r.d?.error?.message, r);
+    r = await aiProxy(at, chat);
+    ok("office AI proxy with login token (not session token) 401", r.s === 401, r);
+    r = await aiProxy(aiOptions?.token, chat, `${aiOptions?.url}/images/generations`);
+    ok("office AI proxy unsupported endpoint 400", r.s === 400 && !!r.d?.error?.message, r);
+    r = await aiProxy(aiOptions?.token, { model: "lifeos", messages: [] });
+    ok("office AI proxy empty prompt 400", r.s === 400, r);
+    r = await aiProxy(aiOptions?.token, chat, `${aiOptions?.url}/models`);
+    ok("office AI proxy models list", r.s === 200 && r.d?.data?.[0]?.id === "lifeos", r);
+    // User smoke tidak punya API key → ditolak sebelum memanggil provider (tidak ada biaya)
+    r = await aiProxy(aiOptions?.token, chat);
+    ok(
+      "office AI proxy without provider key → AI belum diatur",
+      r.s === 400 && /AI belum diatur/.test(r.d?.error?.message),
+      r,
+    );
+    const preflight = await fetch(`${B}/office/ai/proxy`, {
+      method: "OPTIONS",
+      headers: { Origin: "http://onlyoffice.example", "Access-Control-Request-Method": "POST" },
+    });
+    ok(
+      "office AI proxy CORS for editor origin (no credentials)",
+      preflight.headers.get("access-control-allow-origin") === "http://onlyoffice.example" &&
+        preflight.headers.get("access-control-allow-credentials") !== "true",
+    );
+    await j("PATCH", "/office/preferences", { ai: false }, at);
+    r = await aiProxy(aiOptions?.token, chat);
+    ok("office AI proxy after switching off 403", r.s === 403, r);
+
+    // Templat milik user (Tools → ONLYOFFICE, context office-template) → daftar + dokumen baru; berkas user lain ditolak
+    const tplForm = new FormData();
+    tplForm.append("file", new Blob([await (await fetch(cfg.document.url)).arrayBuffer()]), "Kop Surat Smoke.docx");
+    tplForm.append("context", "office-template");
+    const tpl = await j("POST", "/uploads", tplForm, at);
+    const pngForm = new FormData();
+    pngForm.append("file", new Blob(["x"], { type: "image/png" }), "logo.png");
+    pngForm.append("context", "office-template");
+    const png = await j("POST", "/uploads", pngForm, at);
+    r = await j("GET", "/office/templates", null, at);
+    ok(
+      "office templates list (own document templates only)",
+      r.s === 200 &&
+        r.d.some((t) => t.id === tpl.d.id && t.name === "Kop Surat Smoke" && t.target === "docx") &&
+        !r.d.some((t) => t.id === png.d.id),
+      r,
+    );
+    r = await j("GET", "/office/templates", null, pt);
+    ok("office templates isolated per user", r.s === 200 && !r.d.some((t) => t.id === tpl.d.id), r);
+    r = await j("POST", "/office/documents", { templateId: tpl.d.id }, at);
+    ok(
+      "office new doc from uploaded template (title = template name)",
+      r.s === 201 && r.d.originalName === "Kop Surat Smoke.docx" && r.d.id !== tpl.d.id,
+      r,
+    );
+    if (r.d?.id) await j("DELETE", `/uploads/${r.d.id}`, null, at);
+    await j("DELETE", `/uploads/${tpl.d.id}`, null, at);
+    await j("DELETE", `/uploads/${png.d.id}`, null, at);
+    r = await j("POST", "/office/documents", { templateId: docId, title: "Dari Templat", context: "task" }, at);
+    ok(
+      "office new doc from template",
+      r.s === 201 && r.d.originalName === "Dari Templat.docx" && r.d.id !== docId && r.d.context === "task",
+      r,
+    );
+    if (r.d?.id) await j("DELETE", `/uploads/${r.d.id}`, null, at);
+    r = await j("POST", "/office/documents", { templateId: docId }, pt);
+    ok("office template of other user (not shared) rejected", r.s === 403 || r.s === 404, r);
+    r = await j("POST", "/office/documents", {}, at);
+    ok("office new doc without format/template 400", r.s === 400, r);
+    if (dsUp) {
+      r = await j("GET", "/office/fonts", null, at);
+      ok("office fonts list", r.s === 200 && r.d.available && r.d.families.includes("Arial"), r.d?.families?.length);
+    }
+
     // Berbagi Lihat → partner hanya bisa melihat
     await j(
       "PUT",
@@ -1029,6 +1145,9 @@ try {
         );
         r = await j("POST", "/office/config", { uploadId: odt.d.id }, at);
         ok("office ODT editable (lossy)", r.d.access === "edit" && r.d.lossy === true, r.d);
+        r = await j("POST", "/office/documents", { templateId: odt.d.id }, at);
+        ok("office ODT template → new DOCX (converted)", r.s === 201 && r.d.originalName === "uji.docx", r);
+        if (r.d?.id) await j("DELETE", `/uploads/${r.d.id}`, null, at);
         await j("DELETE", `/uploads/${odt.d.id}`, null, at);
         await j("DELETE", `/uploads/${edited.d.id}`, null, at);
       }

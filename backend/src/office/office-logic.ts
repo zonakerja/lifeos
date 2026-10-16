@@ -18,6 +18,36 @@ export type OfficeAccess = "edit" | "comment" | "view";
 export const NEW_DOCUMENT_FORMATS = ["docx", "xlsx", "pptx", "pdf"] as const;
 export type NewDocumentFormat = (typeof NEW_DOCUMENT_FORMATS)[number];
 
+/**
+ * Format dokumen baru dari sebuah templat: format yang bisa dibuat (docx/xlsx/pptx/pdf) disalin apa adanya, templat
+ * lain (dotx, odt, ott, xltx, ods, potx, odp, doc, …) dikonversi ke docx/xlsx/pptx. null = tidak bisa jadi templat.
+ */
+export function templateTarget(format: string): NewDocumentFormat | null {
+  if ((NEW_DOCUMENT_FORMATS as readonly string[]).includes(format)) return format as NewDocumentFormat;
+  const type = documentTypeOf(format);
+  return type === "word" ? "docx" : type === "cell" ? "xlsx" : type === "slide" ? "pptx" : null;
+}
+
+/**
+ * Nama keluarga font yang terpasang di ONLYOFFICE, dari `sdkjs/common/AllFonts.js` (dibuat ulang saat container start;
+ * baris `["Nama",indeks,…]` di `__fonts_infos`). Urut abjad, tanpa duplikat.
+ */
+export function parseFontFamilies(allFontsJs: string): string[] {
+  const start = allFontsJs.indexOf('window["__fonts_infos"]');
+  if (start < 0) return [];
+  const end = allFontsJs.indexOf("];", start);
+  const block = allFontsJs.slice(start, end < 0 ? undefined : end);
+  const names = new Set<string>();
+  for (const match of block.matchAll(/^\["((?:[^"\\]|\\.)*)",\s*\d/gm)) {
+    try {
+      names.add(JSON.parse(`"${match[1]}"`) as string);
+    } catch {
+      names.add(match[1]);
+    }
+  }
+  return [...names].sort((a, b) => a.localeCompare(b, "id", { sensitivity: "base" }));
+}
+
 /** MIME type per format yang bisa dibuat dari templat kosong. */
 export const NEW_DOCUMENT_MIME: Record<NewDocumentFormat, string> = {
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -225,6 +255,11 @@ export interface EditorConfigInput {
   mobile?: boolean;
   /** Tema LifeOS saat editor dibuka (config bertanda tangan tidak boleh diubah browser, jadi ikut dikirim ke backend) */
   theme?: "light" | "dark";
+  /**
+   * AI di editor (sakelar user): aktif = tab AI plugin resmi ONLYOFFICE dengan opsi `pluginOptions` untuk GUID plugin itu
+   * (token sesi AI + alamat backend, dibaca jembatan LifeOS); mati = tab AI tidak ada.
+   */
+  ai?: { enabled: boolean; guid: string; pluginOptions?: Record<string, unknown> };
 }
 
 /** Config `DocsAPI.DocEditor` (belum ditandatangani). */
@@ -234,6 +269,7 @@ export function buildEditorConfig(input: EditorConfigInput) {
   const canComment = input.access !== "view" && !!info?.comment;
   // Mode edit dibutuhkan untuk menyunting atau berkomentar (izin Komentar = mode edit dengan permissions.edit = false)
   const editMode = canEdit || canComment;
+  const aiOn = !!input.ai?.enabled && !!input.ai.pluginOptions && editMode;
   return {
     type: input.mobile ? "mobile" : "desktop",
     documentType: input.documentType,
@@ -267,12 +303,18 @@ export function buildEditorConfig(input: EditorConfigInput) {
         // Tombol Simpan langsung menyimpan versi (callback status 6), tidak menunggu editor ditutup
         forcesave: canEdit,
         compactHeader: true,
-        // AI bawaan ONLYOFFICE mati sampai pilihan AI per user (docs/ONLYOFFICE.md, U-7) tersedia
-        ai: { disabled: true },
+        // Tab AI hanya bila diaktifkan user; isinya memakai AI LifeOS (docs/ONLYOFFICE.md §3.4)
+        ai: { disabled: !aiOn },
         help: false,
         feedback: false,
         uiTheme: input.theme === "dark" ? "default-dark" : "default-light",
       },
+      ...(aiOn
+        ? {
+            // Opsi hanya untuk GUID plugin AI (plugin lain tidak menerima token sesi AI)
+            plugins: { options: { [input.ai!.guid]: input.ai!.pluginOptions } },
+          }
+        : {}),
     },
   };
 }

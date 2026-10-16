@@ -20,6 +20,7 @@ import { useOfficeDiagnostics } from "@/data/use-office";
 import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { officeFormatsByMode } from "./office-formats";
+import { OfficeAiCard, OfficeFontsCard, OfficeTemplatesCard } from "./onlyoffice-cards";
 
 /**
  * Tools → ONLYOFFICE: status & pengaturan editor dokumen. Editor sendiri tidak punya menu dokumen — ia dipanggil dari
@@ -93,6 +94,10 @@ export function OnlyofficeSettings() {
         ) : null}
       </SectionCard>
 
+      <OfficeAiCard />
+      <OfficeTemplatesCard />
+      <OfficeFontsCard />
+
       <SectionCard
         icon={Info}
         title="Cara memakai"
@@ -105,7 +110,8 @@ export function OnlyofficeSettings() {
           </Tip>
           <Tip icon={FilePlus2} title="Buat dokumen baru">
             Di form lampiran Project, Action/Task, Tandai Selesai, Agenda, dan form Resource: pilih Tipe{" "}
-            <b>Buat Dokumen (ONLYOFFICE)</b>, lalu jenis dokumennya. Tag, File Control, dan Ringkas AI tetap berlaku.
+            <b>Buat Dokumen (ONLYOFFICE)</b>, lalu jenis dokumen kosong, templat, atau <b>Impor berkas</b>. Tag, File
+            Control, dan Ringkas AI tetap berlaku.
           </Tip>
           <Tip icon={Save} title="Penyimpanan">
             Dokumen tersimpan otomatis saat editor ditutup. <b>Ctrl+S</b> menyimpan versi tanpa menutup editor.
@@ -118,8 +124,8 @@ export function OnlyofficeSettings() {
             <b>Lihat</b> hanya membaca.
           </Tip>
           <Tip icon={Sparkles} title="AI di editor">
-            Pilihan AI LifeOS atau AI bawaan ONLYOFFICE akan tersedia di halaman ini (tahap berikutnya). Saat ini AI di
-            editor nonaktif.
+            Aktifkan di kartu <b>AI di editor</b>: tab <b>AI</b> ONLYOFFICE (Chatbot, Summarization, Translation,
+            Grammar & Spelling) memakai provider & key di Pengaturan → AI.
           </Tip>
         </ul>
       </SectionCard>

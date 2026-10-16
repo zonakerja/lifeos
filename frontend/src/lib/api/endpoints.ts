@@ -12,7 +12,10 @@ import type {
   NotebookSummary,
   OfficeConfigResult,
   OfficeDiagnostics,
+  OfficeFonts,
   OfficeFormat,
+  OfficePreferences,
+  OfficeTemplate,
   OfficeStatus,
   OfficeVersions,
   AiIndexStatus,
@@ -151,18 +154,34 @@ export const uploadsApi = {
 /** Editor dokumen ONLYOFFICE (menu Tools → ONLYOFFICE). */
 export const officeApi = {
   status: () => request<OfficeStatus>("/office/status"),
-  /** Dokumen kosong baru dari templat (berkas milik user; dijadikan Resource Global oleh pemanggil). */
-  /** `context`/`ownerId` sama seperti upload lampiran (ownerId = pemilik item bersama berizin edit). */
-  createDocument: (format: OfficeFormat, options: { title?: string; context?: string; ownerId?: string } = {}) =>
-    request<UploadedAsset>("/office/documents", { method: "POST", body: { format, ...options } }),
+  /**
+   * Dokumen baru (berkas milik user; dijadikan Resource Global oleh pemanggil): kosong sesuai `format`, atau salinan
+   * berkas templat (`templateId`, format mengikuti templat). `context`/`ownerId` sama seperti upload lampiran.
+   */
+  createDocument: (
+    source: { format: OfficeFormat } | { templateId: string },
+    options: { title?: string; context?: string; ownerId?: string } = {},
+  ) => request<UploadedAsset>("/office/documents", { method: "POST", body: { ...source, ...options } }),
+  preferences: () => request<OfficePreferences>("/office/preferences"),
+  updatePreferences: (input: { ai: boolean }) =>
+    request<OfficePreferences>("/office/preferences", { method: "PATCH", body: input }),
+  fonts: () => request<OfficeFonts>("/office/fonts"),
+  /** Templat milik user; unggah lewat `uploadsApi.upload(file, "office-template")`, hapus lewat `uploadsApi.remove`. */
+  templates: () => request<OfficeTemplate[]>("/office/templates"),
   diagnostics: () => request<OfficeDiagnostics>("/office/diagnostics"),
   /** Simpan paksa sesi edit yang terbuka (modal editor ditutup); menunggu sampai versi tersimpan. */
   forceSave: (uploadId: string) =>
     request<{ status: "saved" | "pending" | "no-changes" | "no-session" }>(`/office/files/${uploadId}/forcesave`, {
       method: "POST",
     }),
-  config: (input: { uploadId: string; mode?: "edit" | "view"; mobile?: boolean; theme?: "light" | "dark" }) =>
-    request<OfficeConfigResult>("/office/config", { method: "POST", body: input }),
+  config: (input: {
+    uploadId: string;
+    mode?: "edit" | "view";
+    mobile?: boolean;
+    theme?: "light" | "dark";
+    /** Origin aplikasi: plugin AI LifeOS dimuat dari sini */
+    appOrigin?: string;
+  }) => request<OfficeConfigResult>("/office/config", { method: "POST", body: input }),
   versions: (uploadId: string) => request<OfficeVersions>(`/office/files/${uploadId}/versions`),
   restore: (uploadId: string, version: number) =>
     request<OfficeVersions>(`/office/files/${uploadId}/versions/${version}/restore`, { method: "POST" }),

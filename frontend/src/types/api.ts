@@ -388,9 +388,40 @@ export interface OfficeEditorConfig {
   [key: string]: unknown;
 }
 
+export interface OfficePreferences {
+  /** Tab AI di editor ONLYOFFICE aktif (memakai provider & key di Pengaturan → AI) */
+  ai: boolean;
+  /** Provider AI aktif user punya API key */
+  aiReady: boolean;
+  /** Provider & model yang akan menjawab; null = AI belum diatur */
+  provider: { label: string; model: string } | null;
+}
+
+/** Templat dokumen milik user (Tools → ONLYOFFICE), berkas dengan konteks `office-template`. */
+export interface OfficeTemplate {
+  id: string;
+  /** Nama tanpa ekstensi */
+  name: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+  /** Jenis dokumen baru yang dibuat dari templat ini */
+  target: OfficeFormat;
+}
+
+export interface OfficeFonts {
+  /** Server ONLYOFFICE menjawab */
+  available: boolean;
+  families: string[];
+}
+
 export interface OfficeConfigResult {
   documentServerUrl: string;
   access: OfficeAccess;
+  /** Tab AI (AI LifeOS) aktif di sesi editor ini */
+  ai: boolean;
   /** Format bisa disunting tetapi sebagian format bisa hilang saat disimpan (ODT, RTF, CSV, TXT, …) */
   lossy: boolean;
   version: number;

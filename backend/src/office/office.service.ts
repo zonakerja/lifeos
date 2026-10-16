@@ -23,13 +23,31 @@ import { ExtractionQueueService } from "../extraction/extraction-queue.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { UploadsService } from "../uploads/uploads.service";
-import { type CreateOfficeDocumentDto, type OfficeConfigDto } from "./dto/office.dto";
+import { AiService } from "../ai/ai.service";
+import { AI_PROVIDERS } from "../ai/ai-providers";
+import { type CreateOfficeDocumentDto, type OfficeConfigDto, type OfficePreferencesDto } from "./dto/office.dto";
+import {
+  OFFICE_AI_MAX_IMAGES,
+  OFFICE_AI_MAX_PROMPT,
+  OFFICE_AI_MODEL_ID,
+  ONLYOFFICE_AI_PLUGIN_GUID,
+  bearerFromHeaders,
+  chatCompletion,
+  chatCompletionStream,
+  chatToPrompt,
+  modelList,
+  officeAiPluginOptions,
+  officeAiTarget,
+  openAiError,
+} from "./office-ai";
+import { OfficeTextConverter } from "./office-text-converter";
 import {
   editableFormats,
   formatInfo,
   viewableFormats,
   MAX_VERSIONS,
   NEW_DOCUMENT_MIME,
+  type NewDocumentFormat,
   type OfficeCallbackBody,
   buildEditorConfig,
   callbackCarriesFile,
@@ -41,7 +59,9 @@ import {
   newDocumentName,
   newOfficeKey,
   planVersionSave,
+  parseFontFamilies,
   resolveBackendUrl,
+  templateTarget,
   toInternalUrl,
   versionsToPrune,
 } from "./office-logic";
@@ -50,13 +70,24 @@ import {
 const TEMPLATE_DIR = join(__dirname, "..", "..", "templates", "office");
 /** Header JWT dari ONLYOFFICE (`JWT_HEADER` di container) — terpisah dari Bearer milik LifeOS. */
 export const ONLYOFFICE_JWT_HEADER = "authorizationjwt";
+/** Konteks berkas templat dokumen yang diunggah user di Tools → ONLYOFFICE. */
+export const OFFICE_TEMPLATE_CONTEXT = "office-template";
 const FILE_TOKEN_TTL = "1d";
 // Sesi edit bisa terbuka lama; ONLYOFFICE tetap memanggil callback saat editor terakhir ditutup
 const CALLBACK_TOKEN_TTL = "30d";
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 const FORCESAVE_WAIT_MS = 15_000;
+// Token sesi plugin AI LifeOS (selama editor terbuka); bukan API key provider
+const AI_TOKEN_TTL = "12h";
+/** Batas ukuran templat yang disalin/dikonversi. */
+const MAX_TEMPLATE_BYTES = 50 * 1024 * 1024;
 
-type OfficeTokenPayload = { assetId: string; purpose: "office-file" | "office-callback" };
+type OfficeTokenPayload = {
+  assetId: string;
+  purpose: "office-file" | "office-callback" | "office-ai";
+  /** Pemilik sesi AI (hanya purpose office-ai). */
+  userId?: string;
+};
 
 /**
  * Editor dokumen ONLYOFFICE Docs (menu Tools → ONLYOFFICE). Berkas tetap Asset LifeOS di object storage; ONLYOFFICE
@@ -79,6 +110,8 @@ export class OfficeService {
     private readonly uploads: UploadsService,
     private readonly extraction: ExtractionQueueService,
     private readonly jwt: JwtService,
+    private readonly ai: AiService,
+    private readonly converter: OfficeTextConverter,
   ) {
     this.publicUrl = config.get<string>("ONLYOFFICE_URL")?.replace(/\/+$/, "") || undefined;
     this.internalUrl = config.get<string>("ONLYOFFICE_INTERNAL_URL")?.replace(/\/+$/, "") || this.publicUrl;
@@ -127,19 +160,167 @@ export class OfficeService {
     };
   }
 
-  /** Dokumen kosong baru (Dokumen / Spreadsheet / Presentasi / PDF) milik user, dari templat ONLYOFFICE. */
+  /**
+   * Dokumen baru milik user: kosong (Dokumen / Spreadsheet / Presentasi / PDF, templat bawaan id-ID) atau salinan
+   * berkas templat yang boleh dibaca user (Resource bertag Templat). Templat format lain dikonversi ONLYOFFICE.
+   */
   async createDocument(user: AuthUser, dto: CreateOfficeDocumentDto) {
     this.ensureEnabled();
-    const buffer = await readFile(join(TEMPLATE_DIR, `new.${dto.format}`));
-    const name = newDocumentName(dto.title, dto.format);
+    let buffer: Buffer;
+    let format: NewDocumentFormat;
+    let title = dto.title;
+    if (dto.templateId) {
+      const { asset } = await this.uploads.findWithPermission(dto.templateId, user);
+      const source = fileFormat(asset.originalName);
+      const target = templateTarget(source);
+      if (!target) {
+        throw new BadRequestException("Templat harus berupa dokumen, spreadsheet, presentasi, atau PDF.");
+      }
+      if (asset.size > MAX_TEMPLATE_BYTES) throw new BadRequestException("Berkas templat terlalu besar (maks. 50 MB).");
+      format = target;
+      title ||= asset.originalName.replace(/\.[^.]+$/, "");
+      if (target === source) {
+        buffer = Buffer.concat(await (await this.storage.getObject(asset.objectKey)).toArray());
+      } else {
+        const converted = await this.converter.convertFile(asset, target, MAX_TEMPLATE_BYTES);
+        if (!converted) throw new UnprocessableEntityException("Templat gagal dikonversi oleh ONLYOFFICE.");
+        buffer = converted;
+      }
+    } else {
+      if (!dto.format) throw new BadRequestException("Pilih jenis dokumen.");
+      format = dto.format;
+      buffer = await readFile(join(TEMPLATE_DIR, `new.${format}`));
+    }
     return this.uploads.createFromBuffer(
       buffer,
-      name,
-      NEW_DOCUMENT_MIME[dto.format],
+      newDocumentName(title, format),
+      NEW_DOCUMENT_MIME[format],
       user,
       dto.context || "office",
       dto.ownerId,
     );
+  }
+
+  /**
+   * Templat dokumen milik user: berkas yang diunggah di Tools → ONLYOFFICE (konteks `office-template`) dengan format yang
+   * bisa menjadi dokumen baru (`templateTarget`). Dipakai "Buat Dokumen" → "Dari templat".
+   */
+  async templates(user: AuthUser) {
+    const assets = await this.prisma.asset.findMany({
+      where: { userId: user.id, context: OFFICE_TEMPLATE_CONTEXT },
+      select: { id: true, originalName: true, mimeType: true, size: true, createdAt: true, updatedAt: true },
+      orderBy: { originalName: "asc" },
+    });
+    return assets.flatMap((asset) => {
+      const target = templateTarget(fileFormat(asset.originalName));
+      return target ? [{ ...asset, name: asset.originalName.replace(/\.[^.]+$/, ""), target }] : [];
+    });
+  }
+
+  /** Keluarga font yang terpasang di server ONLYOFFICE (halaman Tools → ONLYOFFICE). */
+  async fonts() {
+    if (!this.internalUrl) return { available: false, families: [] as string[] };
+    const script = await fetch(`${this.internalUrl}/sdkjs/common/AllFonts.js`, { signal: AbortSignal.timeout(5000) })
+      .then((res) => (res.ok ? res.text() : null))
+      .catch(() => null);
+    return script ? { available: true, families: parseFontFamilies(script) } : { available: false, families: [] };
+  }
+
+  // ---------------------------------------------------------------- Preferensi & AI di editor
+
+  /** Sakelar AI di editor milik user + provider/model AI LifeOS yang akan menjawab (null = belum diatur). */
+  async preferences(user: AuthUser) {
+    const profile = await this.prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      select: { officeAi: true, aiProvider: true, aiCredentials: { select: { provider: true, model: true } } },
+    });
+    const credential = profile.aiCredentials.find((c) => c.provider === profile.aiProvider);
+    const provider = credential ? AI_PROVIDERS[credential.provider] : null;
+    return {
+      ai: profile.officeAi,
+      aiReady: !!credential,
+      provider: provider ? { label: provider.label, model: credential!.model || provider.defaultModel } : null,
+    };
+  }
+
+  async updatePreferences(user: AuthUser, dto: OfficePreferencesDto) {
+    await this.prisma.user.update({ where: { id: user.id }, data: { officeAi: dto.ai } });
+    return this.preferences(user);
+  }
+
+  /**
+   * Permintaan tab AI ONLYOFFICE (plugin resmi dalam mode pengaturan server) — dibungkus plugin sebagai
+   * `{ target, method, headers, data }`. Autentikasi = token sesi AI di `headers.Authorization` (dititipkan lewat config
+   * editor bertanda tangan); isi Chat Completions diterjemahkan ke `AiService.generate` milik user. Selalu menjawab
+   * format OpenAI (error = `{ error: { message } }`) agar plugin bisa menampilkannya.
+   */
+  async aiProxy(body: Record<string, unknown>): Promise<{ status: number; json?: unknown; sse?: string }> {
+    const token = bearerFromHeaders(body.headers);
+    let payload: OfficeTokenPayload | null = null;
+    if (token) payload = await this.verifyToken(token, undefined, "office-ai").catch(() => null);
+    if (!payload?.userId) {
+      return { status: 401, json: openAiError("Sesi AI editor berakhir. Tutup lalu buka ulang dokumen.") };
+    }
+    const owner = await this.prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { id: true, officeAi: true },
+    });
+    if (!owner) return { status: 401, json: openAiError("Sesi AI editor tidak valid.") };
+    if (!owner.officeAi) {
+      return { status: 403, json: openAiError("AI di editor sedang dimatikan (Tools → ONLYOFFICE).") };
+    }
+
+    const target = officeAiTarget(body.target);
+    if (target === "models") return { status: 200, json: modelList("AI LifeOS") };
+    if (target !== "chat") {
+      return { status: 400, json: openAiError("Fitur ini belum didukung AI LifeOS (hanya teks & gambar masukan).") };
+    }
+    let data: Record<string, unknown>;
+    try {
+      data = (typeof body.data === "string" ? JSON.parse(body.data) : body.data) as Record<string, unknown>;
+    } catch {
+      return { status: 400, json: openAiError("Isi permintaan AI tidak valid.") };
+    }
+    const { prompt, images } = chatToPrompt(data?.messages);
+    if (!prompt.trim()) return { status: 400, json: openAiError("Permintaan AI kosong.") };
+    if (prompt.length > OFFICE_AI_MAX_PROMPT) {
+      return {
+        status: 400,
+        json: openAiError("Teks terlalu panjang untuk AI — pilih bagian dokumen yang lebih kecil."),
+      };
+    }
+    if (images.length > OFFICE_AI_MAX_IMAGES) {
+      return { status: 400, json: openAiError(`Maksimal ${OFFICE_AI_MAX_IMAGES} gambar per permintaan AI.`) };
+    }
+    try {
+      const result = await this.ai.generate(
+        owner.id,
+        prompt,
+        images.map((image, index) => ({
+          originalname: `gambar-${index + 1}.${image.mimeType.split("/")[1] ?? "png"}`,
+          mimetype: image.mimeType,
+          size: image.data.length,
+          buffer: image.data,
+        })),
+      );
+      return data?.stream === true
+        ? { status: 200, sse: chatCompletionStream(result.text, OFFICE_AI_MODEL_ID) }
+        : { status: 200, json: chatCompletion(result.text, OFFICE_AI_MODEL_ID) };
+    } catch (error) {
+      const status = (error as { getStatus?: () => number }).getStatus?.() ?? 422;
+      const message = error instanceof Error ? error.message : "AI gagal menjawab.";
+      return { status, json: openAiError(message) };
+    }
+  }
+
+  /** Origin aplikasi yang dipanggil tab AI editor: origin browser bila terdaftar di CORS_ORIGIN, selain itu yang pertama. */
+  private appOrigin(requested?: string) {
+    const origins = this.config
+      .getOrThrow<string>("CORS_ORIGIN")
+      .split(",")
+      .map((origin) => origin.trim().replace(/\/+$/, ""));
+    const wanted = requested?.replace(/\/+$/, "");
+    return wanted && origins.includes(wanted) ? wanted : origins[0];
   }
 
   /**
@@ -189,7 +370,14 @@ export class OfficeService {
 
     const officeKey = asset.officeKey ?? (await this.ensureOfficeKey(asset.id));
     const access = effectiveAccess({ format, permission, requestedMode: dto.mode });
-    const profile = await this.prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
+    const profile = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { name: true, officeAi: true },
+    });
+    const aiOn = !!profile?.officeAi;
+    const aiToken = aiOn
+      ? await this.sign({ assetId: asset.id, purpose: "office-ai", userId: user.id }, AI_TOKEN_TTL)
+      : undefined;
     const backendUrl = this.backendUrl();
     const [fileToken, callbackToken] = await Promise.all([
       this.sign({ assetId: asset.id, purpose: "office-file" }, FILE_TOKEN_TTL),
@@ -206,6 +394,13 @@ export class OfficeService {
       callbackUrl: `${backendUrl}/api/v1/office/callback?token=${encodeURIComponent(callbackToken)}`,
       mobile: dto.mobile,
       theme: dto.theme,
+      ai: {
+        enabled: aiOn,
+        guid: ONLYOFFICE_AI_PLUGIN_GUID,
+        pluginOptions: aiToken
+          ? officeAiPluginOptions({ appOrigin: this.appOrigin(dto.appOrigin), token: aiToken, modelName: "AI LifeOS" })
+          : undefined,
+      },
     });
     const token = await this.jwt.signAsync(config, { secret, algorithm: "HS256" });
     return {
@@ -214,6 +409,7 @@ export class OfficeService {
       // Format yang bisa disunting tetapi sebagian format bisa hilang saat disimpan (mis. ODT, RTF, CSV, TXT)
       lossy: access === "edit" && formatInfo(format)?.mode === "lossy",
       version: asset.version,
+      ai: aiOn,
       config: { ...config, token },
     };
   }
@@ -569,7 +765,7 @@ export class OfficeService {
   }
 
   private sign(payload: OfficeTokenPayload, expiresIn: string) {
-    return this.jwt.signAsync(payload, { expiresIn: expiresIn as `${number}d` });
+    return this.jwt.signAsync(payload, { expiresIn: expiresIn as `${number}d` | `${number}h` });
   }
 
   private async verifyToken(token: string, assetId: string | undefined, purpose: OfficeTokenPayload["purpose"]) {

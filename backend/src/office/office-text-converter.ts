@@ -48,7 +48,24 @@ export class OfficeTextConverter {
 
   async convert(asset: { id: string; originalName: string; checksum: string }): Promise<string | null> {
     const outputtype = this.outputType(asset.originalName);
-    if (!outputtype || !this.dsJwt || !this.internalUrl || !this.publicUrl) return null;
+    if (!outputtype) return null;
+    const buffer = await this.convertFile(asset, outputtype, MAX_TEXT_BYTES);
+    if (!buffer) return null;
+    // Hasil TXT/CSV ONLYOFFICE ber-UTF-8 (kadang dengan BOM)
+    const text = buffer.toString("utf8");
+    return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  }
+
+  /**
+   * Isi berkas dalam format lain lewat Conversion API ONLYOFFICE (mis. templat `.dotx`/`.odt` → `.docx`).
+   * null bila ONLYOFFICE tidak diatur, konversi gagal, atau hasil melebihi `maxBytes`.
+   */
+  async convertFile(
+    asset: { id: string; originalName: string; checksum: string },
+    outputtype: string,
+    maxBytes: number,
+  ): Promise<Buffer | null> {
+    if (!this.dsJwt || !this.internalUrl || !this.publicUrl) return null;
     try {
       const backendUrl = resolveBackendUrl(
         this.config.getOrThrow<string>("ONLYOFFICE_BACKEND_URL"),
@@ -84,10 +101,7 @@ export class OfficeTextConverter {
       });
       if (!file.ok) return null;
       const buffer = Buffer.from(await file.arrayBuffer());
-      if (buffer.length > MAX_TEXT_BYTES) return null;
-      // Hasil TXT/CSV ONLYOFFICE ber-UTF-8 (kadang dengan BOM)
-      const text = buffer.toString("utf8");
-      return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+      return buffer.length > maxBytes ? null : buffer;
     } catch (error) {
       this.logger.warn(`Konversi ONLYOFFICE ${asset.id}: ${error instanceof Error ? error.message : error}`);
       return null;

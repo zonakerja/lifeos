@@ -1,7 +1,8 @@
 # ONLYOFFICE — Riset & Rencana Integrasi (menu Tools → ONLYOFFICE)
 
 Status: keputusan user ditetapkan (§4.2), **tahap 0 (infra dev), tahap 1 (backend), dan tahap 2 (frontend) selesai**
-2026-10-15 (§3.1–§3.3); berikutnya tahap 3 (AI di editor, templat instansi, font) lalu tahap 4 (produksi). Dokumen ini menjadi
+2026-10-15 (§3.1–§3.3), **tahap 3 (AI satu pintu di editor, templat, impor, font) selesai 2026-10-16** (§3.4); berikutnya tahap 4
+(produksi) dan konversi DOCX → PDF untuk File Control (menunggu keputusan user). Dokumen ini menjadi
 acuan thread integrasi ONLYOFFICE: hasil riset, arsitektur, keputusan, dan daftar tugas (user & Claude).
 
 ## 1. Ringkasan riset
@@ -69,13 +70,7 @@ ONLYOFFICE Docs (container) ── 3. GET  document.url   → backend /office/fi
   **"Masukkan ke File Control"** yang sudah ada. `previewFile()` untuk DOCX/XLSX/PPTX membuka ONLYOFFICE mode lihat.
   Editor punya tombol "Buka di ONLYOFFICE" dari lampiran/resource.
 - **AI (keputusan user: dua pilihan)**: pengaturan per user "AI di editor ONLYOFFICE": **Mati** (default, sesuai prinsip
-  data tidak keluar tanpa disadari) · **AI LifeOS** · **AI bawaan ONLYOFFICE**. *AI LifeOS* = penyedia kustom plugin AI
-  ONLYOFFICE (berkas JS turunan `AI.Provider` dengan base URL ke backend) → backend meneruskan ke provider aktif user
-  memakai key terenkripsi yang sudah ada, dengan token sesi pendek (bukan API key) — key tidak pernah ke browser.
-  *AI bawaan* = plugin AI ONLYOFFICE apa adanya: user memasukkan key/provider **di dalam editor**, panggilan ke provider
-  terjadi dari browser (key disimpan oleh plugin di sisi browser — perlu diverifikasi, dan ditampilkan sebagai
-  peringatan di Pengaturan). Mati → `editorConfig.customization.ai.disabled` (parameter baru 10.0). Detail
-  diverifikasi di tahap 3 karena mekanisme penyimpanan key plugin belum terdokumentasi.
+  data tidak keluar tanpa disadari) · **AI LifeOS** · **AI bawaan ONLYOFFICE**. Hasil riset & desain akhir: §3.4.
 - **Produksi**: service `onlyoffice` di `docker-compose.prod.yml` (tanpa port terbuka, batas memori), Caddy
   `handle_path /office/*` → `onlyoffice:80` + `X-Forwarded-Host {host}/office`; CSP `nginx.conf` tetap `'self'`
   (domain sama). Backup tidak berubah (data di PostgreSQL + S3).
@@ -189,6 +184,79 @@ Menu **Tools → ONLYOFFICE** hanya berisi **pengaturan/status** editor.
   sintetis `SK-Uji-Arsip.pdf` (401 byte) yang strukturnya tidak lengkap — ONLYOFFICE menolaknya ("Terjadi kesalahan saat
   membuka file"); berkas PDF/DOCX normal terbuka.
 
+### 3.4 Hasil tahap 3 — AI di editor, templat, font, impor (2026-10-16)
+
+Keputusan awal user: plugin AI LifeOS sendiri, AI bawaan dengan key di editor, templat dari Resource bertag Templat, font
+dari folder server. **Direvisi user di hari yang sama** setelah mencoba (lihat U-9 s.d. U-13):
+
+- **AI satu pintu**: tab **AI bawaan ONLYOFFICE** (Chatbot, Summarization, Translation, Grammar & Spelling, asisten
+  kustom, OCR PDF, …) dipakai apa adanya, tetapi **provider & API key = Pengaturan → AI LifeOS**; tidak ada pengaturan AI
+  di editor; plugin panel "AI LifeOS" buatan sendiri dihapus.
+- **Templat diunggah di Tools → ONLYOFFICE** (bukan lewat tag Resource).
+- **Impor berkas** DOCX/XLSX/PPTX/… saat Buat Dokumen.
+
+**Riset plugin AI resmi** (`asc.{9DC93CDB-B576-4F0C-B55E-FCC9C48DD007}`, 3.x, tidak ikut image Community):
+- Tanpa pengaturan server, provider & key disimpan plugin di localStorage browser (origin ONLYOFFICE).
+- Mode **pengaturan server** (`Asc.plugin.info.aiPluginSettings` → `AI.serverSettings`) menetapkan provider, model, dan
+  aksi dari luar, **menyembunyikan tombol Settings**, dan mengirim semua permintaan non-GET ke **satu alamat proxy**
+  `{ target, method, headers, data }` (body JSON **tanpa** Content-Type).
+- Server ONLYOFFICE (`aiSettings`) hanya mengisi mode ini untuk seluruh server, dan proxy-nya tidak meneruskan identitas
+  user ke provider → tidak bisa memakai key per user. Karena itu mode ini diisi **per user** oleh jembatan kecil.
+
+**Rancangan yang diterapkan**:
+- Pilihan per user `users.office_ai` (boolean, default **mati**; migrasi `20261016120000_office_ai`),
+  `GET/PATCH /office/preferences { ai }` (+ `aiReady`, `provider { label, model }`). Kartu **AI di editor** (sakelar) di
+  Tools → ONLYOFFICE; berlaku saat dokumen dibuka berikutnya.
+- Image ONLYOFFICE dev dibangun sendiri (`infra/onlyoffice/Dockerfile`): image resmi + plugin AI
+  (`documentserver-pluginsmanager.sh --install="ai"`, butuh internet saat build) + **jembatan**
+  `infra/onlyoffice/lifeos-ai-bridge.js` disisipkan ke `index.html` & awal `Asc.plugin.init` (build gagal bila struktur
+  plugin berubah). Jembatan membaca `info.options.lifeos` dan mengisi `info.aiPluginSettings`: provider **"AI LifeOS"**
+  (url `<origin>/api/v1/office/ai/openai`, key = token sesi AI), satu model `lifeos` (Chat + Vision, 128k), semua aksi →
+  model itu kecuali ImageGeneration (belum didukung).
+- Config editor (bertanda tangan): `customization.ai.disabled = !aktif`; bila aktif + mode edit/komentar,
+  `editorConfig.plugins.options["asc.{9DC9…}"] = { lifeos: { token, proxy, url, modelId, modelName } }` (token sesi AI
+  12 jam, purpose `office-ai`; origin = origin browser bila terdaftar di `CORS_ORIGIN`, selain itu yang pertama).
+- `POST /office/ai/proxy` (tanpa token login; 60/menit): body dibaca sebagai teks (`main.ts`), token sesi dari
+  `headers.Authorization` isi permintaan; `…/chat/completions` → pesan OpenAI → satu prompt + gambar data URL
+  (`office-ai.ts` + test) → `AiService.generate` milik user (cadangan otomatis ikut); jawaban format OpenAI biasa atau
+  SSE (`stream: true`); `…/models` → daftar satu model; lainnya 400. Error selalu `{ error: { message } }`. Sakelar
+  dimatikan → token lama 403. CORS: jalur `/api/v1/office/ai/` menerima origin apa pun **tanpa credentials** (iframe
+  plugin ber-origin server ONLYOFFICE); endpoint lain tetap origin aplikasi + cookie.
+- Keterbatasan: pembuatan gambar & mode agen (tool calling) tidak didukung — jawaban selalu teks. Menu plugin resmi
+  berbahasa Inggris. Bahasa hasil ringkasan/terjemahan dipilih di jendela fiturnya (Target language).
+
+**Templat** (keputusan user: unggah di Tools): kartu **Templat dokumen** — Unggah (DOCX/DOTX/ODT, XLSX/XLTX, PPTX/POTX,
+PDF, …; berkas lain ditolak), lihat, **Sunting** templat di ONLYOFFICE, hapus (konfirmasi). Disimpan sebagai berkas milik
+user dengan konteks `office-template` (tanpa tabel baru); `GET /office/templates` = templat milik sendiri yang formatnya
+bisa jadi dokumen. "Buat Dokumen" → **Dari templat** → `POST /office/documents { templateId }` menyalin isinya (DOTX/ODT/…
+dikonversi ke DOCX/XLSX/PPTX, `templateTarget`); judul kosong → nama templat.
+
+**Impor berkas**: tombol **Impor berkas** di pilihan "Buat Dokumen" → berkas dari komputer diunggah dengan konteks &
+pemilik lampiran lalu langsung dibuka di editor. Format yang hanya bisa dilihat (DOC, PPT, …) dikonversi ke DOCX/PPTX
+(berkas asli dibuang); format lain dipakai apa adanya (`office-templates.ts`: `isDocumentFile`, `importNeedsConversion` +
+test).
+
+**Font**: folder `infra/onlyoffice/fonts` (berkas font di-`.gitignore`, README berisi panduan) di-mount ke
+`/usr/share/fonts/truetype/custom`; daftar font dibuat ulang setiap start → salin `.ttf/.otf` lalu
+`docker compose --profile office restart onlyoffice`. `GET /office/fonts` membaca `sdkjs/common/AllFonts.js` → kartu
+**Font** (cari; panduan menambah hanya untuk admin). Image membawa 152 keluarga (Arial, Times New Roman, Calibri, Cambria,
+Tahoma, Verdana, Georgia, …); belum ada antara lain Bookman Old Style, Century Gothic, Garamond, Segoe UI.
+
+Terverifikasi:
+- Unit backend `office-ai.spec.ts` (opsi plugin, target, token, pesan → prompt + gambar, jawaban biasa & SSE) +
+  `office-logic.spec.ts` (config AI, templat, font); frontend `office-templates.test.ts`.
+- Smoke: sakelar default/valid/tidak valid, config AI aktif memuat opsi untuk GUID plugin AI (origin asing diabaikan),
+  proxy tanpa token / token login 401, endpoint tak didukung 400, prompt kosong 400, daftar model, tanpa key provider →
+  "AI belum diatur" (tanpa biaya), CORS origin editor tanpa credentials, sakelar mati → 403, templat (daftar milik
+  sendiri saja, PNG diabaikan, terisolasi per user, dokumen baru dari templat), templat ODT → DOCX.
+- Browser:
+  - Sakelar aktif → editor: tab **AI** tanpa tombol Settings.
+  - Pilih teks → **Summarization** → Summarize: dijawab Gemini akun admin dev lewat proxy LifeOS.
+    Ditemukan & diperbaiki saat uji: plugin mengirim body tanpa Content-Type → body kosong (401) → parser teks khusus jalur proxy.
+  - Kartu Templat: unggah DOCX + PNG (PNG ditolak) → muncul di "Dari templat" form Tambah Resource.
+  - **Impor berkas** DOCX → langsung terbuka di editor → Batal tanpa perubahan → dokumen dibuang.
+  - Font: salin `BOOKOS.TTF` (uji, lalu dihapus) → restart → "Bookman Old Style" terdaftar.
+
 ## 4. To-do untuk user
 
 ### 4.1 Akun — tidak ada yang wajib
@@ -210,14 +278,20 @@ Menu **Tools → ONLYOFFICE** hanya berisi **pengaturan/status** editor.
 | U-6 | Edit bersama mengikuti berbagi LifeOS (Edit / Komentar / Lihat). |
 | U-7 | **User memilih**: AI LifeOS (lewat backend) **atau** AI bawaan ONLYOFFICE (atau mati) — lihat §2 butir AI. |
 | U-8 | Bahasa Indonesia, nama sesuai akun LifeOS. |
+| U-9 | (2026-10-16, revisi) **AI satu pintu**: tab AI bawaan ONLYOFFICE apa adanya, provider & key = Pengaturan → AI LifeOS; tanpa pengaturan AI di editor; sakelar per user (default mati). |
+| U-10 | (2026-10-16, revisi) Pilihan "AI bawaan dengan key diisi di editor" dan plugin panel AI LifeOS sendiri **dihapus**. |
+| U-11 | (2026-10-16, revisi) Templat instansi **diunggah di Tools → ONLYOFFICE** (bukan tag Resource). |
+| U-12 | (2026-10-16) Font tambahan = **folder font di server** (`infra/onlyoffice/fonts`) + restart container. |
+| U-13 | (2026-10-16) **Impor berkas** DOCX/XLSX/PPTX/… dari komputer saat Buat Dokumen. |
 
 ### 4.3 Bahan yang disiapkan user (opsional, untuk tahap 3)
 
-- [ ] **Templat dokumen** yang sering dipakai (kop surat, nota dinas, laporan, notulen) dalam DOCX/XLSX/PPTX.
-- [ ] **Font** yang dipakai dokumen kantor (mis. Arial, Times New Roman, Bookman Old Style, Calibri) — ONLYOFFICE hanya
-  membawa font bebas (pengganti metrik). Font Microsoft berlisensi; pakai berkas font yang memang boleh Anda pakai
-  (mis. dari instalasi Office/Windows berlisensi Anda untuk server pribadi) atau pengganti gratis (Carlito ≈ Calibri,
-  Liberation ≈ Arial/Times). Serahkan berkas `.ttf` → dipasang ke `/usr/share/fonts/truetype/custom`.
+- [ ] **Templat dokumen** (kop surat, nota dinas, laporan, notulen) dalam DOCX/XLSX/PPTX (atau DOTX/XLTX/POTX): unggah di
+  **Tools → ONLYOFFICE → Templat dokumen** — langsung muncul di "Buat Dokumen" → Dari templat.
+- [ ] **Font** yang belum ada di server (Arial, Times New Roman, Calibri, Cambria, Tahoma sudah ada; yang belum: mis.
+  Bookman Old Style, Century Gothic, Garamond, Segoe UI, font kop instansi). Font Microsoft berlisensi — pakai berkas
+  font yang memang boleh Anda pakai (mis. dari Windows/Office berlisensi Anda untuk server pribadi). Salin `.ttf/.otf`
+  ke `infra/onlyoffice/fonts` lalu restart container ONLYOFFICE (panduan: `infra/onlyoffice/fonts/README.md`).
 - [ ] 2–3 **dokumen contoh** asli (tanpa data sensitif) untuk uji tampilan & tata letak.
 
 ### 4.4 Laptop (development)

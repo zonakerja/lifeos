@@ -204,6 +204,8 @@ Setelah ini, cukup ikuti §4 setiap mulai bekerja. Ulangi `npm install` (backend
    ```powershell
    wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose --profile office up -d --wait onlyoffice"
    ```
+   Pertama kali, perintah ini **membangun image** `lifeos-onlyoffice:10.0` (image resmi + plugin AI ONLYOFFICE yang
+   memakai AI LifeOS, `infra/onlyoffice/Dockerfile`; butuh internet ± 1 menit). Font tambahan: `infra/onlyoffice/fonts/README.md`.
    Cek: http://localhost:8080/healthcheck menampilkan `true`. Tanpa langkah ini aplikasi tetap jalan, hanya editor
    ONLYOFFICE yang tidak tersedia. `backend/.env` harus berisi variabel `ONLYOFFICE_*` (salin dari
    `backend/.env.example`, lalu restart backend). Detail: [ONLYOFFICE.md](ONLYOFFICE.md).

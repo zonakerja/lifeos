@@ -163,7 +163,7 @@ LifeOS/
 | PostgreSQL 18 + pgvector 0.8.7 | lifeos-postgres | 5432 | db `lifeos`, `postgres/postgres`; DB tambahan `lifeos_shadow` (cek drift); volume `lifeos-postgres18-data` |
 | Redis 8.10 | lifeos-redis | 6379 | tanpa password |
 | SeaweedFS 4.48 (S3) | lifeos-storage | 8333 (S3), 8888 (filer UI) | `lifeos` / `lifeos-secret`, bucket `lifeos-assets` (dibuat otomatis) |
-| ONLYOFFICE Docs 10.0 (opsional, profile `office`) | lifeos-onlyoffice | 8080 | JWT secret dev di compose, header `AuthorizationJwt`; nyala: `docker compose --profile office up -d --wait onlyoffice` |
+| ONLYOFFICE Docs 10.0 (opsional, profile `office`) | lifeos-onlyoffice | 8080 | image `lifeos-onlyoffice:10.0` dibangun dari `infra/onlyoffice/Dockerfile` (+ plugin AI resmi); font tambahan `infra/onlyoffice/fonts` (restart); JWT secret dev di compose, header `AuthorizationJwt`; nyala: `docker compose --profile office up -d --wait onlyoffice` |
 
 Seed development: `admin@lifeos.com` / `123` (super_admin), `user@lifeos.com` / `123` (member, untuk uji berbagi).
 Akun `viewer@lifeos.com` lama (dev) kini member ("Tamu Viewer") — boleh dihapus.
@@ -286,6 +286,13 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   sesi edit = satu versi, maks. 10 (`asset_versions`), `document.key = <assetId>-<office_key>` berganti saat sesi selesai.
   Env opsional `ONLYOFFICE_URL`, `ONLYOFFICE_INTERNAL_URL`, `ONLYOFFICE_JWT_SECRET`, `ONLYOFFICE_BACKEND_URL` (`auto` =
   IP WSL). Logika murni + test: `office-logic.ts`. Hapus berkas/user menghapus objek versinya juga.
+  **AI di editor = satu pintu** (tahap 3, detail `docs/ONLYOFFICE.md` §3.4): sakelar per user `users.office_ai` (boolean,
+  default mati, `GET/PATCH /office/preferences`). Aktif → tab AI **plugin resmi ONLYOFFICE** apa adanya; jembatan
+  `infra/onlyoffice/lifeos-ai-bridge.js` (disisipkan saat build image) mengisi mode "pengaturan server" plugin dari
+  `editorConfig.plugins.options[GUID AI].lifeos` (token sesi AI + alamat) → semua permintaan ke `POST /office/ai/proxy`
+  (body teks tanpa Content-Type, CORS khusus di `main.ts`) → `office-ai.ts` (+ test) → `AiService.generate` milik user.
+  **Templat**: berkas konteks `office-template` (`GET /office/templates`) → `POST /office/documents { templateId }`
+  menyalin/mengonversi (`templateTarget`). **Font**: `GET /office/fonts` (parser `parseFontFamilies`).
 - **Health**: `/health` (readiness, 503 bila dependensi down), `/health/live` (liveness).
 - **Seed**: `src/database/seed.ts` (dev: akun demo via `prisma db seed` → `tsx`; production: super admin dari env,
   `node dist/database/seed.js`).
@@ -316,7 +323,8 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   status `success | warning | info | destructive`. Font Figtree. Setiap halaman memakai `<ModulePage module="...">`.
   Pakai komponen shadcn; jangan membuat modal/tombol custom.
 - **Bundle**: rute, halaman login, `Markdown` (react-markdown + KaTeX, `markdown-renderer.tsx`), `html5-qrcode`, dan
-  editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±410 kB (termasuk host editor ONLYOFFICE); tanpa
+  editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±450 kB (termasuk host editor ONLYOFFICE; sejak tahap 3 floating-ui/popper ikut chunk utama —
+  sebelumnya chunk terpisah yang tetap dimuat saat start); tanpa
   peringatan ukuran chunk. Tab My Notebook = chunk `notebook-tab` (±42 kB).
 - **CSP produksi** (`nginx.conf`): `script-src 'self'`, `connect-src 'self'` (AI lewat backend), `style-src 'self'
   'unsafe-inline'`, `img/media blob: data:`. Domain eksternal baru → tambahkan di sini (lebih baik lewat backend).
@@ -584,7 +592,12 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
   (`onlyoffice-settings.tsx`, `GET /office/diagnostics`), bukan daftar dokumen — ONLYOFFICE dipanggil dari fitur yang
   punya berkas: pratinjau (`previewFile`), tombol "Edit di ONLYOFFICE", dan tipe "Buat Dokumen (ONLYOFFICE)" di
   `AttachmentForm` & form Resource (lihat Lampiran). Menutup modal (X/Esc) = `requestClose` → `officeApi.forceSave` lalu tutup (simpan otomatis). Hook
-  `useOfficeStatus`, `useOfficeDiagnostics`, `useOfficeVersions`, `useRestoreOfficeVersion` (`data/use-office.ts`).
+  `useOfficeStatus`, `useOfficeDiagnostics`, `useOfficeVersions`, `useRestoreOfficeVersion`, `useOfficePreferences`,
+  `useUpdateOfficePreferences`, `useOfficeFonts` (`data/use-office.ts`). Tahap 3 (`docs/ONLYOFFICE.md` §3.4): kartu
+  **AI di editor** (sakelar) / **Templat dokumen** (unggah, lihat, sunting, hapus) / **Font** (`onlyoffice-cards.tsx`);
+  `officeApi.config` mengirim `appOrigin` (alamat proxy AI untuk iframe editor). `NewOfficeDocumentPicker` = dokumen
+  kosong + **Impor berkas** (unggah; DOC/PPT/… dikonversi lewat `createDocument({ templateId })`) + **Dari templat**
+  (`useOfficeTemplates`); helper `office-templates.ts` (+ test).
 - **Komponen umum**: `ConfirmDialog`, `SectionCard`, `RenameDialog`, `SearchableSelect`, `PaginationControl`+`paginate()`,
   `Markdown`, `PriorityBadge`, `PageLoader`, `DateRangeFilter`, `SearchInput`.
 - **Paginasi daftar**: `usePagination(items, ukuranAwal)` (`hooks/use-pagination.ts`) → `{ pageItems, setPage,
@@ -687,7 +700,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | File Control: uji menyeluruh + perbaikan aturan penyusutan, peminjaman, referensi, penataan & tampilan detail/kartu (11 temuan prioritas tinggi & sedang) | ✅ 2026-10-14 — unit test (`archive.test.ts` +6), lint, typecheck, build, UI diuji di browser dengan data `[UJI]`. Lanjutan: konfirmasi Restore, BA auto-dispose (tanggal lokal + pelaksana), Penataan khusus fisik, Lihat Dokumen seragam, pratinjau cetak layar penuh, modal pratinjau berkas lebih besar — diuji di browser |
 | Pengaturan & Layout: Profil Saya keluar dari Pengaturan (`/profile`), urutan sub menu, satu pengatur tema, sidebar ciut simetris, tombol tutup pencarian global, form tanpa sinkronisasi `useEffect`, logo lewat endpoint ber-cache | ✅ 2026-10-15 — unit backend & frontend, smoke (+7 skenario logo), lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Perbaikan Overview (proyek berjalan, tugas mendesak + terlambat, to-do & rutinitas hari ini bisa dicentang, status & Gabung agenda, label Indonesia, notifikasi tugas terlambat & baru dibagikan) | ✅ 2026-10-15 — unit test (`overview-logic.test.ts`: 9), lint, typecheck, build, UI diuji di browser (desktop + HP; centang rutinitas/todo/task, tambah agenda, popover notifikasi) |
-| Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); berikutnya tahap 3 (AI di editor, templat, font) & tahap 4 (produksi) |
+| Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); **tahap 3 ✅ 2026-10-16** (revisi user: AI satu pintu = tab AI bawaan ONLYOFFICE memakai provider & key Pengaturan → AI lewat proxy backend; templat diunggah di Tools; impor berkas saat Buat Dokumen; font = folder `infra/onlyoffice/fonts`; unit + smoke lulus, UI diuji termasuk Summarization dengan Gemini sungguhan); berikutnya tahap 4 (produksi) & konversi DOCX → PDF untuk File Control (menunggu keputusan) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -1074,6 +1087,15 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   generik di `Dialog`; format ONLYOFFICE tidak lagi dibatasi 4 jenis — mengikuti daftar resmi server (edit / lossy-edit /
   view, disimpan dalam format asli); ekstraksi teks format kantor lain lewat konversi ONLYOFFICE (TXT/CSV) agar Ringkas AI
   & RAG ikut membaca PPTX, ODT, RTF, ODS, dll.
+- 2026-10-16 — **ONLYOFFICE tahap 3** (keputusan user): AI LifeOS = **plugin LifeOS sendiri** (bukan penyedia kustom plugin
+  AI resmi: pengaturannya per server/localStorage, bukan per user), AI bawaan = plugin resmi dengan **key diisi user di
+  editor** (disimpan di browser; UI memberi peringatan), pilihan per user default **Mati**; templat = **Resource bertag
+  Templat**; font = **folder font di server**. Image ONLYOFFICE dev kini dibangun sendiri (`infra/onlyoffice/Dockerfile` =
+  image resmi + plugin AI). Konversi DOCX → PDF untuk File Control belum dikerjakan (menunggu keputusan alur).
+  **Revisi user (hari yang sama)**: tab AI bawaan tidak muncul saat memakai plugin panel sendiri → AI dibuat **satu pintu**:
+  tab AI bawaan ONLYOFFICE apa adanya (semua fiturnya) dengan provider & key Pengaturan → AI lewat proxy backend, tanpa
+  pengaturan AI di editor (plugin panel & pilihan "key di editor" dihapus; `office_ai` jadi boolean). Templat **diunggah
+  di Tools → ONLYOFFICE** (tag Resource tidak dipakai). Ditambah **Impor berkas** DOCX/XLSX/PPTX/… saat Buat Dokumen.
 
 ## 13. Konvensi Kode
 
@@ -1298,6 +1320,14 @@ utama tetap < 500 kB (cek output `npm run build`).
   iframe.
 - Tool Write dengan path relatif (`....Users...`) dihitung dari folder kerja (drive D:) → file tertulis ke
   `D:Users...`, bukan scratchpad. Selalu pakai path absolut scratchpad.
+- Plugin AI resmi ONLYOFFICE (mode pengaturan server) mengirim isi proxy sebagai JSON **tanpa** Content-Type → parser JSON
+  Nest mengabaikannya (body kosong); jalur `/api/v1/office/ai/proxy` memakai parser teks (`main.ts`). Opsi plugin
+  (`editorConfig.plugins.options[GUID]`) wajib di config bertanda tangan dari backend, bukan ditambah browser. Jembatan AI
+  bergantung pada struktur plugin (`index.html`, `window.Asc.plugin.init`) → `docker compose build onlyoffice` gagal
+  (grep) bila plugin berubah; cek ulang `lifeos-ai-bridge.js` saat itu. Impor dinamis modul aplikasi dari
+  `javascript_tool` bisa memberi **instans modul lain** (store Zustand terpisah) → buka editor lewat UI. Panel browser
+  sempit memotong tab toolbar ONLYOFFICE (tab AI tersembunyi) → `resize_window` lebih lebar saat uji.
+- Menjalankan `npm run test:smoke` dua kali dalam satu menit → login 429 (batas 10/menit), bukan bug.
 
 ## 16. Memori & Kesinambungan Antar-Chat
 

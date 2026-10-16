@@ -7,6 +7,7 @@ import { OfficeTextConverter } from "../office/office-text-converter";
 @Module({
   imports: [forwardRef(() => AiModule)],
   providers: [ExtractionQueueService, ExtractionWorkerService, OfficeTextConverter],
-  exports: [ExtractionQueueService],
+  // OfficeTextConverter juga dipakai OfficeService (dokumen dari templat format lain)
+  exports: [ExtractionQueueService, OfficeTextConverter],
 })
 export class ExtractionModule {}

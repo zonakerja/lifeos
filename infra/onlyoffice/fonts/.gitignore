@@ -1,0 +1,4 @@
+# Berkas font berlisensi tidak di-commit; hanya README yang ikut Git
+*
+!.gitignore
+!README.md

@@ -1,11 +1,18 @@
 import { Transform } from "class-transformer";
-import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from "class-validator";
+import { IsBoolean, IsIn, IsOptional, IsString, MaxLength, ValidateIf } from "class-validator";
 import { NEW_DOCUMENT_FORMATS, type NewDocumentFormat } from "../office-logic";
 
 export class CreateOfficeDocumentDto {
   /** Jenis dokumen kosong: docx (Dokumen), xlsx (Spreadsheet), pptx (Presentasi), pdf (PDF/formulir). */
+  @ValidateIf((dto: CreateOfficeDocumentDto) => !dto.templateId)
   @IsIn(NEW_DOCUMENT_FORMATS)
-  format: NewDocumentFormat;
+  format?: NewDocumentFormat;
+
+  /** Berkas templat (Resource bertag Templat) yang disalin isinya; format mengikuti templat. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  templateId?: string;
 
   @IsOptional()
   @IsString()
@@ -44,4 +51,16 @@ export class OfficeConfigDto {
   @IsOptional()
   @IsIn(["light", "dark"])
   theme?: "light" | "dark";
+
+  /** Origin aplikasi di browser (tab AI editor memanggil backend lewat origin ini; harus terdaftar di CORS_ORIGIN). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  appOrigin?: string;
+}
+
+export class OfficePreferencesDto {
+  /** AI di editor (tab AI ONLYOFFICE memakai provider & key di Pengaturan → AI). */
+  @IsBoolean()
+  ai: boolean;
 }

@@ -263,9 +263,13 @@ tetap Asset LifeOS di object storage.
 |---|---|
 | `GET /office/status` | aktif? (`ONLYOFFICE_URL` diisi), URL server ONLYOFFICE, format yang bisa diedit |
 | `GET /office/diagnostics` | halaman Tools → ONLYOFFICE: server sehat (`/healthcheck`), versi (Command Service `version`); alamat teknis hanya untuk admin |
-| `POST /office/documents` `{ format: docx\|xlsx\|pptx\|pdf, title?, context?, ownerId? }` | dokumen kosong dari templat `backend/templates/office/` (A4, id-ID) → Asset seperti upload lampiran (context default `office`; `ownerId` = pemilik item bersama berizin edit) |
+| `POST /office/documents` `{ format: docx\|xlsx\|pptx\|pdf \| templateId, title?, context?, ownerId? }` | dokumen kosong dari templat `backend/templates/office/` (A4, id-ID), atau salinan berkas templat (`templateId` = berkas yang boleh dibaca; format selain docx/xlsx/pptx/pdf dikonversi ONLYOFFICE) → Asset seperti upload lampiran (context default `office`; `ownerId` = pemilik item bersama berizin edit) |
+| `GET/PATCH /office/preferences` `{ ai: boolean }` | sakelar AI di editor per user (`users.office_ai`) + `aiReady` + provider/model yang menjawab |
+| `POST /office/ai/proxy` (token sesi AI di `headers.Authorization` isi permintaan, bukan token login) | proxy tab AI ONLYOFFICE: Chat Completions → `AiService.generate` milik user → jawaban format OpenAI (biasa/SSE); 60/menit; CORS origin apa pun tanpa credentials |
+| `GET /office/templates` | templat dokumen milik user (berkas konteks `office-template`, diunggah lewat `/uploads`) |
+| `GET /office/fonts` | keluarga font terpasang di server ONLYOFFICE (dari `AllFonts.js`) |
 | `POST /office/files/:id/forcesave` | simpan paksa sesi edit yang terbuka (Command Service `forcesave`) dan menunggu versi tersimpan (≤ 15 detik) → `saved \| pending \| no-changes \| no-session`; dipanggil saat modal editor ditutup |
-| `POST /office/config` `{ uploadId, mode?, mobile?, theme? }` | config `DocsAPI.DocEditor` ditandatangani `ONLYOFFICE_JWT_SECRET` (HS256) |
+| `POST /office/config` `{ uploadId, mode?, mobile?, theme?, appOrigin? }` | config `DocsAPI.DocEditor` ditandatangani `ONLYOFFICE_JWT_SECRET` (HS256); AI sesuai pilihan user (lihat butir AI) |
 | `GET /office/files/:id/versions` · `GET …/versions/:v` · `POST …/versions/:v/restore` | riwayat versi, unduh versi lama, pulihkan (izin edit) |
 | `GET /office/files/:id/content?token=` | dipanggil ONLYOFFICE (`document.url`), token 1 hari |
 | `POST /office/callback?token=` | dipanggil ONLYOFFICE saat status dokumen berubah; jawaban `{ error: 0 }` |
@@ -286,6 +290,10 @@ tetap Asset LifeOS di object storage.
   Callback dari **sesi lama** (kunci sudah berganti karena dipulihkan — editor yang ditutup sesudahnya mengirim ulang isinya,
   dibuat ulang ONLYOFFICE sehingga checksum berbeda walau isi sama) hanya masuk **riwayat** tepat di bawah versi saat ini;
   isi saat ini (hasil pemulihan) tidak pernah diganti.
+- **AI di editor (satu pintu)**: sakelar mati → `customization.ai.disabled`; aktif → tab AI plugin resmi (dipasang di image
+  `infra/onlyoffice/Dockerfile` bersama jembatan `lifeos-ai-bridge.js`) dengan `editorConfig.plugins.options[GUID AI] =
+  { lifeos: { token, proxy, url, … } }`; jembatan mengisi mode pengaturan server plugin (provider "AI LifeOS", tanpa tombol
+  Settings) sehingga semua permintaan lewat `/office/ai/proxy` memakai provider & key Pengaturan → AI. Detail: ONLYOFFICE.md §3.4.
 - **Alamat backend untuk ONLYOFFICE** (`ONLYOFFICE_BACKEND_URL`): `auto` (dev) = IPv4 antarmuka Windows `vEthernet (WSL…)`
   dibaca setiap membuat config; produksi `http://backend:4000`. Logika murni + test: `office-logic.ts`.
 

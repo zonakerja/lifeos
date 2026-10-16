@@ -79,6 +79,7 @@ export default function OfficeEditor({ uploadId, mode, onLoaded, onDirtyChange, 
           mode,
           mobile: isSmallScreen(),
           theme: isDarkTheme() ? "dark" : "light",
+          appOrigin: window.location.origin,
         });
         await loadDocsApi(result.documentServerUrl);
         if (cancelled || !hostRef.current) return;

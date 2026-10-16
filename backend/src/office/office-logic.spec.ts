@@ -15,7 +15,9 @@ import {
   newDocumentName,
   newOfficeKey,
   planVersionSave,
+  parseFontFamilies,
   resolveBackendUrl,
+  templateTarget,
   toInternalUrl,
   versionsToPrune,
 } from "./office-logic";
@@ -251,5 +253,54 @@ describe("config editor", () => {
     expect(view.document.permissions.comment).toBe(false);
     expect(view.type).toBe("mobile");
     expect(view.editorConfig.customization.uiTheme).toBe("default-dark");
+  });
+
+  it("AI di editor mengikuti sakelar user", () => {
+    const pluginOptions = { lifeos: { token: "t" } };
+    const off = buildEditorConfig({ ...base, access: "edit", ai: { enabled: false, guid: "asc.{AI}" } });
+    expect(off.editorConfig.customization.ai).toEqual({ disabled: true });
+    expect("plugins" in off.editorConfig).toBe(false);
+
+    const on = buildEditorConfig({ ...base, access: "edit", ai: { enabled: true, guid: "asc.{AI}", pluginOptions } });
+    // Tab AI aktif dan token sesi hanya untuk GUID plugin AI
+    expect(on.editorConfig.customization.ai).toEqual({ disabled: false });
+    expect(on.editorConfig).toMatchObject({ plugins: { options: { "asc.{AI}": pluginOptions } } });
+    expect("pluginsData" in (on.editorConfig as { plugins: object }).plugins).toBe(false);
+
+    // Mode lihat: tanpa AI (tidak bisa menyisipkan hasil)
+    const view = buildEditorConfig({ ...base, access: "view", ai: { enabled: true, guid: "asc.{AI}", pluginOptions } });
+    expect(view.editorConfig.customization.ai).toEqual({ disabled: true });
+    expect("plugins" in view.editorConfig).toBe(false);
+  });
+});
+
+describe("font ONLYOFFICE", () => {
+  it("membaca nama keluarga dari AllFonts.js", () => {
+    const js = [
+      'window["__fonts_files"] = [\n"000"\n];',
+      'window["__fonts_infos"] = [',
+      '["Times New Roman",1,0,-1,-1,-1,-1,-1,-1],',
+      '["Arial",0,0,-1,-1,-1,-1,-1,-1],',
+      '["Bookman \\"Old\\" Style",2,0,-1,-1,-1,-1,-1,-1],',
+      '["Arial",3,0,-1,-1,-1,-1,-1,-1]',
+      "];",
+      'window["__fonts_ranges"] = [1,2];',
+    ].join("\n");
+    expect(parseFontFamilies(js)).toEqual(["Arial", 'Bookman "Old" Style', "Times New Roman"]);
+    expect(parseFontFamilies("tidak ada")).toEqual([]);
+  });
+});
+
+describe("templat dokumen", () => {
+  it("format templat menentukan jenis dokumen baru", () => {
+    expect(templateTarget("docx")).toBe("docx");
+    expect(templateTarget("pdf")).toBe("pdf");
+    expect(templateTarget("dotx")).toBe("docx");
+    expect(templateTarget("odt")).toBe("docx");
+    expect(templateTarget("xltx")).toBe("xlsx");
+    expect(templateTarget("ods")).toBe("xlsx");
+    expect(templateTarget("potx")).toBe("pptx");
+    expect(templateTarget("vsdx")).toBeNull();
+    expect(templateTarget("png")).toBeNull();
   });
 });

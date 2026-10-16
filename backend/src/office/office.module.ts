@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtModule } from "@nestjs/jwt";
+import { AiModule } from "../ai/ai.module";
 import { ExtractionModule } from "../extraction/extraction.module";
 import { UploadsModule } from "../uploads/uploads.module";
 import { OfficeController } from "./office.controller";
@@ -8,6 +9,7 @@ import { OfficeService } from "./office.service";
 
 @Module({
   imports: [
+    AiModule,
     ExtractionModule,
     UploadsModule,
     // Token link berkas & callback untuk ONLYOFFICE memakai secret turunan (tidak bisa dipakai sebagai login/unduhan

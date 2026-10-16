@@ -7,6 +7,7 @@ import {
   HttpCode,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   Res,
@@ -14,12 +15,12 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiExcludeEndpoint, ApiTags } from "@nestjs/swagger";
-import { SkipThrottle } from "@nestjs/throttler";
+import { SkipThrottle, Throttle } from "@nestjs/throttler";
 import { Response } from "express";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { AuthUser } from "../common/types/auth-user";
-import { CreateOfficeDocumentDto, OfficeConfigDto } from "./dto/office.dto";
+import { CreateOfficeDocumentDto, OfficeConfigDto, OfficePreferencesDto } from "./dto/office.dto";
 import { ONLYOFFICE_JWT_HEADER, OfficeService } from "./office.service";
 
 const contentDisposition = (name: string, disposition: "inline" | "attachment") =>
@@ -36,6 +37,62 @@ export class OfficeController {
   @Get("status")
   status() {
     return this.office.status();
+  }
+
+  /** Templat dokumen milik user (diunggah lewat /uploads dengan context `office-template`). */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get("templates")
+  templates(@CurrentUser() user: AuthUser) {
+    return this.office.templates(user);
+  }
+
+  /** Font yang terpasang di server ONLYOFFICE. */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get("fonts")
+  fonts() {
+    return this.office.fonts();
+  }
+
+  /** Pilihan AI di editor milik user (halaman Tools → ONLYOFFICE). */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get("preferences")
+  preferences(@CurrentUser() user: AuthUser) {
+    return this.office.preferences(user);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch("preferences")
+  updatePreferences(@CurrentUser() user: AuthUser, @Body() dto: OfficePreferencesDto) {
+    return this.office.updatePreferences(user, dto);
+  }
+
+  /**
+   * Dipanggil tab AI ONLYOFFICE (plugin resmi, mode pengaturan server) untuk setiap permintaan AI. Tanpa token login:
+   * autentikasi = token sesi AI di `headers.Authorization` isi permintaan. CORS untuk origin ONLYOFFICE diatur di main.ts.
+   */
+  @ApiExcludeEndpoint()
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Post("ai/proxy")
+  async aiProxy(@Body() raw: unknown, @Res() res: Response) {
+    // Isi dibaca sebagai teks (lihat main.ts) lalu di-parse di sini
+    let body: Record<string, unknown>;
+    try {
+      body = (typeof raw === "string" ? JSON.parse(raw) : (raw ?? {})) as Record<string, unknown>;
+    } catch {
+      res.status(400).json({ error: { message: "Isi permintaan AI tidak valid.", type: "lifeos_error" } });
+      return;
+    }
+    const result = await this.office.aiProxy(body);
+    if (result.sse !== undefined) {
+      res.status(200).set({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
+      res.send(result.sse);
+      return;
+    }
+    res.status(result.status).json(result.json);
   }
 
   /** Kesehatan & versi server ONLYOFFICE (halaman Tools → ONLYOFFICE); alamat teknis hanya untuk admin. */
