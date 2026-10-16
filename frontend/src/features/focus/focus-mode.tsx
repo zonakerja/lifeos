@@ -1,4 +1,4 @@
-import { Pause, Play, RotateCcw, Settings2, Timer } from "lucide-react";
+import { Coffee, type LucideIcon, Pause, Play, RotateCcw, Settings2, Sofa, Timer } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -8,6 +8,17 @@ import { cn } from "@/lib/utils";
 
 type FocusKind = "focus" | "shortBreak" | "longBreak";
 const LABELS: Record<FocusKind, string> = { focus: "Fokus", shortBreak: "Rehat", longBreak: "Istirahat" };
+
+/** Judul, keterangan, dan ikon dialog mengikuti sesi yang dipilih. */
+const MODE_META: Record<FocusKind, { title: string; description: string; icon: LucideIcon }> = {
+  focus: { title: "Mode Fokus", description: "Kerjakan tugas tanpa gangguan.", icon: Timer },
+  shortBreak: { title: "Waktu Rehat", description: "Rehat sejenak: regangkan badan dan minum air.", icon: Coffee },
+  longBreak: {
+    title: "Waktu Istirahat",
+    description: "Istirahat lebih panjang sebelum sesi fokus berikutnya.",
+    icon: Sofa,
+  },
+};
 
 const formatTime = (seconds: number) =>
   `${Math.floor(seconds / 60)
@@ -41,6 +52,9 @@ export function FocusModeButton() {
     return () => window.clearInterval(interval);
   }, [active]);
 
+  const meta = MODE_META[mode];
+  const ModeIcon = meta.icon;
+
   const switchMode = (next: FocusKind) => {
     setMode(next);
     setTimeLeft(durations[next] * 60);
@@ -58,21 +72,23 @@ export function FocusModeButton() {
       <Button
         variant="ghost"
         size={active ? "sm" : "icon"}
-        aria-label="Focus Mode"
-        title="Focus Mode"
+        aria-label={active ? `${meta.title} ${formatTime(timeLeft)}` : "Mode Fokus"}
+        title={active ? meta.title : "Mode Fokus"}
         onClick={() => setOpen(true)}
         className={cn(active && "bg-module-soft font-mono text-module tabular-nums")}
       >
-        <Timer /> {active && formatTime(timeLeft)}
+        {active ? <ModeIcon /> : <Timer />} {active && formatTime(timeLeft)}
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent data-module="overview" className="sm:max-w-sm">
           <DialogHeader className="items-center text-center">
             <DialogTitle className="flex items-center gap-2 text-2xl font-extrabold">
-              <Timer className="size-6 text-module" /> Focus Mode
+              <ModeIcon className="size-6 text-module" /> {meta.title}
             </DialogTitle>
-            <DialogDescription>{editing ? "Atur durasi (menit)" : "Kerjakan tugas tanpa gangguan."}</DialogDescription>
+            <DialogDescription>
+              {editing ? `Atur durasi ${LABELS[mode].toLowerCase()} (menit)` : meta.description}
+            </DialogDescription>
           </DialogHeader>
 
           <Tabs value={mode} onValueChange={(v) => switchMode(v as FocusKind)}>

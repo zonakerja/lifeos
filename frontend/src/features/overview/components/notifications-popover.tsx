@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useProjects, useProjectTasks, useSchedules, useTodos } from "@/data/collections";
 import { useIncomingShares } from "@/data/use-sharing";
 import { scheduleStart } from "@/features/planner/lib/planner-logic";
@@ -61,8 +60,13 @@ export function NotificationsPopover() {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-0">
-        <ScrollArea className="max-h-[70svh]">
+      {/* Tinggi dibatasi ruang layar yang tersedia; daftar menggulir di dalam, footer tetap di bawah */}
+      <PopoverContent
+        align="end"
+        collisionPadding={8}
+        className="flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-80 flex-col gap-0 p-0"
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="flex flex-col gap-4 p-4">
             <section className="flex flex-col gap-2">
               <h3 className="flex items-center justify-between text-sm font-bold">
@@ -178,8 +182,8 @@ export function NotificationsPopover() {
               </section>
             )}
           </div>
-        </ScrollArea>
-        <div className="flex items-center gap-2 border-t px-4 py-2 text-[11px] text-muted-foreground">
+        </div>
+        <div className="flex shrink-0 items-center gap-2 border-t px-4 py-2 text-[11px] text-muted-foreground">
           <CalendarDays className="size-3.5" /> Klik item untuk membuka detailnya.
         </div>
       </PopoverContent>

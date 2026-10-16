@@ -589,7 +589,11 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   (dropdown Terang / Gelap / Ikuti sistem). Tombol sidebar saat diciutkan = 32 px: logo ikut 32 px, ikon modul memakai
   `COLLAPSIBLE_ITEM_CLASS` (tanpa padding) agar tepat di tengah. Logo aplikasi dibaca lewat `appLogoUrl(settings)`
   (`use-app-settings.ts`). Dialog yang punya kontrol di pojok kanan atas (mis. pencarian global) memakai
-  `showCloseButton={false}` + `DialogClose` sendiri di baris kontrolnya agar tidak bertumpuk.
+  `showCloseButton={false}` + `DialogClose` sendiri di baris kontrolnya agar tidak bertumpuk. **Popover/panel berisi daftar
+  panjang**: batasi tinggi `max-h-[min(…,var(--radix-popover-content-available-height))]` + `flex flex-col`, daftar di
+  `div min-h-0 flex-1 overflow-y-auto`, footer `shrink-0` — jangan `ScrollArea` dengan `max-h` saja (lihat §15).
+  **Mode Fokus** (`features/focus/focus-mode.tsx`): judul, keterangan, ikon dialog & tombol header mengikuti sesi yang
+  dipilih (`MODE_META`: Mode Fokus / Waktu Rehat / Waktu Istirahat).
 - **Tools → ONLYOFFICE** (`features/tools/`, detail: `docs/ONLYOFFICE.md` §3.3): modul `tools` ber-sub-menu di sidebar
   (`ModuleDef.sidebarSubmenu` → `SubmenuModuleItem`, juga dipakai Pengaturan; sub menu baru = tab baru di `navigation.ts`).
   Editor dibuka dari mana saja lewat `openOfficeEditor({ uploadId, name?, mode? })` (`OfficeEditorHost` di AppShell, editor
@@ -711,6 +715,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Isolasi data per user (admin tanpa akses data user lain, role viewer dihapus, statistik admin) + **berbagi** item (Project, Area, Resource/arsip, Catatan, Notes AI, List, Agenda; izin Lihat/Komentar/Edit; turunan & berkas ikut; komentar; Pengaturan → Berbagi; File Control tab Dibagikan) | ✅ 2026-10-11 — unit (backend share-graph + frontend sharing), smoke ±45 skenario baru, lint, typecheck, build, UI diuji di browser (bagikan Edit → kolaborator menambah action & komentar; bagikan Lihat → baca-saja; statistik admin). **Belum**: RAG/chatbot mencari item bersama, notifikasi berbagi, tautan publik |
 | File Control: uji menyeluruh + perbaikan aturan penyusutan, peminjaman, referensi, penataan & tampilan detail/kartu (11 temuan prioritas tinggi & sedang) | ✅ 2026-10-14 — unit test (`archive.test.ts` +6), lint, typecheck, build, UI diuji di browser dengan data `[UJI]`. Lanjutan: konfirmasi Restore, BA auto-dispose (tanggal lokal + pelaksana), Penataan khusus fisik, Lihat Dokumen seragam, pratinjau cetak layar penuh, modal pratinjau berkas lebih besar — diuji di browser |
 | Pengaturan & Layout: Profil Saya keluar dari Pengaturan (`/profile`), urutan sub menu, satu pengatur tema, sidebar ciut simetris, tombol tutup pencarian global, form tanpa sinkronisasi `useEffect`, logo lewat endpoint ber-cache | ✅ 2026-10-15 — unit backend & frontend, smoke (+7 skenario logo), lint, typecheck, build, UI diuji di browser (desktop + HP) |
+| Layout lanjutan: popover notifikasi panjang bisa digulir (footer tidak tertimpa), judul Mode Fokus sesuai sesi | ✅ 2026-10-16 — lint, typecheck, unit test, build, UI diuji di browser (layar 768 & 460 px) |
 | Perbaikan Overview (proyek berjalan, tugas mendesak + terlambat, to-do & rutinitas hari ini bisa dicentang, status & Gabung agenda, label Indonesia, notifikasi tugas terlambat & baru dibagikan) | ✅ 2026-10-15 — unit test (`overview-logic.test.ts`: 9), lint, typecheck, build, UI diuji di browser (desktop + HP; centang rutinitas/todo/task, tambah agenda, popover notifikasi) |
 | Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); **tahap 3 ✅ 2026-10-16** (revisi user: AI satu pintu = tab AI bawaan ONLYOFFICE memakai provider & key Pengaturan → AI lewat proxy backend; templat diunggah di Tools; impor berkas saat Buat Dokumen; unit + smoke lulus, UI diuji termasuk Summarization dengan Gemini sungguhan) + **lanjutan ✅** (Tools per role, font diunggah admin + pemantau, tautan konsep ↔ dokumen final) + **tahap 4 produksi ✅ 2026-10-16** (compose profile `office`, Caddy `/office/`, smoke penuh lewat stack produksi lokal); berikutnya agen SRIKANDI & agen pembuat dokumen di Tools (teknologi dibahas user) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
@@ -1121,6 +1126,11 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   berkas terbaru); final diunggah ke ruang pemilik konsep (kolaborator berbagi Edit); upload final dibuang bila tautan
   gagal; penanda tautan hanya menghitung berkas yang boleh dibaca + cek izin hanya untuk berkas milik user lain; modal
   templat tetap terbuka saat gagal; opsi editor seluler dihapus dari API.
+- 2026-10-16 — Thread **Pengaturan & Layout** lanjutan: (1) popover notifikasi yang panjang meluber ke bawah dan menimpa
+  footer — `ScrollArea` Radix dengan `max-h` saja tidak membatasi viewport-nya (tinggi `size-full` tidak terhitung), sehingga
+  isi tidak bisa digulir; kini popover dibatasi ruang layar tersedia dan daftar memakai area gulir biasa. (2) Judul dialog
+  Focus Mode kini mengikuti sesi: **Mode Fokus**, **Waktu Rehat**, **Waktu Istirahat** (keterangan & ikon ikut berubah; tombol
+  header saat berjalan menampilkan ikon & nama sesi).
 
 ## 13. Konvensi Kode
 
@@ -1361,6 +1371,10 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Compose produksi meneruskan env opsional yang tidak diisi sebagai **string kosong** (`VAR: ${X:-}`), dan
   class-validator `@IsOptional` hanya melewati null/undefined → env opsional bervalidasi (URL, `MinLength`) wajib memakai
   `@Transform(emptyToUndefined)` (`env.validation.ts`, + test). Uji stack produksi juga dengan fitur opsional **dimatikan**.
+
+- Komponen `ScrollArea` (shadcn/Radix) hanya menggulir bila **tingginya pasti** (`h-*`, atau flex item di kontainer
+  bertinggi pasti). Dengan `max-h-*` saja viewport (`size-full`) ikut setinggi isi → isi meluber & tidak bisa digulir.
+  Untuk panel ber-`max-h` (popover) pakai `div overflow-y-auto`.
 
 ## 16. Memori & Kesinambungan Antar-Chat
 
