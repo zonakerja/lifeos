@@ -4,7 +4,7 @@
 # Base HARUS sama dengan image service `postgres` (versi pg_dump = versi server).
 # ============================================================================
 
-FROM rclone/rclone:1.75.1 AS rclone
+FROM rclone/rclone:1.75.2 AS rclone
 
 FROM pgvector/pgvector:0.8.7-pg18
 # curl untuk heartbeat pemantauan; binary rclone statis dari image resminya
