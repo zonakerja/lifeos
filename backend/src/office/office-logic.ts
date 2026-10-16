@@ -48,6 +48,72 @@ export function parseFontFamilies(allFontsJs: string): string[] {
   return [...names].sort((a, b) => a.localeCompare(b, "id", { sensitivity: "base" }));
 }
 
+/**
+ * Konsep = dokumen yang disusun di ONLYOFFICE (dokumen/spreadsheet/presentasi, termasuk format lossy & lama). Dokumen
+ * final (biasanya PDF bertanda tangan manual/elektronik) boleh format apa pun dan ditautkan ke konsepnya.
+ */
+export function isDraftFormat(format: string) {
+  const type = documentTypeOf(format);
+  return type === "word" || type === "cell" || type === "slide";
+}
+
+/** Ekstensi konsep (dokumen/spreadsheet/presentasi) — dipakai menyaring kandidat tautan di database. */
+export const draftExtensions = () => Object.keys(OFFICE_FORMATS).filter(isDraftFormat);
+
+/**
+ * Alasan tautan konsep ↔ final ditolak; null = boleh. Satu tingkat saja: konsep tidak boleh sekaligus final, final
+ * tidak boleh punya final sendiri. Satu konsep boleh punya beberapa final (mis. revisi tanda tangan).
+ */
+export function finalLinkError(input: {
+  finalId: string;
+  draftId: string;
+  draftFormat: string;
+  /** Konsep itu sendiri sudah tertaut sebagai final dokumen lain */
+  draftIsFinal: boolean;
+  /** Calon final sudah menjadi konsep bagi dokumen lain */
+  finalHasFinals: boolean;
+}): string | null {
+  if (input.finalId === input.draftId) return "Dokumen tidak bisa ditautkan ke dirinya sendiri.";
+  if (!isDraftFormat(input.draftFormat)) return "Konsep harus berupa dokumen, spreadsheet, atau presentasi.";
+  if (input.draftIsFinal) return "Dokumen ini adalah dokumen final; pilih konsep aslinya.";
+  if (input.finalHasFinals) return "Berkas ini adalah konsep yang sudah punya dokumen final.";
+  return null;
+}
+
+/** Ekstensi berkas font yang boleh diunggah admin (folder font ONLYOFFICE). */
+export const FONT_EXTENSIONS = ["ttf", "otf", "ttc"] as const;
+/** Batas ukuran satu berkas font. */
+export const MAX_FONT_BYTES = 30 * 1024 * 1024;
+
+/**
+ * Jenis berkas font dari isinya (bukan dari nama): TrueType (`00 01 00 00` / `true`), OpenType CFF (`OTTO`), koleksi
+ * (`ttcf`). null = bukan font yang didukung (mis. WOFF, berkas lain yang diganti namanya).
+ */
+export function fontKind(head: Uint8Array): "ttf" | "otf" | "ttc" | null {
+  if (head.length < 4) return null;
+  const tag = String.fromCharCode(head[0], head[1], head[2], head[3]);
+  if ((head[0] === 0 && head[1] === 1 && head[2] === 0 && head[3] === 0) || tag === "true") return "ttf";
+  if (tag === "OTTO") return "otf";
+  if (tag === "ttcf") return "ttc";
+  return null;
+}
+
+/**
+ * Nama berkas font yang aman untuk folder bersama: tanpa path, hanya huruf/angka/spasi/.-_ (lainnya jadi "-"), ekstensi
+ * huruf kecil sesuai isi. null bila ekstensinya bukan font.
+ */
+export function safeFontFileName(originalName: string, kind: "ttf" | "otf" | "ttc"): string | null {
+  const base = originalName.split(/[\\/]/).pop() ?? "";
+  const ext = extname(base).slice(1).toLowerCase();
+  if (!(FONT_EXTENSIONS as readonly string[]).includes(ext)) return null;
+  const stem = base
+    .slice(0, base.length - ext.length - 1)
+    .replace(/[^\p{L}\p{N} ._-]+/gu, "-")
+    .replace(/^[.\s-]+|[.\s-]+$/g, "")
+    .slice(0, 100);
+  return stem ? `${stem}.${kind}` : null;
+}
+
 /** MIME type per format yang bisa dibuat dari templat kosong. */
 export const NEW_DOCUMENT_MIME: Record<NewDocumentFormat, string> = {
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -251,8 +317,6 @@ export interface EditorConfigInput {
   fileUrl: string;
   callbackUrl: string;
   lang?: string;
-  /** Layar kecil → tampilan seluler ONLYOFFICE */
-  mobile?: boolean;
   /** Tema LifeOS saat editor dibuka (config bertanda tangan tidak boleh diubah browser, jadi ikut dikirim ke backend) */
   theme?: "light" | "dark";
   /**
@@ -271,7 +335,8 @@ export function buildEditorConfig(input: EditorConfigInput) {
   const editMode = canEdit || canComment;
   const aiOn = !!input.ai?.enabled && !!input.ai.pluginOptions && editMode;
   return {
-    type: input.mobile ? "mobile" : "desktop",
+    // Selalu desktop: editor web seluler ONLYOFFICE Community hanya bisa melihat (butuh lisensi komersial)
+    type: "desktop",
     documentType: input.documentType,
     width: "100%",
     height: "100%",

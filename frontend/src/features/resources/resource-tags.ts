@@ -14,6 +14,8 @@ export const CONTEXT_TAGS = [
   "Area",
   "Area Task",
   "Agenda",
+  // Dokumen final (PDF bertanda tangan) yang diunggah dari konsep ONLYOFFICE-nya (features/tools/onlyoffice/document-links.tsx)
+  "Dokumen Final",
 ] as const;
 
 const CONTEXT_SET = new Set<string>(CONTEXT_TAGS);

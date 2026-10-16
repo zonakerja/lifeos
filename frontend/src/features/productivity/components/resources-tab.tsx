@@ -84,6 +84,8 @@ import { DiscardScope, useDiscardOnClose, useDiscardScope } from "../use-attachm
 import { useParaActions } from "../use-para-actions";
 import { ParaInfo } from "./para-info";
 import { useOpenSession, useRetained } from "@/hooks/use-retained";
+import { useOfficeLinkBadges } from "@/data/use-office";
+import { DocumentLinkBadge } from "@/features/tools/onlyoffice/document-links";
 
 /** Waktu sekarang (helper modul agar tidak dianggap pemanggilan tidak murni saat render) */
 const nowIso = () => new Date().toISOString();
@@ -117,6 +119,9 @@ export function ResourcesTab() {
     })
     .filter((r) => matchesDateFilter(r.date, dateFilter, today))
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const pageItems = paginate(filtered, page, pageSize);
+  // Penanda konsep ↔ dokumen final untuk berkas di halaman ini
+  const linkBadges = useOfficeLinkBadges(pageItems.map((res) => res.uploadId));
 
   return (
     <div className="flex flex-col gap-5">
@@ -162,7 +167,7 @@ export function ResourcesTab() {
                 </TableCell>
               </TableRow>
             )}
-            {paginate(filtered, page, pageSize).map((res) => (
+            {pageItems.map((res) => (
               <TableRow key={res.id} className={cn(highlightId === res.id && "bg-module-soft")}>
                 <TableCell className="font-mono text-xs">{res.number || "-"}</TableCell>
                 <TableCell>
@@ -189,6 +194,7 @@ export function ResourcesTab() {
                     <Badge variant="secondary" className="uppercase">
                       {res.type}
                     </Badge>
+                    {res.uploadId && <DocumentLinkBadge link={linkBadges?.[res.uploadId]} />}
                     {isInFileControl(res) && (
                       <Badge className="bg-mod-files/15 text-mod-files" title="Dikelola di File Control">
                         <Archive /> File Control

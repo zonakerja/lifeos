@@ -1,6 +1,7 @@
 # Reverse proxy produksi: HTTPS otomatis (Let's Encrypt) untuk APP_DOMAIN.
-#   /api/*  → backend (NestJS)
-#   lainnya → frontend (nginx, SPA statis)
+#   /api/*    → backend (NestJS)
+#   /office/* → ONLYOFFICE Docs (opsional, profile "office"; halaman bawaan/admin ditutup)
+#   lainnya   → frontend (nginx, SPA statis)
 {
 	email {$ACME_EMAIL}
 }
@@ -19,6 +20,23 @@
 			max_size 110MB
 		}
 		reverse_proxy backend:4000
+	}
+
+	# Halaman bawaan ONLYOFFICE yang tidak dipakai LifeOS (contoh, admin panel, info, selamat datang) ditutup
+	@officeBlocked path /office/welcome* /office/example* /office/admin* /office/info*
+	handle @officeBlocked {
+		respond 404
+	}
+
+	# Editor ONLYOFFICE di sub-path /office/ (satu domain → CSP 'self' cukup). X-Forwarded-Host memuat prefix agar
+	# ONLYOFFICE membuat URL (api.js, cache berkas, plugin) dengan /office/.
+	handle_path /office/* {
+		request_body {
+			max_size 110MB
+		}
+		reverse_proxy onlyoffice:80 {
+			header_up X-Forwarded-Host {host}/office
+		}
 	}
 
 	handle {

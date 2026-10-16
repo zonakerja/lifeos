@@ -1,4 +1,3 @@
-import { Transform } from "class-transformer";
 import { IsBoolean, IsIn, IsOptional, IsString, MaxLength, ValidateIf } from "class-validator";
 import { NEW_DOCUMENT_FORMATS, type NewDocumentFormat } from "../office-logic";
 
@@ -42,12 +41,6 @@ export class OfficeConfigDto {
   @IsIn(["edit", "view"])
   mode?: "edit" | "view";
 
-  /** Tampilan seluler ONLYOFFICE (layar kecil). */
-  @IsOptional()
-  @Transform(({ value }) => value === true || value === "true")
-  @IsBoolean()
-  mobile?: boolean;
-
   @IsOptional()
   @IsIn(["light", "dark"])
   theme?: "light" | "dark";
@@ -63,4 +56,23 @@ export class OfficePreferencesDto {
   /** AI di editor (tab AI ONLYOFFICE memakai provider & key di Pengaturan → AI). */
   @IsBoolean()
   ai: boolean;
+}
+
+/** Tautkan dokumen final ke konsepnya (`draftId`), atau lepaskan (`null`). */
+export class OfficeDraftLinkDto {
+  @ValidateIf((dto: OfficeDraftLinkDto) => dto.draftId !== null)
+  @IsString()
+  @MaxLength(100)
+  draftId: string | null;
+}
+
+export class OfficeLinkCandidatesQuery {
+  /** `draft` = calon konsep (dokumen ONLYOFFICE), `final` = calon dokumen final (berkas lain). */
+  @IsIn(["draft", "final"])
+  role: "draft" | "final";
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 }

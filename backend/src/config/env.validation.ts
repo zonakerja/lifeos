@@ -14,6 +14,10 @@ import {
 
 const DURATION_PATTERN = /^\d+(ms|s|m|h|d)?$/;
 
+/** String kosong = tidak diisi (compose mengirim `VAR=""` untuk env opsional yang tidak dipakai). */
+const emptyToUndefined = ({ value }: { value: unknown }) =>
+  typeof value === "string" && value.trim() === "" ? undefined : value;
+
 const toBoolean = ({ value }: { value: unknown }) =>
   typeof value === "boolean" ? value : String(value).toLowerCase() !== "false";
 
@@ -110,16 +114,19 @@ class EnvironmentVariables {
    * ONLYOFFICE Docs (menu Tools → ONLYOFFICE, docs/ONLYOFFICE.md). Kosong = fitur editor dokumen nonaktif.
    * URL yang dibuka BROWSER (dev `http://localhost:8080`, produksi `https://<domain>/office`).
    */
+  @Transform(emptyToUndefined)
   @IsOptional()
   @Matches(/^https?:\/\/\S+$/, { message: "ONLYOFFICE_URL harus URL http(s)." })
   ONLYOFFICE_URL?: string;
 
   /** URL ONLYOFFICE yang dihubungi BACKEND (produksi `http://onlyoffice`). Kosong = sama dengan ONLYOFFICE_URL. */
+  @Transform(emptyToUndefined)
   @IsOptional()
   @Matches(/^https?:\/\/\S+$/, { message: "ONLYOFFICE_INTERNAL_URL harus URL http(s)." })
   ONLYOFFICE_INTERNAL_URL?: string;
 
   /** Secret JWT bersama ONLYOFFICE (= `JWT_SECRET` container). Wajib bila ONLYOFFICE_URL diisi. */
+  @Transform(emptyToUndefined)
   @IsOptional()
   @IsString()
   @MinLength(32)
@@ -131,6 +138,16 @@ class EnvironmentVariables {
    */
   @IsString()
   ONLYOFFICE_BACKEND_URL = "auto";
+
+  /**
+   * Folder font tambahan yang juga di-mount ke container ONLYOFFICE (`/usr/share/fonts/truetype/custom`). Admin
+   * mengunggah font ke sini dari Tools → ONLYOFFICE; ONLYOFFICE membuat ulang daftar font otomatis. Kosong = unggah font
+   * nonaktif. Dev: `../infra/onlyoffice/fonts`; produksi: `/app/office-fonts` (volume bersama).
+   */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @IsString()
+  ONLYOFFICE_FONTS_DIR?: string;
 
   /** true bila API berada di belakang reverse proxy (nginx) agar IP klien asli terbaca (rate limit). */
   @Transform(({ value }) => value === true || ["true", "1"].includes(String(value).toLowerCase()))

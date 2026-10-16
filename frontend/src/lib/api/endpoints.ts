@@ -14,6 +14,9 @@ import type {
   OfficeDiagnostics,
   OfficeFonts,
   OfficeFormat,
+  OfficeLinkBadges,
+  OfficeLinkedFile,
+  OfficeLinks,
   OfficePreferences,
   OfficeTemplate,
   OfficeStatus,
@@ -166,6 +169,23 @@ export const officeApi = {
   updatePreferences: (input: { ai: boolean }) =>
     request<OfficePreferences>("/office/preferences", { method: "PATCH", body: input }),
   fonts: () => request<OfficeFonts>("/office/fonts"),
+  /** Admin: unggah font .ttf/.otf/.ttc ke folder font bersama ONLYOFFICE. */
+  uploadFont: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ name: string }>("/office/fonts", { method: "POST", body: form });
+  },
+  deleteFont: (name: string) =>
+    request<{ files: unknown[] }>(`/office/fonts/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  /** Konsep & dokumen final yang tertaut dengan satu berkas. */
+  links: (uploadId: string) => request<OfficeLinks>(`/office/files/${uploadId}/links`),
+  /** Tautkan berkas `finalId` (dokumen final) ke konsep `draftId`; `null` = lepaskan. */
+  setDraft: (finalId: string, draftId: string | null) =>
+    request<OfficeLinks>(`/office/files/${finalId}/draft`, { method: "PUT", body: { draftId } }),
+  linkBadges: (ids: string[]) => request<OfficeLinkBadges>("/office/links", { query: { ids: ids.join(",") } }),
+  /** Berkas milik user yang bisa dipilih sebagai konsep (`draft`) / dokumen final (`final`). */
+  linkCandidates: (role: "draft" | "final", q?: string) =>
+    request<OfficeLinkedFile[]>("/office/link-candidates", { query: { role, ...(q ? { q } : {}) } }),
   /** Templat milik user; unggah lewat `uploadsApi.upload(file, "office-template")`, hapus lewat `uploadsApi.remove`. */
   templates: () => request<OfficeTemplate[]>("/office/templates"),
   diagnostics: () => request<OfficeDiagnostics>("/office/diagnostics"),
@@ -177,7 +197,6 @@ export const officeApi = {
   config: (input: {
     uploadId: string;
     mode?: "edit" | "view";
-    mobile?: boolean;
     theme?: "light" | "dark";
     /** Origin aplikasi: plugin AI LifeOS dimuat dari sini */
     appOrigin?: string;

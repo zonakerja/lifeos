@@ -1,4 +1,4 @@
-import { FileUp } from "lucide-react";
+import { FileStack, FileUp } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,8 @@ import { errorMessage } from "@/lib/api/client";
 import { officeApi, uploadsApi } from "@/lib/api/endpoints";
 import type { OfficeFormat, OfficeTemplate, UploadedAsset } from "@/types/api";
 import { OFFICE_KIND_ICON } from "./office-editor-host";
-import { NEW_DOCUMENT_TYPES, OFFICE_KIND_LABELS } from "./office-formats";
+import { NEW_DOCUMENT_TYPES } from "./office-formats";
+import { TemplatePickerDialog } from "./template-browser";
 import { DOCUMENT_ACCEPT, importNeedsConversion, isDocumentFile } from "./office-templates";
 
 /** Pilihan tipe "Buat Dokumen (ONLYOFFICE)" di form lampiran / Resource (nilai UI, disimpan sebagai tipe `file`). */
@@ -17,13 +18,6 @@ export const OFFICE_ATTACHMENT_LABEL = "Buat Dokumen (ONLYOFFICE)";
 
 /** ONLYOFFICE aktif di server → pilihan "Buat Dokumen" ditawarkan di form. */
 export const useOfficeEnabled = () => useOfficeStatus().data?.enabled ?? false;
-
-const KIND_OF_TARGET: Record<OfficeFormat, keyof typeof OFFICE_KIND_ICON> = {
-  docx: "word",
-  xlsx: "cell",
-  pptx: "slide",
-  pdf: "pdf",
-};
 
 interface NewOfficeDocumentPickerProps {
   /** Judul dokumen (isi "Nama Resource" di form); kosong → nama jenis dokumen / templat / berkas */
@@ -52,13 +46,17 @@ export function NewOfficeDocumentPicker({
   const [busy, setBusy] = useState<string | null>(null);
   const { data: templates = [] } = useOfficeTemplates();
   const importRef = useRef<HTMLInputElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
+  /** true = dokumen dibuat (error ditampilkan sebagai toast). */
   const run = async (key: string, task: () => Promise<UploadedAsset>) => {
     setBusy(key);
     try {
       onCreated(await task());
+      return true;
     } catch (err) {
       toast.error("Dokumen gagal dibuat", { description: errorMessage(err) });
+      return false;
     } finally {
       setBusy(null);
     }
@@ -73,10 +71,13 @@ export function NewOfficeDocumentPicker({
     );
 
   // Isi templat disalin ke dokumen baru (templat tetap utuh); judul kosong → nama templat
-  const createFromTemplate = (template: OfficeTemplate) =>
-    run(`template:${template.id}`, () =>
+  // Gagal → modal tetap terbuka (pencarian & halaman tidak hilang) agar bisa dicoba lagi
+  const createFromTemplate = async (template: OfficeTemplate) => {
+    const created = await run(`template:${template.id}`, () =>
       officeApi.createDocument({ templateId: template.id }, { title: title?.trim() || undefined, context, ownerId }),
     );
+    if (created) setPickerOpen(false);
+  };
 
   // Impor: berkas diunggah apa adanya; format lama yang hanya bisa dilihat (DOC, PPT, …) dikonversi ke DOCX/PPTX
   const importFile = (file: File) => {
@@ -143,34 +144,28 @@ export function NewOfficeDocumentPicker({
         />
       </div>
       {templates.length > 0 ? (
-        <div className="space-y-1">
-          <p className="text-muted-foreground text-xs">Dari templat</p>
-          <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto">
-            {templates.map((template) => {
-              const Icon = OFFICE_KIND_ICON[KIND_OF_TARGET[template.target]];
-              return (
-                <Button
-                  key={template.id}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  title={`${OFFICE_KIND_LABELS[KIND_OF_TARGET[template.target]]} dari templat "${template.name}"`}
-                  disabled={disabled || !!busy}
-                  onClick={() => void createFromTemplate(template)}
-                >
-                  {busy === `template:${template.id}` ? <Spinner /> : <Icon />}
-                  <span className="max-w-48 truncate">{template.name}</span>
-                </Button>
-              );
-            })}
-          </div>
-        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled || !!busy}
+          onClick={() => setPickerOpen(true)}
+        >
+          <FileStack /> Dari templat <span className="text-muted-foreground">({templates.length})</span>
+        </Button>
       ) : (
         <p className="text-muted-foreground text-xs">
           Templat instansi (kop surat, nota dinas) bisa diunggah di{" "}
           <span className="font-medium">Tools → ONLYOFFICE → Templat dokumen</span>.
         </p>
       )}
+      <TemplatePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        templates={templates}
+        selectingId={busy?.startsWith("template:") ? busy.slice("template:".length) : null}
+        onSelect={(template) => void createFromTemplate(template)}
+      />
     </div>
   );
 }

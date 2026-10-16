@@ -262,14 +262,15 @@ tetap Asset LifeOS di object storage.
 | Endpoint | Fungsi |
 |---|---|
 | `GET /office/status` | aktif? (`ONLYOFFICE_URL` diisi), URL server ONLYOFFICE, format yang bisa diedit |
-| `GET /office/diagnostics` | halaman Tools → ONLYOFFICE: server sehat (`/healthcheck`), versi (Command Service `version`); alamat teknis hanya untuk admin |
+| `GET /office/diagnostics` (admin) | halaman Tools → ONLYOFFICE: server sehat (`/healthcheck`), versi (Command Service `version`), alamat teknis |
 | `POST /office/documents` `{ format: docx\|xlsx\|pptx\|pdf \| templateId, title?, context?, ownerId? }` | dokumen kosong dari templat `backend/templates/office/` (A4, id-ID), atau salinan berkas templat (`templateId` = berkas yang boleh dibaca; format selain docx/xlsx/pptx/pdf dikonversi ONLYOFFICE) → Asset seperti upload lampiran (context default `office`; `ownerId` = pemilik item bersama berizin edit) |
 | `GET/PATCH /office/preferences` `{ ai: boolean }` | sakelar AI di editor per user (`users.office_ai`) + `aiReady` + provider/model yang menjawab |
 | `POST /office/ai/proxy` (token sesi AI di `headers.Authorization` isi permintaan, bukan token login) | proxy tab AI ONLYOFFICE: Chat Completions → `AiService.generate` milik user → jawaban format OpenAI (biasa/SSE); 60/menit; CORS origin apa pun tanpa credentials |
 | `GET /office/templates` | templat dokumen milik user (berkas konteks `office-template`, diunggah lewat `/uploads`) |
-| `GET /office/fonts` | keluarga font terpasang di server ONLYOFFICE (dari `AllFonts.js`) |
+| `GET /office/fonts` · `POST /office/fonts` (multipart) · `DELETE /office/fonts/:name` (admin) | keluarga font terpasang (`AllFonts.js`) + berkas font tambahan di `ONLYOFFICE_FONTS_DIR` (validasi isi TTF/OTF/TTC); pemantau di image ONLYOFFICE membuat ulang daftar font |
+| `GET /office/files/:id/links` · `PUT /office/files/:id/draft` · `GET /office/links?ids=` · `GET /office/link-candidates` | tautan konsep ↔ dokumen final (`assets.draft_id`, ONLYOFFICE.md §3.5) |
 | `POST /office/files/:id/forcesave` | simpan paksa sesi edit yang terbuka (Command Service `forcesave`) dan menunggu versi tersimpan (≤ 15 detik) → `saved \| pending \| no-changes \| no-session`; dipanggil saat modal editor ditutup |
-| `POST /office/config` `{ uploadId, mode?, mobile?, theme?, appOrigin? }` | config `DocsAPI.DocEditor` ditandatangani `ONLYOFFICE_JWT_SECRET` (HS256); AI sesuai pilihan user (lihat butir AI) |
+| `POST /office/config` `{ uploadId, mode?, mobile?, theme?, appOrigin? }` (frontend selalu `mobile: false`: editor seluler Community hanya bisa melihat) | config `DocsAPI.DocEditor` ditandatangani `ONLYOFFICE_JWT_SECRET` (HS256); AI sesuai pilihan user (lihat butir AI) |
 | `GET /office/files/:id/versions` · `GET …/versions/:v` · `POST …/versions/:v/restore` | riwayat versi, unduh versi lama, pulihkan (izin edit) |
 | `GET /office/files/:id/content?token=` | dipanggil ONLYOFFICE (`document.url`), token 1 hari |
 | `POST /office/callback?token=` | dipanggil ONLYOFFICE saat status dokumen berubah; jawaban `{ error: 0 }` |

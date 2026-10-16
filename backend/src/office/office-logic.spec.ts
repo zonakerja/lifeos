@@ -15,7 +15,12 @@ import {
   newDocumentName,
   newOfficeKey,
   planVersionSave,
+  draftExtensions,
+  finalLinkError,
+  fontKind,
+  isDraftFormat,
   parseFontFamilies,
+  safeFontFileName,
   resolveBackendUrl,
   templateTarget,
   toInternalUrl,
@@ -248,10 +253,10 @@ describe("config editor", () => {
     const comment = buildEditorConfig({ ...base, access: "comment" });
     expect(comment.editorConfig.mode).toBe("edit");
     expect(comment.document.permissions).toMatchObject({ edit: false, comment: true, review: false });
-    const view = buildEditorConfig({ ...base, access: "view", mobile: true, theme: "dark" });
+    const view = buildEditorConfig({ ...base, access: "view", theme: "dark" });
     expect(view.editorConfig.mode).toBe("view");
     expect(view.document.permissions.comment).toBe(false);
-    expect(view.type).toBe("mobile");
+    expect(view.type).toBe("desktop");
     expect(view.editorConfig.customization.uiTheme).toBe("default-dark");
   });
 
@@ -302,5 +307,48 @@ describe("templat dokumen", () => {
     expect(templateTarget("potx")).toBe("pptx");
     expect(templateTarget("vsdx")).toBeNull();
     expect(templateTarget("png")).toBeNull();
+  });
+});
+
+describe("berkas font (unggah admin)", () => {
+  it("jenis font dari isi berkas", () => {
+    expect(fontKind(new Uint8Array([0, 1, 0, 0, 9]))).toBe("ttf");
+    expect(fontKind(new TextEncoder().encode("OTTO...."))).toBe("otf");
+    expect(fontKind(new TextEncoder().encode("ttcf...."))).toBe("ttc");
+    expect(fontKind(new TextEncoder().encode("wOFF...."))).toBeNull();
+    expect(fontKind(new Uint8Array([0, 1]))).toBeNull();
+  });
+
+  it("nama berkas aman tanpa path, ekstensi mengikuti isi", () => {
+    expect(safeFontFileName("BOOKOS.TTF", "ttf")).toBe("BOOKOS.ttf");
+    expect(safeFontFileName("../../etc/Bookman Old Style.ttf", "ttf")).toBe("Bookman Old Style.ttf");
+    expect(safeFontFileName("C:\\fonts\\kop:instansi?.otf", "otf")).toBe("kop-instansi.otf");
+    expect(safeFontFileName("font.woff", "ttf")).toBeNull();
+    expect(safeFontFileName(".ttf", "ttf")).toBeNull();
+  });
+});
+
+describe("tautan konsep ↔ dokumen final", () => {
+  const base = { finalId: "f", draftId: "d", draftFormat: "docx", draftIsFinal: false, finalHasFinals: false };
+  it("ekstensi konsep untuk penyaringan kandidat", () => {
+    expect(draftExtensions()).toEqual(expect.arrayContaining(["docx", "odt", "xlsx", "pptx"]));
+    expect(draftExtensions()).not.toContain("pdf");
+  });
+
+  it("format konsep", () => {
+    expect(isDraftFormat("docx")).toBe(true);
+    expect(isDraftFormat("odt")).toBe(true);
+    expect(isDraftFormat("xlsx")).toBe(true);
+    expect(isDraftFormat("pptx")).toBe(true);
+    expect(isDraftFormat("pdf")).toBe(false);
+    expect(isDraftFormat("png")).toBe(false);
+  });
+
+  it("aturan tautan", () => {
+    expect(finalLinkError(base)).toBeNull();
+    expect(finalLinkError({ ...base, finalId: "d" })).toMatch(/dirinya sendiri/);
+    expect(finalLinkError({ ...base, draftFormat: "pdf" })).toMatch(/Konsep harus/);
+    expect(finalLinkError({ ...base, draftIsFinal: true })).toMatch(/dokumen final/);
+    expect(finalLinkError({ ...base, finalHasFinals: true })).toMatch(/sudah punya dokumen final/);
   });
 });

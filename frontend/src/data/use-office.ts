@@ -38,17 +38,43 @@ export function useUpdateOfficePreferences() {
   });
 }
 
+/** Konsep & dokumen final yang tertaut dengan satu berkas. */
+export function useOfficeLinks(uploadId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.officeLinks(uploadId ?? ""),
+    queryFn: () => officeApi.links(uploadId!),
+    enabled: !!uploadId,
+  });
+}
+
+/** Penanda tautan untuk berkas di tabel (satu permintaan per tabel). */
+export function useOfficeLinkBadges(uploadIds: (string | undefined | null)[]) {
+  const ids = [...new Set(uploadIds.filter((id): id is string => !!id))].sort();
+  const key = ids.join(",");
+  return useQuery({
+    queryKey: queryKeys.officeLinkBadges(key),
+    queryFn: () => officeApi.linkBadges(ids),
+    enabled: ids.length > 0,
+    staleTime: 30_000,
+  }).data;
+}
+
 /** Templat dokumen milik user (Tools → ONLYOFFICE → Templat dokumen). */
 export function useOfficeTemplates(enabled = true) {
   return useQuery({ queryKey: queryKeys.officeTemplates, queryFn: officeApi.templates, enabled });
 }
 
-/** Font yang terpasang di server ONLYOFFICE. */
-export function useOfficeFonts() {
-  return useQuery({ queryKey: queryKeys.officeFonts, queryFn: officeApi.fonts, staleTime: 60_000 });
+/** Font server ONLYOFFICE + berkas font tambahan (khusus admin). */
+export function useOfficeFonts(enabled = true) {
+  return useQuery({ queryKey: queryKeys.officeFonts, queryFn: officeApi.fonts, enabled });
 }
 
-/** Kesehatan & versi server ONLYOFFICE (halaman Tools → ONLYOFFICE). */
-export function useOfficeDiagnostics() {
-  return useQuery({ queryKey: queryKeys.officeDiagnostics, queryFn: officeApi.diagnostics, refetchOnMount: "always" });
+/** Kesehatan & versi server ONLYOFFICE (halaman Tools → ONLYOFFICE, khusus admin). */
+export function useOfficeDiagnostics(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.officeDiagnostics,
+    queryFn: officeApi.diagnostics,
+    refetchOnMount: "always",
+    enabled,
+  });
 }

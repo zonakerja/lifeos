@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
@@ -9,18 +10,32 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Put,
   Query,
   Res,
   StreamableFile,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiBearerAuth, ApiExcludeEndpoint, ApiTags } from "@nestjs/swagger";
 import { SkipThrottle, Throttle } from "@nestjs/throttler";
 import { Response } from "express";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
+import { Roles } from "../common/decorators/roles.decorator";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
+import { RolesGuard } from "../common/guards/roles.guard";
+import { UserRole } from "../generated/prisma/client";
+import { MAX_FONT_BYTES } from "./office-logic";
 import { AuthUser } from "../common/types/auth-user";
-import { CreateOfficeDocumentDto, OfficeConfigDto, OfficePreferencesDto } from "./dto/office.dto";
+import {
+  CreateOfficeDocumentDto,
+  OfficeConfigDto,
+  OfficeDraftLinkDto,
+  OfficeLinkCandidatesQuery,
+  OfficePreferencesDto,
+} from "./dto/office.dto";
 import { ONLYOFFICE_JWT_HEADER, OfficeService } from "./office.service";
 
 const contentDisposition = (name: string, disposition: "inline" | "attachment") =>
@@ -39,6 +54,44 @@ export class OfficeController {
     return this.office.status();
   }
 
+  /** Konsep & dokumen final yang tertaut dengan satu berkas. */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get("files/:id/links")
+  links(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.office.links(user, id);
+  }
+
+  /** Tautkan berkas `:id` (dokumen final) ke konsep, atau lepaskan dengan `draftId: null`. */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Put("files/:id/draft")
+  setDraft(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: OfficeDraftLinkDto) {
+    return this.office.setDraft(user, id, dto.draftId);
+  }
+
+  /** Penanda tautan untuk banyak berkas sekaligus (`ids` dipisah koma, maks. 200). */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get("links")
+  linkBadges(@CurrentUser() user: AuthUser, @Query("ids") ids = "") {
+    return this.office.linkBadges(
+      user,
+      ids
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    );
+  }
+
+  /** Berkas milik user yang bisa dipilih sebagai konsep / dokumen final. */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get("link-candidates")
+  linkCandidates(@CurrentUser() user: AuthUser, @Query() query: OfficeLinkCandidatesQuery) {
+    return this.office.linkCandidates(user, query);
+  }
+
   /** Templat dokumen milik user (diunggah lewat /uploads dengan context `office-template`). */
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
@@ -47,12 +100,32 @@ export class OfficeController {
     return this.office.templates(user);
   }
 
-  /** Font yang terpasang di server ONLYOFFICE. */
+  /** Font yang terpasang di server ONLYOFFICE + berkas font tambahan (admin). */
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.super_admin, UserRole.admin)
   @Get("fonts")
   fonts() {
     return this.office.fonts();
+  }
+
+  /** Unggah font tambahan (multipart `file`, .ttf/.otf/.ttc ≤ 30 MB) ke folder font bersama ONLYOFFICE (admin). */
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.super_admin, UserRole.admin)
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_FONT_BYTES } }))
+  @Post("fonts")
+  uploadFont(@UploadedFile() file: Express.Multer.File | undefined) {
+    if (!file) throw new BadRequestException("Field 'file' wajib diisi.");
+    return this.office.uploadFont(file);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.super_admin, UserRole.admin)
+  @Delete("fonts/:name")
+  deleteFont(@Param("name") name: string) {
+    return this.office.deleteFont(name);
   }
 
   /** Pilihan AI di editor milik user (halaman Tools → ONLYOFFICE). */
@@ -95,9 +168,10 @@ export class OfficeController {
     res.status(result.status).json(result.json);
   }
 
-  /** Kesehatan & versi server ONLYOFFICE (halaman Tools → ONLYOFFICE); alamat teknis hanya untuk admin. */
+  /** Kesehatan & versi server ONLYOFFICE (halaman Tools → ONLYOFFICE, khusus admin). */
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.super_admin, UserRole.admin)
   @Get("diagnostics")
   diagnostics(@CurrentUser() user: AuthUser) {
     return this.office.diagnose(user);

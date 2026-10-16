@@ -397,6 +397,30 @@ export interface OfficePreferences {
   provider: { label: string; model: string } | null;
 }
 
+/** Ringkasan berkas pada tautan konsep ↔ dokumen final. */
+export interface OfficeLinkedFile {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  userId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Tautan satu berkas: konsepnya (bila berkas ini final) dan dokumen final-nya (bila berkas ini konsep). */
+export interface OfficeLinks {
+  /** Pemilik berkas ini (dokumen final diunggah ke ruang pemilik konsep) */
+  ownerId: string;
+  /** Berkas bisa menjadi konsep (dokumen/spreadsheet/presentasi) */
+  draftCapable: boolean;
+  draft: OfficeLinkedFile | null;
+  finals: OfficeLinkedFile[];
+}
+
+/** Penanda tautan per id berkas (hanya berkas yang punya konsep atau final). */
+export type OfficeLinkBadges = Record<string, { draftId: string | null; finals: number }>;
+
 /** Templat dokumen milik user (Tools → ONLYOFFICE), berkas dengan konteks `office-template`. */
 export interface OfficeTemplate {
   id: string;
@@ -411,10 +435,21 @@ export interface OfficeTemplate {
   target: OfficeFormat;
 }
 
+export interface OfficeFontFile {
+  name: string;
+  size: number;
+  updatedAt: string;
+}
+
+/** Font server ONLYOFFICE (khusus admin). */
 export interface OfficeFonts {
   /** Server ONLYOFFICE menjawab */
   available: boolean;
   families: string[];
+  /** Berkas font tambahan di folder bersama */
+  files: OfficeFontFile[];
+  /** Folder font diatur di server (ONLYOFFICE_FONTS_DIR) → admin bisa mengunggah */
+  uploadEnabled: boolean;
 }
 
 export interface OfficeConfigResult {

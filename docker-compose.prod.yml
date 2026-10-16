@@ -7,6 +7,8 @@
 #
 # Hanya Caddy yang membuka port (80/443, HTTPS otomatis). Database, Redis, dan
 # object storage hanya dapat diakses dari jaringan internal Docker.
+# Editor dokumen ONLYOFFICE (opsional, butuh ± 2–3 GB RAM → VPS 8 GB): COMPOSE_PROFILES=office + ONLYOFFICE_* di .env
+# (docs/DEPLOYMENT.md §9).
 # ============================================================================
 
 name: lifeos-prod
@@ -82,6 +84,15 @@ services:
       UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-100}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      # Editor ONLYOFFICE (kosong = nonaktif). URL publik = https://<APP_DOMAIN>/office (Caddy, satu domain)
+      ONLYOFFICE_URL: ${ONLYOFFICE_URL:-}
+      ONLYOFFICE_INTERNAL_URL: ${ONLYOFFICE_URL:+http://onlyoffice}
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
+      ONLYOFFICE_BACKEND_URL: http://backend:4000
+      ONLYOFFICE_FONTS_DIR: ${ONLYOFFICE_URL:+/app/office-fonts}
+    volumes:
+      # Font tambahan yang diunggah admin (Tools → ONLYOFFICE); dibaca container onlyoffice
+      - onlyoffice-fonts:/app/office-fonts
     deploy: { resources: { limits: { memory: "${BACKEND_MEM_LIMIT:-768m}" } } }
     logging: *logging
 
@@ -162,6 +173,33 @@ services:
     deploy: { resources: { limits: { memory: "${STORAGE_MEM_LIMIT:-512m}" } } }
     logging: *logging
 
+  onlyoffice:
+    # Editor dokumen ONLYOFFICE Docs Community + plugin AI yang memakai AI LifeOS (infra/onlyoffice/Dockerfile).
+    # Opsional: hanya menyala dengan COMPOSE_PROFILES=office. Disajikan Caddy di https://<APP_DOMAIN>/office/.
+    build: ./infra/onlyoffice
+    image: lifeos-onlyoffice:${APP_VERSION:-latest}
+    restart: unless-stopped
+    profiles: ["office"]
+    environment:
+      JWT_ENABLED: "true"
+      # = ONLYOFFICE_JWT_SECRET backend (openssl rand -hex 32). Kosong ditolak backend saat ONLYOFFICE_URL diisi.
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
+      JWT_HEADER: AuthorizationJwt
+      # Backend dihubungi lewat jaringan internal Docker (alamat privat)
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+    volumes:
+      - onlyoffice-data:/var/lib/onlyoffice
+      - onlyoffice-logs:/var/log/onlyoffice
+      - onlyoffice-fonts:/usr/share/fonts/truetype/custom:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost/healthcheck | grep -q true"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    deploy: { resources: { limits: { memory: "${ONLYOFFICE_MEM_LIMIT:-2560m}" } } }
+    logging: *logging
+
   backup:
     # Backup berkala: dump database tervalidasi + cermin object storage (API S3) ke ./backups, salinan terenkripsi
     # ke S3 luar server (opsional), heartbeat pemantauan. Panduan: docs/DEPLOYMENT.md §4.
@@ -211,3 +249,6 @@ volumes:
   postgres18-data:
   redis-data:
   storage-data:
+  onlyoffice-data:
+  onlyoffice-logs:
+  onlyoffice-fonts:

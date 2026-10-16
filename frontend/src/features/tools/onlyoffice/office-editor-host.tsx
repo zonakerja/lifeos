@@ -23,6 +23,7 @@ import { officeApi } from "@/lib/api/endpoints";
 import type { OfficeAccess, OfficeConfigResult } from "@/types/api";
 import { officeKindOf, type OfficeKind } from "./office-formats";
 import { VersionHistoryDialog } from "./version-history-dialog";
+import { DocumentLinksButton } from "./document-links";
 
 const OfficeEditor = lazy(() => import("./office-editor"));
 
@@ -163,6 +164,7 @@ function EditorFrame({ doc }: { doc: OfficeDocumentRef }) {
           </span>
         )}
         <span className="flex-1" />
+        <DocumentLinksButton uploadId={doc.uploadId} name={title} />
         <Button variant="ghost" size="xs" disabled={closing} onClick={() => setVersionsOpen(true)}>
           <History /> <span className="hidden sm:inline">Riwayat versi</span>
         </Button>

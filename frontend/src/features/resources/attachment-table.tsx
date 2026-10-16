@@ -6,6 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatNumericDate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { AttachedResource } from "@/types/entities";
+import { useOfficeLinkBadges } from "@/data/use-office";
+import { DocumentLinkBadge } from "@/features/tools/onlyoffice/document-links";
 import { attachmentLabel, noteAttachmentPath, openAttachment } from "./resource-utils";
 
 interface AttachmentTableProps {
@@ -23,6 +25,7 @@ export function AttachmentTable({
   emptyText = "Belum ada resource/dasar pelaksanaan dilampirkan.",
 }: AttachmentTableProps) {
   const navigate = useNavigate();
+  const linkBadges = useOfficeLinkBadges(resources.map((res) => res.uploadId));
   // Lampiran catatan (tanpa file/link) dibuka di Notes Space; berkas di modal pratinjau, link di tab baru (openAttachment)
   const open = (res: AttachedResource) => {
     const notePath = !res.uploadId && !res.url ? noteAttachmentPath(res.noteId) : null;
@@ -65,6 +68,7 @@ export function AttachmentTable({
                   )}
                   <span className="truncate">{attachmentLabel(res)}</span>
                 </button>
+                {res.uploadId && <DocumentLinkBadge link={linkBadges?.[res.uploadId]} />}
                 {!!res.tags?.length && (
                   <div className="mt-1 flex flex-wrap gap-1">
                     {res.tags.map((tag) => (

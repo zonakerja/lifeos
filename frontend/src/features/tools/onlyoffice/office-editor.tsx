@@ -44,7 +44,6 @@ function loadDocsApi(serverUrl: string) {
 }
 
 const isDarkTheme = () => document.documentElement.classList.contains("dark");
-const isSmallScreen = () => window.matchMedia("(max-width: 767px)").matches;
 
 export interface OfficeEditorProps {
   uploadId: string;
@@ -77,7 +76,6 @@ export default function OfficeEditor({ uploadId, mode, onLoaded, onDirtyChange, 
         const result = await officeApi.config({
           uploadId,
           mode,
-          mobile: isSmallScreen(),
           theme: isDarkTheme() ? "dark" : "light",
           appOrigin: window.location.origin,
         });

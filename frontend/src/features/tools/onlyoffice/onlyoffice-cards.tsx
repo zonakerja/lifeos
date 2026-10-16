@@ -1,9 +1,8 @@
-import { AlertTriangle, FilePen, FileStack, Sparkles, Trash2, Type, Upload } from "lucide-react";
+import { AlertTriangle, FilePen, FileStack, RefreshCw, Sparkles, Trash2, Type, Upload } from "lucide-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
-import { previewFile } from "@/components/common/file-preview";
 import { SearchInput } from "@/components/common/search-input";
 import { SectionCard } from "@/components/common/section-card";
 import { Badge } from "@/components/ui/badge";
@@ -20,21 +19,13 @@ import {
   useUpdateOfficePreferences,
 } from "@/data/use-office";
 import { errorMessage } from "@/lib/api/client";
-import { uploadsApi } from "@/lib/api/endpoints";
+import { officeApi, uploadsApi } from "@/lib/api/endpoints";
 import { cn } from "@/lib/utils";
-import { isAdminRole, useAuthStore } from "@/stores/auth-store";
-import type { OfficeFormat, OfficeTemplate } from "@/types/api";
+import type { OfficeTemplate } from "@/types/api";
 import { useQueryClient } from "@tanstack/react-query";
-import { OFFICE_KIND_ICON, openOfficeEditor } from "./office-editor-host";
-import { OFFICE_KIND_LABELS } from "./office-formats";
+import { openOfficeEditor } from "./office-editor-host";
 import { DOCUMENT_ACCEPT, TEMPLATE_CONTEXT, isDocumentFile } from "./office-templates";
-
-const KIND_OF_TARGET: Record<OfficeFormat, keyof typeof OFFICE_KIND_ICON> = {
-  docx: "word",
-  xlsx: "cell",
-  pptx: "slide",
-  pdf: "pdf",
-};
+import { TemplateBrowser } from "./template-browser";
 
 /**
  * AI di editor (keputusan user): tab **AI** bawaan ONLYOFFICE (Chatbot, Summarization, Translation, Grammar & Spelling,
@@ -190,48 +181,27 @@ export function OfficeTemplatesCard() {
         </p>
         {isLoading ? (
           <Skeleton className="h-10 w-full" />
-        ) : templates.length === 0 ? (
-          <p className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">Belum ada templat.</p>
         ) : (
-          <ul className="grid gap-2 sm:grid-cols-2">
-            {templates.map((template) => {
-              const kind = KIND_OF_TARGET[template.target];
-              const Icon = OFFICE_KIND_ICON[kind];
-              return (
-                <li key={template.id} className="flex min-w-0 items-center gap-2 rounded-xl border p-2">
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-module/12 text-module">
-                    <Icon className="size-4" />
-                  </span>
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline"
-                    title={`Lihat ${template.originalName}`}
-                    onClick={() =>
-                      previewFile({ uploadId: template.id, name: template.originalName, mimeType: template.mimeType })
-                    }
-                  >
-                    {template.name}
-                  </button>
-                  <Badge variant="outline" className="shrink-0">
-                    {OFFICE_KIND_LABELS[kind]}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    title="Sunting templat di ONLYOFFICE"
-                    onClick={() =>
-                      openOfficeEditor({ uploadId: template.id, name: template.originalName, onClosed: refresh })
-                    }
-                  >
-                    <FilePen />
-                  </Button>
-                  <Button variant="ghost" size="icon-sm" title="Hapus templat" onClick={() => setRemoving(template)}>
-                    <Trash2 />
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
+          <TemplateBrowser
+            templates={templates}
+            actions={(template) => (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  title="Sunting templat di ONLYOFFICE"
+                  onClick={() =>
+                    openOfficeEditor({ uploadId: template.id, name: template.originalName, onClosed: refresh })
+                  }
+                >
+                  <FilePen />
+                </Button>
+                <Button variant="ghost" size="icon-sm" title="Hapus templat" onClick={() => setRemoving(template)}>
+                  <Trash2 />
+                </Button>
+              </>
+            )}
+          />
         )}
       </div>
       <ConfirmDialog
@@ -250,15 +220,55 @@ export function OfficeTemplatesCard() {
   );
 }
 
-/** Font yang terpasang di server ONLYOFFICE + cara menambah font (folder font di server, keputusan user). */
+/**
+ * Font server ONLYOFFICE (khusus admin; keputusan user): daftar keluarga font terpasang + unggah/hapus berkas font
+ * tambahan. Berkas masuk folder bersama; ONLYOFFICE membuat ulang daftar font otomatis ± 1–2 menit kemudian.
+ */
 export function OfficeFontsCard() {
-  const { data, isLoading } = useOfficeFonts();
-  const admin = isAdminRole(useAuthStore((state) => state.user?.role));
+  const { data, isLoading, isFetching, refetch } = useOfficeFonts();
+  const client = useQueryClient();
+  const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
   const families = useMemo(() => {
     const words = query.trim().toLowerCase();
     return (data?.families ?? []).filter((name) => !words || name.toLowerCase().includes(words));
   }, [data, query]);
+  const refresh = () => client.invalidateQueries({ queryKey: queryKeys.officeFonts });
+
+  const upload = async (files: File[]) => {
+    if (files.length === 0) return;
+    setUploading(true);
+    let added = 0;
+    for (const file of files) {
+      try {
+        await officeApi.uploadFont(file);
+        added++;
+      } catch (err) {
+        toast.error(`${file.name} gagal diunggah`, { description: errorMessage(err) });
+      }
+    }
+    setUploading(false);
+    void refresh();
+    if (added) {
+      toast.success(added > 1 ? `${added} font diunggah` : "Font diunggah", {
+        description:
+          "Daftar font ONLYOFFICE diperbarui otomatis ± 1–2 menit lagi; editor yang terbuka tersambung ulang sebentar.",
+      });
+    }
+  };
+
+  const remove = async (name: string) => {
+    try {
+      await officeApi.deleteFont(name);
+      toast.success("Font dihapus", { description: "Daftar font ONLYOFFICE diperbarui ± 1–2 menit lagi." });
+    } catch (err) {
+      toast.error("Font gagal dihapus", { description: errorMessage(err) });
+    } finally {
+      void refresh();
+    }
+  };
 
   return (
     <SectionCard
@@ -267,38 +277,104 @@ export function OfficeFontsCard() {
       description={
         data?.available ? `${data.families.length} keluarga font terpasang di server ONLYOFFICE.` : "Font di editor."
       }
-      action={<SearchInput value={query} onChange={setQuery} placeholder="Cari font..." className="md:w-52" />}
-    >
-      <div className="flex flex-col gap-3">
-        {isLoading ? (
-          <Skeleton className="h-20 w-full" />
-        ) : !data?.available ? (
-          <p className="text-sm text-muted-foreground">
-            Daftar font tidak tersedia (server ONLYOFFICE tidak menjawab).
-          </p>
-        ) : (
-          <div className="flex max-h-48 flex-wrap gap-1 overflow-y-auto">
-            {families.map((name) => (
-              <Badge key={name} variant="outline" className="font-normal" style={{ fontFamily: `"${name}"` }}>
-                {name}
-              </Badge>
-            ))}
-            {families.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada font "{query}".</p>}
-          </div>
-        )}
-        <p className="text-sm text-muted-foreground">
-          {admin ? (
-            <>
-              Menambah font (mis. Bookman Old Style, Century Gothic, Garamond, font kop instansi): salin berkas{" "}
-              <b>.ttf/.otf</b> ke folder <code className="rounded bg-muted px-1">infra/onlyoffice/fonts</code> lalu
-              restart container ONLYOFFICE — daftar font dibuat ulang otomatis (± 1–2 menit). Panduan:
-              docs/ONLYOFFICE.md. Pakai font yang boleh Anda pakai (lisensi).
-            </>
-          ) : (
-            <>Butuh font lain (mis. font kop instansi)? Minta admin aplikasi menambahkannya ke server ONLYOFFICE.</>
+      action={
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="ghost" size="icon-sm" title="Muat ulang daftar font" onClick={() => void refetch()}>
+            <RefreshCw className={cn(isFetching && "animate-spin")} />
+          </Button>
+          {data?.uploadEnabled && (
+            <Button variant="outline" size="sm" disabled={uploading} onClick={() => inputRef.current?.click()}>
+              {uploading ? <Spinner /> : <Upload />} Unggah font
+            </Button>
           )}
-        </p>
+        </div>
+      }
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept=".ttf,.otf,.ttc"
+        className="hidden"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          void upload(files);
+        }}
+      />
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <p className="text-sm font-semibold">Font tambahan</p>
+          {isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : !data?.uploadEnabled ? (
+            <p className="text-sm text-muted-foreground">
+              Unggah font belum aktif: isi <code className="rounded bg-muted px-1">ONLYOFFICE_FONTS_DIR</code> di
+              backend (docs/ONLYOFFICE.md).
+            </p>
+          ) : data.files.length === 0 ? (
+            <p className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
+              Belum ada font tambahan. Contoh yang belum ada di server: Bookman Old Style, Century Gothic, Garamond,
+              Segoe UI, font kop instansi.
+            </p>
+          ) : (
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {data.files.map((file) => (
+                <li key={file.name} className="flex min-w-0 items-center gap-2 rounded-xl border p-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium" title={file.name}>
+                    {file.name}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {(file.size / 1024).toLocaleString("id-ID", { maximumFractionDigits: 0 })} KB
+                  </span>
+                  <Button variant="ghost" size="icon-sm" title="Hapus font" onClick={() => setRemoving(file.name)}>
+                    <Trash2 />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Berkas .ttf/.otf/.ttc (maks. 30 MB). Setelah unggah/hapus, ONLYOFFICE membuat ulang daftar font ± 1–2 menit
+            (editor yang terbuka tersambung ulang sebentar); nama keluarga font = nama di dalam berkas. Pakai font yang
+            boleh Anda pakai (lisensi).
+          </p>
+        </div>
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold">Terpasang di server</p>
+            <SearchInput value={query} onChange={setQuery} placeholder="Cari font..." className="md:w-52" />
+          </div>
+          {isLoading ? (
+            <Skeleton className="h-20 w-full" />
+          ) : !data?.available ? (
+            <p className="text-sm text-muted-foreground">
+              Daftar font tidak tersedia (server ONLYOFFICE tidak menjawab / sedang membuat ulang daftar font).
+            </p>
+          ) : (
+            <div className="flex max-h-48 flex-wrap gap-1 overflow-y-auto">
+              {families.map((name) => (
+                <Badge key={name} variant="outline" className="font-normal" style={{ fontFamily: `"${name}"` }}>
+                  {name}
+                </Badge>
+              ))}
+              {families.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada font "{query}".</p>}
+            </div>
+          )}
+        </div>
       </div>
+      <ConfirmDialog
+        open={!!removing}
+        onOpenChange={(open) => !open && setRemoving(null)}
+        title="Hapus font?"
+        itemName={removing ?? undefined}
+        description="Dokumen yang memakai font ini akan tampil dengan font pengganti."
+        confirmLabel="Hapus font"
+        onConfirm={() => {
+          if (removing) void remove(removing);
+          setRemoving(null);
+        }}
+      />
     </SectionCard>
   );
 }

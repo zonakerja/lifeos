@@ -17,119 +17,130 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useOfficeDiagnostics } from "@/data/use-office";
+import { isAdminRole, useAuthStore } from "@/stores/auth-store";
 import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { officeFormatsByMode } from "./office-formats";
 import { OfficeAiCard, OfficeFontsCard, OfficeTemplatesCard } from "./onlyoffice-cards";
 
 /**
- * Tools → ONLYOFFICE: status & pengaturan editor dokumen. Editor sendiri tidak punya menu dokumen — ia dipanggil dari
- * fitur mana pun yang punya berkas (pratinjau lampiran/resource, "Edit di ONLYOFFICE", "Buat dokumen" di form lampiran).
+ * Tools → ONLYOFFICE. Editor sendiri tidak punya menu dokumen — ia dipanggil dari fitur mana pun yang punya berkas
+ * (pratinjau lampiran/resource, "Edit di ONLYOFFICE", "Buat Dokumen" di form lampiran).
+ * Tampilan per role (keputusan user): semua user melihat AI di editor, Templat dokumen, dan Cara memakai; status server,
+ * format, dan font hanya untuk admin.
  */
 export function OnlyofficeSettings() {
-  const { data, isLoading, isFetching, error, refetch } = useOfficeDiagnostics();
-
-  const state = !data ? null : !data.enabled ? "disabled" : data.healthy ? "ok" : "down";
-
+  const admin = isAdminRole(useAuthStore((state) => state.user?.role));
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
-      <SectionCard
-        icon={Server}
-        title="Status server ONLYOFFICE"
-        description="Server dokumen yang membuka dan menyunting berkas LifeOS."
-        action={
-          <Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refetch()}>
-            <RefreshCw className={cn(isFetching && "animate-spin")} /> Periksa ulang
-          </Button>
-        }
-      >
-        {isLoading ? (
-          <Skeleton className="h-24 w-full" />
-        ) : error ? (
-          <p className="text-sm text-destructive">{errorMessage(error)}</p>
-        ) : data ? (
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center gap-3">
-              {state === "ok" ? (
-                <Badge className="gap-1 bg-success/15 text-success">
-                  <CheckCircle2 className="size-3.5" /> Terhubung
-                </Badge>
-              ) : (
-                <Badge variant="destructive" className="gap-1">
-                  <XCircle className="size-3.5" /> {state === "disabled" ? "Belum diatur" : "Tidak terhubung"}
-                </Badge>
-              )}
-              {data.version && <span className="text-sm text-muted-foreground">ONLYOFFICE Docs {data.version}</span>}
-              <span className="text-sm text-muted-foreground">· Community Edition</span>
-            </div>
-
-            <FormatGroups />
-
-            {state !== "ok" && (
-              <p className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
-                {state === "disabled"
-                  ? "Editor dokumen belum diatur di server (variabel ONLYOFFICE_* di backend/.env)."
-                  : "Server ONLYOFFICE tidak menjawab. Pastikan container ONLYOFFICE menyala."}{" "}
-                {data.details
-                  ? "Panduan: docs/SETUP.md §4 langkah 6 (development) atau docs/ONLYOFFICE.md."
-                  : "Hubungi admin aplikasi."}{" "}
-                Selama itu, berkas tetap bisa diunduh dan PDF/gambar tetap bisa dipratinjau.
-              </p>
-            )}
-
-            <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-              <InfoRow label="Riwayat versi">{data.details?.maxVersions ?? 10} versi terakhir per dokumen</InfoRow>
-              <InfoRow label="Token keamanan (JWT)">{data.jwtConfigured ? "Aktif" : "Belum diatur"}</InfoRow>
-              {data.details && (
-                <>
-                  <InfoRow label="Alamat untuk browser">{data.documentServerUrl ?? "—"}</InfoRow>
-                  <InfoRow label="Alamat untuk backend">{data.details.internalUrl}</InfoRow>
-                  <InfoRow label="Backend dihubungi ONLYOFFICE di" className="sm:col-span-2">
-                    {data.details.backendUrl}
-                  </InfoRow>
-                </>
-              )}
-            </dl>
-          </div>
-        ) : null}
-      </SectionCard>
-
+      {admin && <ServerStatusCard />}
       <OfficeAiCard />
       <OfficeTemplatesCard />
-      <OfficeFontsCard />
-
-      <SectionCard
-        icon={Info}
-        title="Cara memakai"
-        description="ONLYOFFICE muncul otomatis di menu mana pun yang memiliki dokumen."
-      >
-        <ul className="grid gap-3 text-sm sm:grid-cols-2">
-          <Tip icon={FilePen} title="Buka & sunting berkas">
-            Klik lampiran atau Resource berupa DOCX/XLSX/PPTX untuk melihatnya; tombol <b>Edit di ONLYOFFICE</b> membuka
-            editor (termasuk PDF).
-          </Tip>
-          <Tip icon={FilePlus2} title="Buat dokumen baru">
-            Di form lampiran Project, Action/Task, Tandai Selesai, Agenda, dan form Resource: pilih Tipe{" "}
-            <b>Buat Dokumen (ONLYOFFICE)</b>, lalu jenis dokumen kosong, templat, atau <b>Impor berkas</b>. Tag, File
-            Control, dan Ringkas AI tetap berlaku.
-          </Tip>
-          <Tip icon={Save} title="Penyimpanan">
-            Dokumen tersimpan otomatis saat editor ditutup. <b>Ctrl+S</b> menyimpan versi tanpa menutup editor.
-          </Tip>
-          <Tip icon={History} title="Riwayat versi">
-            Satu sesi edit = satu versi. Versi lama bisa diunduh atau dipulihkan dari tombol <b>Riwayat versi</b>.
-          </Tip>
-          <Tip icon={Share2} title="Berbagi & edit bersama">
-            Mengikuti izin berbagi item: <b>Edit</b> bisa menyunting bersamaan, <b>Komentar</b> hanya berkomentar,{" "}
-            <b>Lihat</b> hanya membaca.
-          </Tip>
-          <Tip icon={Sparkles} title="AI di editor">
-            Aktifkan di kartu <b>AI di editor</b>: tab <b>AI</b> ONLYOFFICE (Chatbot, Summarization, Translation,
-            Grammar & Spelling) memakai provider & key di Pengaturan → AI.
-          </Tip>
-        </ul>
-      </SectionCard>
+      {admin && <OfficeFontsCard />}
+      <UsageCard />
     </div>
+  );
+}
+
+/** Status server ONLYOFFICE, format, dan alamat teknis (admin). */
+function ServerStatusCard() {
+  const { data, isLoading, isFetching, error, refetch } = useOfficeDiagnostics();
+  const state = !data ? null : !data.enabled ? "disabled" : data.healthy ? "ok" : "down";
+  return (
+    <SectionCard
+      icon={Server}
+      title="Status server ONLYOFFICE"
+      description="Server dokumen yang membuka dan menyunting berkas LifeOS."
+      action={
+        <Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refetch()}>
+          <RefreshCw className={cn(isFetching && "animate-spin")} /> Periksa ulang
+        </Button>
+      }
+    >
+      {isLoading ? (
+        <Skeleton className="h-24 w-full" />
+      ) : error ? (
+        <p className="text-sm text-destructive">{errorMessage(error)}</p>
+      ) : data ? (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            {state === "ok" ? (
+              <Badge className="gap-1 bg-success/15 text-success">
+                <CheckCircle2 className="size-3.5" /> Terhubung
+              </Badge>
+            ) : (
+              <Badge variant="destructive" className="gap-1">
+                <XCircle className="size-3.5" /> {state === "disabled" ? "Belum diatur" : "Tidak terhubung"}
+              </Badge>
+            )}
+            {data.version && <span className="text-sm text-muted-foreground">ONLYOFFICE Docs {data.version}</span>}
+            <span className="text-sm text-muted-foreground">· Community Edition</span>
+          </div>
+
+          <FormatGroups />
+
+          {state !== "ok" && (
+            <p className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
+              {state === "disabled"
+                ? "Editor dokumen belum diatur di server (variabel ONLYOFFICE_* di backend/.env)."
+                : "Server ONLYOFFICE tidak menjawab. Pastikan container ONLYOFFICE menyala."}{" "}
+              Panduan: docs/SETUP.md §4 langkah 6 (development) atau docs/ONLYOFFICE.md. Selama itu, berkas tetap bisa
+              diunduh dan PDF/gambar tetap bisa dipratinjau.
+            </p>
+          )}
+
+          <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+            <InfoRow label="Riwayat versi">{data.details?.maxVersions ?? 10} versi terakhir per dokumen</InfoRow>
+            <InfoRow label="Token keamanan (JWT)">{data.jwtConfigured ? "Aktif" : "Belum diatur"}</InfoRow>
+            {data.details && (
+              <>
+                <InfoRow label="Alamat untuk browser">{data.documentServerUrl ?? "—"}</InfoRow>
+                <InfoRow label="Alamat untuk backend">{data.details.internalUrl}</InfoRow>
+                <InfoRow label="Backend dihubungi ONLYOFFICE di" className="sm:col-span-2">
+                  {data.details.backendUrl}
+                </InfoRow>
+              </>
+            )}
+          </dl>
+        </div>
+      ) : null}
+    </SectionCard>
+  );
+}
+
+function UsageCard() {
+  return (
+    <SectionCard
+      icon={Info}
+      title="Cara memakai"
+      description="ONLYOFFICE muncul otomatis di menu mana pun yang memiliki dokumen."
+    >
+      <ul className="grid gap-3 text-sm sm:grid-cols-2">
+        <Tip icon={FilePen} title="Buka & sunting berkas">
+          Klik lampiran atau Resource berupa DOCX/XLSX/PPTX untuk melihatnya; tombol <b>Edit di ONLYOFFICE</b> membuka
+          editor (termasuk PDF).
+        </Tip>
+        <Tip icon={FilePlus2} title="Buat dokumen baru">
+          Di form lampiran Project, Action/Task, Tandai Selesai, Agenda, dan form Resource: pilih Tipe{" "}
+          <b>Buat Dokumen (ONLYOFFICE)</b>, lalu jenis dokumen kosong, templat, atau <b>Impor berkas</b>. Tag, File
+          Control, dan Ringkas AI tetap berlaku.
+        </Tip>
+        <Tip icon={Save} title="Penyimpanan">
+          Dokumen tersimpan otomatis saat editor ditutup. <b>Ctrl+S</b> menyimpan versi tanpa menutup editor.
+        </Tip>
+        <Tip icon={History} title="Riwayat versi">
+          Satu sesi edit = satu versi. Versi lama bisa diunduh atau dipulihkan dari tombol <b>Riwayat versi</b>.
+        </Tip>
+        <Tip icon={Share2} title="Berbagi & edit bersama">
+          Mengikuti izin berbagi item: <b>Edit</b> bisa menyunting bersamaan, <b>Komentar</b> hanya berkomentar,{" "}
+          <b>Lihat</b> hanya membaca.
+        </Tip>
+        <Tip icon={Sparkles} title="AI di editor">
+          Aktifkan di kartu <b>AI di editor</b>: tab <b>AI</b> ONLYOFFICE (Chatbot, Summarization, Translation, Grammar
+          & Spelling) memakai provider & key di Pengaturan → AI.
+        </Tip>
+      </ul>
+    </SectionCard>
   );
 }
 

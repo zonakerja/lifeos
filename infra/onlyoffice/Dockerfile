@@ -3,11 +3,13 @@
 # - Jembatan LifeOS (lifeos-ai-bridge.js) disisipkan ke plugin: tab AI memakai provider & API key user di
 #   Pengaturan → AI lewat backend LifeOS, tanpa pengaturan key di editor. Tab AI hanya tampil bila user mengaktifkannya
 #   (config editor dari backend: customization.ai.disabled). Build gagal bila struktur plugin berubah (cek grep).
-# Font tambahan TIDAK dimasukkan ke image: folder infra/onlyoffice/fonts di-mount ke /usr/share/fonts/truetype/custom
-# dan daftar font dibuat ulang otomatis setiap container start (GENERATE_FONTS=true bawaan image).
+# Font tambahan TIDAK dimasukkan ke image: folder font bersama di-mount ke /usr/share/fonts/truetype/custom (dev:
+# infra/onlyoffice/fonts, produksi: volume yang juga ditulis backend saat admin mengunggah font). Daftar font dibuat ulang
+# setiap start (GENERATE_FONTS=true bawaan image) dan saat isi folder berubah (pemantau di lifeos-entrypoint.sh).
 FROM onlyoffice/documentserver:10.0
 
 COPY lifeos-ai-bridge.js /tmp/lifeos-ai-bridge.js
+COPY --chmod=755 lifeos-entrypoint.sh /app/lifeos-entrypoint.sh
 
 RUN set -e; \
   documentserver-pluginsmanager.sh -r false --install="ai"; \
@@ -23,3 +25,5 @@ RUN set -e; \
   for f in "$P/scripts/code.js" "$P/index.html" "$P/scripts/lifeos-ai-bridge.js"; do gzip -kf9 "$f"; done; \
   chown -R ds:ds "$P"; \
   rm /tmp/lifeos-ai-bridge.js
+
+ENTRYPOINT ["/app/lifeos-entrypoint.sh"]

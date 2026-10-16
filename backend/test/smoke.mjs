@@ -850,6 +850,9 @@ try {
       return `${head}.${createHmac("sha256", dsSecret).update(head).digest("base64url")}`;
     };
     const decode = (token) => JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+    // Link berkas untuk ONLYOFFICE memakai alamat backend internal (produksi: http://backend:4000) → dari host diakses
+    // lewat API_URL
+    const hostUrl = (url) => url.replace(/^https?:\/\/[^/]+\/api\/v1/, B);
 
     r = await j("POST", "/office/documents", { format: "xlsx", title: "Anggaran: 2027?" }, at);
     ok("office new xlsx", r.s === 201 && r.d.originalName === "Anggaran 2027.xlsx" && r.d.size > 0, r);
@@ -860,11 +863,9 @@ try {
     r = await j("POST", "/office/documents", { format: "docx", ownerId: tempUserId }, pt);
     ok("office new doc into other user's space without share 403", r.s === 403, r);
     r = await j("GET", "/office/diagnostics", null, at);
-    ok(
-      "office diagnostics (member: no technical details)",
-      r.s === 200 && typeof r.d.healthy === "boolean" && r.d.details === null,
-      r,
-    );
+    ok("office diagnostics member 403 (admin only)", r.s === 403, r);
+    r = await j("GET", "/office/diagnostics", null, admin);
+    ok("office diagnostics admin", r.s === 200 && typeof r.d.healthy === "boolean" && !!r.d.details, r);
     r = await j("POST", "/office/documents", { format: "exe" }, at);
     ok("office new invalid format 400", r.s === 400, r);
     r = await j("POST", "/office/documents", { format: "docx", title: "Notulen Smoke" }, at);
@@ -879,9 +880,9 @@ try {
       r,
     );
     ok("office config signed", !!cfg.token && decode(cfg.token).document.key === cfg.document.key, cfg);
-    const fileRes = await fetch(cfg.document.url);
+    const fileRes = await fetch(hostUrl(cfg.document.url));
     ok("office file url (token) 200", fileRes.status === 200 && (await fileRes.arrayBuffer()).byteLength > 0);
-    const badFile = await fetch(cfg.document.url.replace(/token=[^&]+/, "token=salah"));
+    const badFile = await fetch(hostUrl(cfg.document.url).replace(/token=[^&]+/, "token=salah"));
     ok("office file url bad token 401", badFile.status === 401);
     r = await j("POST", "/office/config", { uploadId: docId, mode: "view" }, at);
     ok("office config view mode", r.d.access === "view" && r.d.config.editorConfig.mode === "view", r);
@@ -968,7 +969,11 @@ try {
 
     // Templat milik user (Tools → ONLYOFFICE, context office-template) → daftar + dokumen baru; berkas user lain ditolak
     const tplForm = new FormData();
-    tplForm.append("file", new Blob([await (await fetch(cfg.document.url)).arrayBuffer()]), "Kop Surat Smoke.docx");
+    tplForm.append(
+      "file",
+      new Blob([await (await fetch(hostUrl(cfg.document.url))).arrayBuffer()]),
+      "Kop Surat Smoke.docx",
+    );
     tplForm.append("context", "office-template");
     const tpl = await j("POST", "/uploads", tplForm, at);
     const pngForm = new FormData();
@@ -1005,10 +1010,62 @@ try {
     ok("office template of other user (not shared) rejected", r.s === 403 || r.s === 404, r);
     r = await j("POST", "/office/documents", {}, at);
     ok("office new doc without format/template 400", r.s === 400, r);
-    if (dsUp) {
-      r = await j("GET", "/office/fonts", null, at);
-      ok("office fonts list", r.s === 200 && r.d.available && r.d.families.includes("Arial"), r.d?.families?.length);
+    r = await j("GET", "/office/fonts", null, at);
+    ok("office fonts member 403 (admin only)", r.s === 403, r);
+    r = await j("GET", "/office/fonts", null, admin);
+    ok("office fonts admin", r.s === 200 && Array.isArray(r.d.files) && typeof r.d.uploadEnabled === "boolean", r.d);
+    if (dsUp) ok("office fonts list", r.d.available && r.d.families.includes("Arial"), r.d?.families?.length);
+    if (r.d?.uploadEnabled) {
+      const fakeFont = new FormData();
+      fakeFont.append("file", new Blob(["wOFF0000"]), "palsu.ttf");
+      r = await j("POST", "/office/fonts", fakeFont, admin);
+      ok("office font upload rejects non-font content", r.s === 400, r);
+      const memberFont = new FormData();
+      memberFont.append("file", new Blob([new Uint8Array([0, 1, 0, 0, 0, 0])]), "smoke.ttf");
+      r = await j("POST", "/office/fonts", memberFont, at);
+      ok("office font upload member 403", r.s === 403, r);
+      r = await j("DELETE", "/office/fonts/..%2F..%2Fpackage.json", null, admin);
+      ok("office font delete outside folder 404", r.s === 404, r);
     }
+
+    // Konsep (dokumen ONLYOFFICE) ↔ dokumen final (PDF bertanda tangan): tautan dua arah
+    const finalForm = new FormData();
+    finalForm.append("file", new Blob(["%PDF-1.4 smoke final"], { type: "application/pdf" }), "Final TTD.pdf");
+    finalForm.append("context", "office-final");
+    const finalPdf = await j("POST", "/uploads", finalForm, at);
+    r = await j("PUT", `/office/files/${finalPdf.d.id}/draft`, { draftId: docId }, at);
+    ok("office link final → draft", r.s === 200 && r.d.draft?.id === docId && r.d.draftCapable === false, r);
+    r = await j("GET", `/office/files/${docId}/links`, null, at);
+    ok(
+      "office draft lists its final",
+      r.s === 200 && r.d.draftCapable && r.d.ownerId === tempUserId && r.d.finals.some((f) => f.id === finalPdf.d.id),
+      r,
+    );
+    r = await j("GET", `/office/links?ids=${docId},${finalPdf.d.id}`, null, at);
+    ok("office link badges", r.s === 200 && r.d[docId]?.finals === 1 && r.d[finalPdf.d.id]?.draftId === docId, r);
+    r = await j("PUT", `/office/files/${docId}/draft`, { draftId: finalPdf.d.id }, at);
+    ok("office PDF cannot be a draft 400", r.s === 400, r);
+    r = await j("PUT", `/office/files/${docId}/draft`, { draftId: docId }, at);
+    ok("office self link 400", r.s === 400, r);
+    r = await j("PUT", `/office/files/${finalPdf.d.id}/draft`, { draftId: docId }, pt);
+    ok("office link by user without access 403", r.s === 403, r);
+    r = await j("GET", `/office/files/${docId}/links`, null, pt);
+    ok("office links of other user's file 403", r.s === 403, r);
+    r = await j("GET", "/office/link-candidates?role=draft", null, at);
+    ok(
+      "office draft candidates (documents only)",
+      r.s === 200 && r.d.some((f) => f.id === docId) && !r.d.some((f) => f.id === finalPdf.d.id),
+      r,
+    );
+    r = await j("GET", "/office/link-candidates?role=final&q=final%20ttd", null, at);
+    ok(
+      "office final candidates (search, linked file is not a draft)",
+      r.s === 200 && r.d.some((f) => f.id === finalPdf.d.id),
+      r,
+    );
+    r = await j("PUT", `/office/files/${finalPdf.d.id}/draft`, { draftId: null }, at);
+    ok("office unlink final", r.s === 200 && r.d.draft === null, r);
+    await j("PUT", `/office/files/${finalPdf.d.id}/draft`, { draftId: docId }, at);
 
     // Berbagi Lihat → partner hanya bisa melihat
     await j(
@@ -1155,6 +1212,9 @@ try {
     await j("DELETE", "/records/para_resource/sm-office", null, at);
     r = await j("DELETE", `/uploads/${docId}`, null, at);
     ok("office doc delete (with versions)", r.s === 200, r);
+    r = await j("GET", `/office/files/${finalPdf.d.id}/links`, null, at);
+    ok("office final kept when draft deleted (link cleared)", r.s === 200 && r.d.draft === null, r);
+    await j("DELETE", `/uploads/${finalPdf.d.id}`, null, at);
   }
 
   r = await j("POST", "/auth/change-password", { currentPassword: "salah", newPassword: "1234" }, pt);

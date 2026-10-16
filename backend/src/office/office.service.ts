@@ -12,9 +12,9 @@ import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, readFile, stat, unlink } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { networkInterfaces, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { AssetExtractionStatus, AssetStatus } from "../generated/prisma/client";
@@ -25,7 +25,12 @@ import { ObjectStorageService } from "../storage/object-storage.service";
 import { UploadsService } from "../uploads/uploads.service";
 import { AiService } from "../ai/ai.service";
 import { AI_PROVIDERS } from "../ai/ai-providers";
-import { type CreateOfficeDocumentDto, type OfficeConfigDto, type OfficePreferencesDto } from "./dto/office.dto";
+import {
+  type CreateOfficeDocumentDto,
+  type OfficeConfigDto,
+  type OfficeLinkCandidatesQuery,
+  type OfficePreferencesDto,
+} from "./dto/office.dto";
 import {
   OFFICE_AI_MAX_IMAGES,
   OFFICE_AI_MAX_PROMPT,
@@ -42,8 +47,15 @@ import {
 } from "./office-ai";
 import { OfficeTextConverter } from "./office-text-converter";
 import {
+  FONT_EXTENSIONS,
+  MAX_FONT_BYTES,
+  draftExtensions,
+  finalLinkError,
+  isDraftFormat,
   editableFormats,
+  fontKind,
   formatInfo,
+  safeFontFileName,
   viewableFormats,
   MAX_VERSIONS,
   NEW_DOCUMENT_MIME,
@@ -72,6 +84,18 @@ const TEMPLATE_DIR = join(__dirname, "..", "..", "templates", "office");
 export const ONLYOFFICE_JWT_HEADER = "authorizationjwt";
 /** Konteks berkas templat dokumen yang diunggah user di Tools → ONLYOFFICE. */
 export const OFFICE_TEMPLATE_CONTEXT = "office-template";
+/** Berkas internal yang tidak ditawarkan sebagai konsep/final (templat, sumber & lampiran chat notebook). */
+const LINK_EXCLUDED_CONTEXTS = [OFFICE_TEMPLATE_CONTEXT, "notebook", "notebook_chat"];
+const LINK_SUMMARY = {
+  id: true,
+  uploadedById: true,
+  originalName: true,
+  mimeType: true,
+  size: true,
+  userId: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 const FILE_TOKEN_TTL = "1d";
 // Sesi edit bisa terbuka lama; ONLYOFFICE tetap memanggil callback saat editor terakhir ditutup
 const CALLBACK_TOKEN_TTL = "30d";
@@ -100,6 +124,8 @@ export class OfficeService {
   private readonly publicUrl?: string;
   private readonly internalUrl?: string;
   private readonly secret?: string;
+  /** Folder font tambahan bersama container ONLYOFFICE (env `ONLYOFFICE_FONTS_DIR`); kosong = unggah font nonaktif. */
+  private readonly fontsDir?: string;
   /** Callback per berkas diproses berurutan (force save & simpan akhir bisa datang hampir bersamaan). */
   private readonly locks = new Map<string, Promise<unknown>>();
 
@@ -116,6 +142,8 @@ export class OfficeService {
     this.publicUrl = config.get<string>("ONLYOFFICE_URL")?.replace(/\/+$/, "") || undefined;
     this.internalUrl = config.get<string>("ONLYOFFICE_INTERNAL_URL")?.replace(/\/+$/, "") || this.publicUrl;
     this.secret = config.get<string>("ONLYOFFICE_JWT_SECRET") || undefined;
+    const fontsDir = config.get<string>("ONLYOFFICE_FONTS_DIR");
+    this.fontsDir = fontsDir ? resolve(fontsDir) : undefined;
   }
 
   status() {
@@ -217,13 +245,200 @@ export class OfficeService {
     });
   }
 
-  /** Keluarga font yang terpasang di server ONLYOFFICE (halaman Tools → ONLYOFFICE). */
+  /**
+   * Font di server ONLYOFFICE (admin, Tools → ONLYOFFICE): keluarga font yang terpasang (`AllFonts.js`) + berkas font
+   * tambahan yang diunggah admin ke folder bersama.
+   */
   async fonts() {
-    if (!this.internalUrl) return { available: false, families: [] as string[] };
+    const files = await this.fontFiles();
+    const uploadEnabled = !!this.fontsDir;
+    if (!this.internalUrl) return { available: false, families: [] as string[], files, uploadEnabled };
     const script = await fetch(`${this.internalUrl}/sdkjs/common/AllFonts.js`, { signal: AbortSignal.timeout(5000) })
       .then((res) => (res.ok ? res.text() : null))
       .catch(() => null);
-    return script ? { available: true, families: parseFontFamilies(script) } : { available: false, families: [] };
+    return { available: !!script, families: script ? parseFontFamilies(script) : [], files, uploadEnabled };
+  }
+
+  /**
+   * Font baru dari admin → folder bersama. Isi divalidasi (TTF/OTF/TTC); nama sama = diganti. Pemantau di container
+   * ONLYOFFICE (`infra/onlyoffice/lifeos-entrypoint.sh`) membuat ulang daftar font ± 30 detik kemudian.
+   */
+  async uploadFont(file: { originalname: string; buffer: Buffer; size: number }) {
+    const dir = this.ensureFontsDir();
+    if (file.size > MAX_FONT_BYTES) throw new BadRequestException("Berkas font maksimal 30 MB.");
+    const kind = fontKind(file.buffer.subarray(0, 4));
+    if (!kind) throw new BadRequestException("Berkas bukan font TrueType/OpenType (.ttf, .otf, .ttc).");
+    const name = safeFontFileName(Buffer.from(file.originalname, "latin1").toString("utf8"), kind);
+    if (!name) throw new BadRequestException("Nama berkas font harus berakhiran .ttf, .otf, atau .ttc.");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, name), file.buffer);
+    return { name, files: await this.fontFiles() };
+  }
+
+  async deleteFont(name: string) {
+    const dir = this.ensureFontsDir();
+    const files = await this.fontFiles();
+    if (!files.some((file) => file.name === name)) throw new NotFoundException("Berkas font tidak ditemukan.");
+    await unlink(join(dir, name));
+    return { files: await this.fontFiles() };
+  }
+
+  private ensureFontsDir() {
+    if (!this.fontsDir) {
+      throw new ServiceUnavailableException("Folder font belum diatur di server (ONLYOFFICE_FONTS_DIR).");
+    }
+    return this.fontsDir;
+  }
+
+  /** Berkas font di folder bersama (hanya .ttf/.otf/.ttc; README & berkas lain tidak ditampilkan). */
+  private async fontFiles() {
+    if (!this.fontsDir) return [];
+    const names = await readdir(this.fontsDir).catch(() => [] as string[]);
+    const fonts = names.filter((name) =>
+      (FONT_EXTENSIONS as readonly string[]).includes(name.split(".").pop()?.toLowerCase() ?? ""),
+    );
+    const files = await Promise.all(
+      fonts.map(async (name) => {
+        const info = await stat(join(this.fontsDir!, name)).catch(() => null);
+        return info ? { name, size: info.size, updatedAt: info.mtime.toISOString() } : null;
+      }),
+    );
+    return files
+      .filter((file): file is NonNullable<typeof file> => !!file)
+      .sort((a, b) => a.name.localeCompare(b.name, "id", { sensitivity: "base" }));
+  }
+
+  // ---------------------------------------------------------------- Konsep ↔ dokumen final
+
+  /**
+   * Tautan satu berkas: konsepnya (bila berkas ini dokumen final) dan dokumen final-nya (bila berkas ini konsep). Hanya
+   * berkas yang boleh dibaca user yang ditampilkan.
+   */
+  async links(user: AuthUser, id: string) {
+    const { asset } = await this.uploads.findWithPermission(id, user);
+    const [draft, finals] = await Promise.all([
+      asset.draftId ? this.prisma.asset.findUnique({ where: { id: asset.draftId }, select: LINK_SUMMARY }) : null,
+      this.prisma.asset.findMany({ where: { draftId: id }, select: LINK_SUMMARY, orderBy: { createdAt: "desc" } }),
+    ]);
+    const readable = async <T extends { id: string }>(item: T | null) =>
+      item &&
+      (await this.uploads.findWithPermission(item.id, user).then(
+        () => true,
+        () => false,
+      ))
+        ? item
+        : null;
+    return {
+      ownerId: asset.userId,
+      draftCapable: isDraftFormat(fileFormat(asset.originalName)),
+      draft: await readable(draft),
+      finals: (await Promise.all(finals.map(readable))).filter((item) => !!item),
+    };
+  }
+
+  /**
+   * Penanda untuk daftar/tabel: per id berkas → konsepnya (`draftId`) dan jumlah final. Hanya berkas yang boleh dibaca
+   * user (yang diminta maupun yang tertaut) yang dihitung, sama dengan `links()`; izin dicek hanya untuk berkas milik
+   * user lain (berkas sendiri langsung lolos).
+   */
+  async linkBadges(user: AuthUser, ids: string[]) {
+    const unique = [...new Set(ids)].slice(0, 200);
+    if (unique.length === 0) return {};
+    const select = { id: true, draftId: true, userId: true, uploadedById: true } as const;
+    const [assets, finals] = await Promise.all([
+      this.prisma.asset.findMany({ where: { id: { in: unique } }, select }),
+      this.prisma.asset.findMany({ where: { draftId: { in: unique } }, select }),
+    ]);
+    const known = new Map([...assets, ...finals].map((asset) => [asset.id, asset]));
+    const missingDrafts = assets.map((a) => a.draftId).filter((id): id is string => !!id && !known.has(id));
+    if (missingDrafts.length) {
+      for (const draft of await this.prisma.asset.findMany({ where: { id: { in: missingDrafts } }, select })) {
+        known.set(draft.id, draft);
+      }
+    }
+    const readable = await this.readableIds(user, [...known.values()]);
+    const result: Record<string, { draftId: string | null; finals: number }> = {};
+    for (const asset of assets) {
+      if (!readable.has(asset.id)) continue;
+      const draftId = asset.draftId && readable.has(asset.draftId) ? asset.draftId : null;
+      const count = finals.filter((f) => f.draftId === asset.id && readable.has(f.id)).length;
+      if (draftId || count) result[asset.id] = { draftId, finals: count };
+    }
+    return result;
+  }
+
+  /** Id berkas yang boleh dibaca user: milik/unggahan sendiri langsung, lainnya lewat izin berbagi. */
+  private async readableIds(user: AuthUser, assets: { id: string; userId: string; uploadedById: string | null }[]) {
+    const own = assets.filter((a) => a.userId === user.id || a.uploadedById === user.id).map((a) => a.id);
+    const others = assets.filter((a) => a.userId !== user.id && a.uploadedById !== user.id);
+    const allowed = await Promise.all(
+      others.map((a) =>
+        this.uploads.findWithPermission(a.id, user).then(
+          () => a.id,
+          () => null,
+        ),
+      ),
+    );
+    return new Set([...own, ...allowed.filter((id): id is string => !!id)]);
+  }
+
+  /**
+   * Tautkan dokumen final `finalId` ke konsep `draftId` (butuh izin edit atas keduanya), atau lepaskan (`null`, izin
+   * edit atas final atau konsepnya). Dipakai unggah final dari konsep, tautkan berkas yang ada, dan nanti agen SRIKANDI.
+   */
+  async setDraft(user: AuthUser, finalId: string, draftId: string | null) {
+    const { asset: final, permission } = await this.uploads.findWithPermission(finalId, user, true);
+    if (draftId === null) {
+      if (!final.draftId) return this.links(user, finalId);
+      const draftEdit =
+        permission === "edit" ||
+        (await this.uploads.findWithPermission(final.draftId, user, true).then(
+          (r) => r.permission === "edit",
+          () => false,
+        ));
+      if (!draftEdit) throw new ForbiddenException("Butuh izin edit untuk melepas tautan dokumen.");
+      await this.prisma.asset.update({ where: { id: finalId }, data: { draftId: null } });
+      return this.links(user, finalId);
+    }
+    if (permission !== "edit") throw new ForbiddenException("Butuh izin edit atas dokumen final.");
+    const { asset: draft, permission: draftPermission } = await this.uploads.findWithPermission(draftId, user, true);
+    if (draftPermission !== "edit") throw new ForbiddenException("Butuh izin edit atas konsep.");
+    const error = finalLinkError({
+      finalId,
+      draftId,
+      draftFormat: fileFormat(draft.originalName),
+      draftIsFinal: !!draft.draftId,
+      finalHasFinals: (await this.prisma.asset.count({ where: { draftId: finalId } })) > 0,
+    });
+    if (error) throw new BadRequestException(error);
+    await this.prisma.asset.update({ where: { id: finalId }, data: { draftId } });
+    return this.links(user, finalId);
+  }
+
+  /**
+   * Berkas milik user yang bisa dipilih saat menautkan: `draft` = konsep (dokumen/spreadsheet/presentasi yang belum
+   * menjadi final), `final` = berkas lain yang belum menjadi konsep. Terbaru dulu, maks. 30.
+   */
+  async linkCandidates(user: AuthUser, query: OfficeLinkCandidatesQuery) {
+    // Jenis berkas dari ekstensi nama (sama dengan isDraftFormat), disaring di database agar berkas lama tetap ditemukan
+    const draftNameFilter = draftExtensions().map((ext) => ({
+      originalName: { endsWith: `.${ext}`, mode: "insensitive" as const },
+    }));
+    const assets = await this.prisma.asset.findMany({
+      where: {
+        OR: [{ userId: user.id }, { uploadedById: user.id }],
+        AND: [
+          { OR: [{ context: null }, { context: { notIn: LINK_EXCLUDED_CONTEXTS } }] },
+          query.role === "draft" ? { OR: draftNameFilter } : { NOT: { OR: draftNameFilter } },
+        ],
+        ...(query.q?.trim() ? { originalName: { contains: query.q.trim(), mode: "insensitive" as const } } : {}),
+        ...(query.role === "draft" ? { draftId: null } : { finals: { none: {} } }),
+      },
+      select: LINK_SUMMARY,
+      orderBy: { updatedAt: "desc" },
+      take: 30,
+    });
+    return assets;
   }
 
   // ---------------------------------------------------------------- Preferensi & AI di editor
@@ -319,6 +534,8 @@ export class OfficeService {
       .getOrThrow<string>("CORS_ORIGIN")
       .split(",")
       .map((origin) => origin.trim().replace(/\/+$/, ""));
+    // Produksi: ONLYOFFICE di sub-path domain aplikasi → origin-nya = origin aplikasi
+    if (this.publicUrl) origins.push(new URL(this.publicUrl).origin);
     const wanted = requested?.replace(/\/+$/, "");
     return wanted && origins.includes(wanted) ? wanted : origins[0];
   }
@@ -392,7 +609,6 @@ export class OfficeService {
       user: { id: user.id, name: profile?.name ?? user.email },
       fileUrl: `${backendUrl}/api/v1/office/files/${asset.id}/content?token=${encodeURIComponent(fileToken)}`,
       callbackUrl: `${backendUrl}/api/v1/office/callback?token=${encodeURIComponent(callbackToken)}`,
-      mobile: dto.mobile,
       theme: dto.theme,
       ai: {
         enabled: aiOn,

@@ -6,8 +6,9 @@ Panduan memasang LifeOS di satu VPS Linux memakai `docker-compose.prod.yml`.
 
 ```
 Internet ──► Caddy :80/:443 (HTTPS otomatis Let's Encrypt, HSTS, kompresi)
-               ├── /api/*  ──► backend  (NestJS, migrasi otomatis saat start, log JSON)
-               └── lainnya ──► frontend (nginx: SPA statis + CSP & header keamanan)
+               ├── /api/*    ──► backend    (NestJS, migrasi otomatis saat start, log JSON)
+               ├── /office/* ──► onlyoffice (editor dokumen, opsional — §9)
+               └── lainnya   ──► frontend   (nginx: SPA statis + CSP & header keamanan)
              jaringan internal Docker (tidak terbuka ke internet):
                postgres (pgvector) · redis (password) · storage (SeaweedFS S3) · backup (harian → S3 luar server)
 ```
@@ -21,6 +22,7 @@ Internet ──► Caddy :80/:443 (HTTPS otomatis Let's Encrypt, HSTS, kompresi)
 | redis | `redis` alpine (AOF, password) | volume `redis-data` |
 | storage | `chrislusf/seaweedfs` | volume `storage-data` |
 | backup | dibangun dari `infra/backup/Dockerfile` (pg_dump + rclone) | folder `./backups` + bucket S3 luar server (terenkripsi) |
+| onlyoffice (opsional) | dibangun dari `infra/onlyoffice/Dockerfile` (ONLYOFFICE Docs + plugin AI LifeOS) | volume `onlyoffice-data` (cache), `onlyoffice-fonts` (font unggahan admin, dibagi dengan backend) |
 
 Tag image di-pin di `docker-compose.prod.yml`; daftar versinya ada di [ARCHITECTURE.md §2.1](ARCHITECTURE.md#21-komponen-dan-versi-per-2026-10-10).
 
@@ -360,3 +362,41 @@ Catatan:
 - `pg_restore` bisa menampilkan peringatan tentang ekstensi/`COMMENT ON SCHEMA public`; yang penting tidak ada error
   pada tabel & data, dan jumlah baris sama.
 - Data development dipindah dengan cara yang sama — lihat [SETUP.md §7.1](SETUP.md#71-upgrade-major-postgresql-data-development).
+
+## 9. Editor dokumen ONLYOFFICE (opsional)
+
+Menu **Tools → ONLYOFFICE** (buat/sunting DOCX/XLSX/PPTX/PDF, riwayat versi, AI di editor lewat AI LifeOS, templat,
+konsep ↔ dokumen final). Detail fitur & keputusan: [ONLYOFFICE.md](ONLYOFFICE.md).
+
+**Kebutuhan**: VPS **8 GB RAM / 4 vCPU** (ONLYOFFICE ± 2–3 GB saat dipakai), disk ≥ 60 GB. Tidak perlu subdomain:
+editor disajikan Caddy di `https://<APP_DOMAIN>/office/` (satu domain → CSP aplikasi tetap `'self'`).
+
+**Mengaktifkan** — tambahkan ke `.env`, lalu `dc up -d --build`:
+
+```bash
+COMPOSE_PROFILES=office
+ONLYOFFICE_URL=https://<APP_DOMAIN>/office
+ONLYOFFICE_JWT_SECRET=<openssl rand -hex 32>      # simpan di password manager bersama secret lain
+# ONLYOFFICE_MEM_LIMIT=2560m
+```
+
+- Build image `infra/onlyoffice` butuh internet (plugin AI dipasang dari marketplace ONLYOFFICE) dan ± 1 GB unduhan
+  image dasar. Start pertama ± 1–2 menit (`dc ps` → `healthy`).
+- Backend otomatis memakai `ONLYOFFICE_INTERNAL_URL=http://onlyoffice`, `ONLYOFFICE_BACKEND_URL=http://backend:4000`,
+  dan folder font `/app/office-fonts` (volume `onlyoffice-fonts`) bila `ONLYOFFICE_URL` diisi.
+- Caddy menutup `/office/welcome`, `/office/example`, `/office/admin`, `/office/info` (404) dan meneruskan
+  `X-Forwarded-Host <domain>/office` agar ONLYOFFICE membuat URL dengan prefix `/office/`.
+- Menonaktifkan: hapus `COMPOSE_PROFILES=office` & kosongkan `ONLYOFFICE_URL` → `dc up -d` lalu
+  `docker compose -f docker-compose.prod.yml --profile office stop onlyoffice`. Berkas & versi dokumen tetap aman (di
+  PostgreSQL + object storage); pratinjau PDF/gambar tetap jalan.
+
+**Font tambahan**: admin mengunggah `.ttf/.otf/.ttc` di Tools → ONLYOFFICE → Font (tersimpan di volume
+`onlyoffice-fonts`; ONLYOFFICE membuat ulang daftar font otomatis ± 1–2 menit, editor yang terbuka tersambung ulang
+sebentar). Volume font **tidak** ikut backup harian — simpan berkas font aslinya di tempat lain.
+
+**Backup**: tidak berubah — dokumen, versi, dan templat adalah berkas LifeOS (PostgreSQL + object storage). Volume
+`onlyoffice-data` hanya cache.
+
+**Pembaruan ONLYOFFICE** (major, mis. 10 → 11): ganti tag di `infra/onlyoffice/Dockerfile`, `dc build onlyoffice` (build
+gagal bila struktur plugin AI berubah → periksa `infra/onlyoffice/lifeos-ai-bridge.js`), salin ulang daftar format
+(`document-formats/onlyoffice-docs-formats.json` → `office-formats.ts` backend & frontend), uji di stack lokal (`docs/ONLYOFFICE.md`).

@@ -324,13 +324,18 @@ model Asset {
   officeKey       String?          @map("office_key")
   // Waktu isi saat ini disimpan (updated_at ikut berubah oleh ekstraksi, jadi tidak bisa dipakai); null = createdAt
   versionedAt     DateTime?        @map("versioned_at") @db.Timestamptz(3)
+  // Dokumen final (mis. PDF bertanda tangan) → konsepnya (dokumen ONLYOFFICE); konsep dihapus = tautan dilepas
+  draftId         String?          @map("draft_id")
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   extraction      AssetExtraction?
   versions        AssetVersion[]
+  draft           Asset?           @relation("AssetFinals", fields: [draftId], references: [id], onDelete: SetNull)
+  finals          Asset[]          @relation("AssetFinals")
 
   @@index([userId, status])
+  @@index([draftId])
   @@index([userId, createdAt])
   @@index([checksum])
   @@map("assets")
