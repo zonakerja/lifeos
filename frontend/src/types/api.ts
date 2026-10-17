@@ -144,6 +144,8 @@ export interface ApiRecord<T = Record<string, unknown>> {
   updatedAt: string;
   /** Terisi bila record milik user lain yang dibagikan ke user ini */
   share?: ShareMeta;
+  /** Daftar ringan: key payload yang tidak utuh (isi lengkap lewat `recordsApi.get`) */
+  partial?: string[];
 }
 
 // ============================================================================
@@ -474,4 +476,20 @@ export interface OfficeVersion {
 export interface OfficeVersions {
   canRestore: boolean;
   versions: OfficeVersion[];
+}
+
+/** Riwayat chat notebook per halaman (pesan terbaru). */
+export interface NotebookMessagePage {
+  messages: NotebookMessage[];
+  /** Masih ada pesan yang lebih lama */
+  hasMore: boolean;
+}
+
+/** Item LifeOS / berkas yang menjadi sumber notebook (`GET /notebooks/usage`). */
+export interface NotebookUsage {
+  notebookId: string;
+  notebookTitle: string;
+  recordType: NotebookRecordType | null;
+  recordId: string | null;
+  assetId: string | null;
 }

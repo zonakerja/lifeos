@@ -44,6 +44,7 @@ import { ApiError, errorMessage } from "@/lib/api/client";
 import { uploadsApi } from "@/lib/api/endpoints";
 import { links } from "@/lib/deep-links";
 import { formatFullDate, parseLocalYMD } from "@/lib/dates";
+import { trackPendingUpload, untrackPendingUpload } from "@/lib/pending-uploads";
 import { cn } from "@/lib/utils";
 import type { AiNote } from "@/types/entities";
 import { agendaLabel, agendaOptions } from "../lib/agenda-options";
@@ -58,7 +59,7 @@ import {
   uploadIdsOf,
 } from "../lib/notes-logic";
 import { CancelledError, DOCUMENT_ACCEPT, readFileText } from "../lib/read-file-text";
-import { removeUploads } from "../lib/remove-uploads";
+import { mergeOrphanIds, removeUploads, removeUploadsCollectForbidden } from "../lib/remove-uploads";
 import { SummaryStyleDialog } from "./summary-style-dialog";
 import { usePermissions } from "@/hooks/use-permissions";
 import { CommentsPanel } from "@/features/sharing/comments-panel";
@@ -184,6 +185,8 @@ export function AiNoteEditor({
         sessionUploadsRef.current.add(asset.id);
         // Editor sudah ditutup (perubahan dibuang) sebelum upload selesai → berkas tidak dipakai
         if (unmountedRef.current) removeUploads([asset.id]);
+        // Dicatat sampai catatan disimpan: tab di-reload/ditutup sebelum Simpan → berkas dibersihkan janitor
+        else trackPendingUpload(asset.id);
         return asset;
       })
       .finally(() => setPendingUploads((n) => n - 1));
@@ -363,14 +366,34 @@ export function AiNoteEditor({
       toast.error("Tunggu sebentar", { description: "Berkas masih diunggah atau diproses." });
       return false;
     }
+    if (recording) {
+      toast.error("Rekaman masih berjalan", { description: "Hentikan rekaman dulu agar audionya ikut tersimpan." });
+      return false;
+    }
     if (!draft.title.trim()) {
       toast.error("Judul notes wajib diisi.");
       return false;
     }
     onPersist(draft);
-    removeUploads(unreferencedUploads([...uploadIdsOf(note), ...sessionUploadsRef.current], draft));
+    const unused = unreferencedUploads([...uploadIdsOf(note), ...sessionUploadsRef.current], draft);
+    if (!note.share) removeUploads(unused);
+    else if (unused.length) {
+      // Notes AI bersama: berkas milik pemilik tidak boleh dihapus kolaborator → dicatat untuk dibersihkan pemilik
+      const saved = draft;
+      void removeUploadsCollectForbidden(unused).then(
+        (forbidden) =>
+          forbidden.length &&
+          onPersist({ ...saved, orphanUploadIds: mergeOrphanIds(saved.orphanUploadIds, forbidden) }),
+      );
+    }
+    releaseSessionUploads();
     setDirty(false);
     return true;
+  };
+
+  /** Berkas sesi ini sudah tersimpan (atau sudah dihapus) → tidak lagi dicatat sebagai upload yang tertunda. */
+  const releaseSessionUploads = () => {
+    for (const id of sessionUploadsRef.current) untrackPendingUpload(id);
   };
 
   const save = () => {
@@ -379,6 +402,7 @@ export function AiNoteEditor({
 
   const discard = () => {
     removeUploads(unreferencedUploads(sessionUploadsRef.current, note));
+    releaseSessionUploads();
     leave();
   };
 
@@ -386,6 +410,8 @@ export function AiNoteEditor({
 
   const leaveDialogOpen = backRequested || blocker.state === "blocked";
   const busy = pendingUploads > 0 || processing;
+  // Rekaman yang masih berjalan akan hilang bila disimpan & editor ditutup → hentikan dulu
+  const saveBlocked = busy || recording;
 
   return (
     <Card className="animate-in fade-in slide-in-from-right-4">
@@ -406,11 +432,17 @@ export function AiNoteEditor({
             <SharedBadge item={note} recordType="ai_note" />
             <ShareButton item={note} recordType="ai_note" title={draft.title} iconOnly />
             {!readOnly && (
-              <Button onClick={save} disabled={busy}>
+              <Button
+                onClick={save}
+                disabled={saveBlocked}
+                title={recording ? "Hentikan rekaman dulu sebelum menyimpan" : undefined}
+              >
                 {busy ? (
                   <>
                     <Spinner /> {pendingUploads > 0 ? "Mengunggah..." : "Memproses..."}
                   </>
+                ) : recording ? (
+                  "Sedang merekam..."
                 ) : (
                   "Simpan"
                 )}

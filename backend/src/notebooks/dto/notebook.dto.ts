@@ -125,6 +125,10 @@ export const MAX_CHAT_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_CHAT_FILE_BYTES = 20 * 1024 * 1024;
 /** Context upload untuk berkas yang diunggah langsung ke notebook (ikut terhapus bersama notebook). */
 export const NOTEBOOK_UPLOAD_CONTEXT = "notebook";
+/** Context upload lampiran chat notebook — hanya berkas ini yang boleh dilampirkan & ikut terhapus bersama chat. */
+export const NOTEBOOK_CHAT_CONTEXT = "notebook_chat";
+/** Riwayat chat yang dimuat sekaligus (pesan terbaru); "Muat pesan lama" menambah per kelipatan ini. */
+export const NOTEBOOK_MESSAGES_PAGE = 100;
 
 export class NotebookChatDto {
   @ApiProperty({ description: "Boleh kosong bila ada lampiran" })

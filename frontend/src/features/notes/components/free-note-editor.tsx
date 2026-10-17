@@ -16,7 +16,7 @@ import { InkCanvas } from "../ink/ink-canvas";
 import { type InkData, normalizeInk, PAGE_HEIGHT } from "../ink/ink-logic";
 import { useHandwritingRecognition } from "../ink/use-handwriting-recognition";
 import { docUploadIds, isFreeNoteEmpty, isHandwritingNote, plainTextToDoc } from "../lib/notes-logic";
-import { removeUploads } from "../lib/remove-uploads";
+import { mergeOrphanIds, removeUploads, removeUploadsCollectForbidden } from "../lib/remove-uploads";
 import { NOTE_COLORS } from "../note-colors";
 
 /** Jeda sebelum perubahan dikirim ke koleksi (dokumen berisi coretan bisa besar; jangan diproses tiap ketukan). */
@@ -76,7 +76,15 @@ export default function FreeNoteEditor({
   const cleanupImages = () => {
     if (readOnly || handwriting) return;
     const kept = new Set(docUploadIds(draftRef.current.doc ?? initialDoc));
-    removeUploads([...docUploadIds(initialDoc), ...sessionUploadsRef.current].filter((id) => !kept.has(id)));
+    const removed = [...docUploadIds(initialDoc), ...sessionUploadsRef.current].filter((id) => !kept.has(id));
+    if (!removed.length) return;
+    if (!draftRef.current.share) return removeUploads(removed);
+    // Catatan bersama: gambar milik pemilik tidak boleh dihapus kolaborator → dicatat untuk dibersihkan pemilik
+    void removeUploadsCollectForbidden(removed).then((forbidden) => {
+      if (!forbidden.length) return;
+      const last = draftRef.current;
+      onChangeRef.current({ ...last, orphanUploadIds: mergeOrphanIds(last.orphanUploadIds, forbidden) });
+    });
   };
 
   // Editor ditutup lewat navigasi lain (pindah menu/tab) → tetap simpan & bersihkan

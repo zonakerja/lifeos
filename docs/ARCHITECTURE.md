@@ -211,7 +211,10 @@ muat ulang web/hapus), `/:id/chat` + `/:id/messages` (riwayat permanen), `/:id/s
 - **Lampiran chat**: `fileIds` (maks. 4, milik sendiri): gambar (≤ 10 MB) dikirim ke AI; dokumen (≤ 20 MB) dibaca dari
   teks ekstraksi server (dibatasi 100 rb karakter, tag `<lampiran_pengguna>`), PDF tanpa teks dikirim ke AI sebagai berkas;
   lampiran tidak diberi nomor sitasi. Tersimpan di `notebook_messages.attachments` dan ikut dihapus saat chat dibersihkan /
-  notebook dihapus.
+  notebook dihapus. Hanya berkas context `notebook_chat` yang diterima sebagai lampiran dan yang ikut dihapus.
+- **Riwayat**: `GET /:id/messages?take=` mengembalikan pesan terbaru (default 100) + `hasMore`.
+- **Dipakai notebook**: `GET /notebooks/usage` (item & berkas sumber milik user); `DELETE /uploads/:id` menolak (409)
+  berkas yang masih menjadi sumber notebook agar tidak terhapus dari fitur lain (mis. dokumen Notes AI diganti).
 - **Kepemilikan berkas sumber**: berkas yang diunggah lewat notebook (context `notebook`) ikut terhapus bersama sumber /
   notebook; berkas LifeOS lain yang dipilih sebagai sumber hanya dirujuk dan tidak pernah dihapus notebook.
 - **Studio**: ringkasan JSON (`overview`, `keyPoints`, `questions`) dengan sidik jari sumber → `summaryStale` bila sumber
@@ -378,7 +381,9 @@ perubahan data. API: `GET /api/v1/archive-audit?entityType=&entityId=&take=`.
 | Endpoint | Fungsi |
 |---|---|
 | `GET /records/:type?userId&from&to` | daftar aktif (`from/to` memfilter kolom `dateKey`) |
-| `PUT /records/:type/:clientId` `{ payload, userId? }` | upsert idempotent (juga membatalkan soft delete) |
+| `GET /records/:type?light=1` | daftar ringan: field berat (`record-light.ts`) dipotong, record ditandai `partial` |
+| `GET /records/:type/:clientId?userId=` | satu record utuh (milik sendiri / dibagikan) |
+| `PUT /records/:type/:clientId` `{ payload, userId?, base?, preserve? }` | upsert idempotent (juga membatalkan soft delete); `preserve` = pertahankan key yang tidak utuh di client; `base` = gabungkan perubahan (tipe `MERGE_ARRAY_KEYS`, `record-merge.ts`) |
 | `DELETE /records/:type/:clientId?userId=` | soft delete |
 
 Respons: `{ id, clientId, type, userId, title, date, payload, createdAt, updatedAt }`.

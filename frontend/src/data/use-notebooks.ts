@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
 import { queryKeys } from "@/data/query-keys";
 import { notebooksApi } from "@/lib/api/endpoints";
@@ -7,6 +8,7 @@ import type {
   NotebookAttachment,
   NotebookDetail,
   NotebookMessage,
+  NotebookMessagePage,
   NotebookNote,
   NotebookSource,
 } from "@/types/api";
@@ -26,8 +28,41 @@ export function useNotebook(id: string | null) {
   });
 }
 
+/** Pesan yang dimuat sekaligus; "Muat pesan lama" menambah sebanyak ini. */
+export const NOTEBOOK_MESSAGES_PAGE = 100;
+
+/** Riwayat chat: pesan terbaru dulu dimuat, pesan lama dimuat bertahap. */
 export function useNotebookMessages(id: string) {
-  return useQuery({ queryKey: queryKeys.notebookMessages(id), queryFn: () => notebooksApi.messages(id) });
+  const [take, setTake] = useState(NOTEBOOK_MESSAGES_PAGE);
+  const query = useQuery({
+    queryKey: [...queryKeys.notebookMessages(id), take],
+    queryFn: () => notebooksApi.messages(id, take),
+    placeholderData: keepPreviousData,
+  });
+  return {
+    messages: query.data?.messages ?? EMPTY_MESSAGES,
+    hasMore: !!query.data?.hasMore,
+    isLoading: query.isLoading,
+    isLoadingMore: query.isFetching && query.isPlaceholderData,
+    loadMore: () => setTake((n) => n + NOTEBOOK_MESSAGES_PAGE),
+  };
+}
+
+const EMPTY_MESSAGES: NotebookMessage[] = [];
+
+/** Ubah semua halaman riwayat chat notebook di cache (berapa pun jumlah pesan yang sedang dimuat). */
+const patchMessages = (
+  client: ReturnType<typeof useQueryClient>,
+  id: string,
+  fn: (messages: NotebookMessage[]) => NotebookMessage[],
+) =>
+  client.setQueriesData<NotebookMessagePage>({ queryKey: queryKeys.notebookMessages(id) }, (prev) =>
+    prev ? { ...prev, messages: fn(prev.messages) } : prev,
+  );
+
+/** Item LifeOS & berkas yang menjadi sumber notebook (dialog hapus catatan memakai ini). */
+export function useNotebookUsage(enabled = true) {
+  return useQuery({ queryKey: queryKeys.notebookUsage, queryFn: notebooksApi.usage, enabled, staleTime: 30_000 });
 }
 
 export function useNotebookNotes(id: string) {
@@ -62,6 +97,7 @@ export function useDeleteNotebook() {
     onSuccess: (_, id) => {
       client.removeQueries({ queryKey: queryKeys.notebook(id) });
       void client.invalidateQueries({ queryKey: queryKeys.notebooks, exact: true });
+      void client.invalidateQueries({ queryKey: queryKeys.notebookUsage });
     },
   });
 }
@@ -76,6 +112,7 @@ export function useNotebookSources(id: string) {
     // Ringkasan bisa menjadi usang & jumlah sumber di daftar berubah
     void client.invalidateQueries({ queryKey: queryKeys.notebook(id), exact: true });
     void client.invalidateQueries({ queryKey: queryKeys.notebooks, exact: true });
+    void client.invalidateQueries({ queryKey: queryKeys.notebookUsage });
   };
   const upsert = (source: NotebookSource) =>
     patchSources((list) =>
@@ -110,7 +147,6 @@ export function useNotebookSources(id: string) {
 /** Kirim pertanyaan; pesan user tampil seketika, jawaban AI ditambahkan saat selesai. */
 export function useNotebookChat(id: string) {
   const client = useQueryClient();
-  const key = queryKeys.notebookMessages(id);
   return useMutation({
     mutationFn: ({ message, attachments = [] }: { message: string; attachments?: NotebookAttachment[] }) =>
       notebooksApi.chat(
@@ -127,19 +163,18 @@ export function useNotebookChat(id: string) {
         attachments,
         createdAt: new Date().toISOString(),
       };
-      client.setQueryData<NotebookMessage[]>(key, (prev) => [...(prev ?? []), pending]);
+      patchMessages(client, id, (prev) => [...prev, pending]);
       return { pendingId: pending.id };
     },
     onSuccess: (result, _, context) => {
-      client.setQueryData<NotebookMessage[]>(key, (prev) => [
-        ...(prev ?? []).filter((m) => m.id !== context?.pendingId),
+      patchMessages(client, id, (prev) => [
+        ...prev.filter((m) => m.id !== context?.pendingId),
         result.userMessage,
         result.assistantMessage,
       ]);
       if (result.fallback) toast.info("Provider AI cadangan dipakai", { description: result.fallback.message });
     },
-    onError: (_, __, context) =>
-      client.setQueryData<NotebookMessage[]>(key, (prev) => (prev ?? []).filter((m) => m.id !== context?.pendingId)),
+    onError: (_, __, context) => patchMessages(client, id, (prev) => prev.filter((m) => m.id !== context?.pendingId)),
   });
 }
 
@@ -147,7 +182,11 @@ export function useClearNotebookChat(id: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () => notebooksApi.clearMessages(id),
-    onSuccess: () => client.setQueryData<NotebookMessage[]>(queryKeys.notebookMessages(id), []),
+    onSuccess: () =>
+      client.setQueriesData<NotebookMessagePage>({ queryKey: queryKeys.notebookMessages(id) }, () => ({
+        messages: [],
+        hasMore: false,
+      })),
   });
 }
 

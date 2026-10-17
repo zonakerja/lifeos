@@ -1,4 +1,4 @@
-import { IsObject, IsOptional, IsString } from "class-validator";
+import { ArrayMaxSize, IsArray, IsObject, IsOptional, IsString } from "class-validator";
 
 export class UpsertRecordDto {
   /** Data entitas apa adanya. `payload.id` diselaraskan dengan clientId pada URL. */
@@ -9,4 +9,19 @@ export class UpsertRecordDto {
   @IsOptional()
   @IsString()
   userId?: string;
+
+  /**
+   * Isi item sebelum perubahan client. Untuk tipe yang mendukung penggabungan (List), server menerapkan selisih
+   * base → payload di atas isi terkini sehingga perubahan orang lain tidak tertimpa (`record-merge.ts`).
+   */
+  @IsOptional()
+  @IsObject()
+  base?: Record<string, unknown>;
+
+  /** Key yang tidak utuh di client (daftar ringan) → nilai tersimpan dipertahankan (`record-light.ts`). */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  preserve?: string[];
 }

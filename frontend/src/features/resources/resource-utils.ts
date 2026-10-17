@@ -84,6 +84,8 @@ export function mergeIntoGlobalResources(
       (r) =>
         (att.existingId && r.id === att.existingId) ||
         (att.type === "link" && r.url && r.url === att.url) ||
+        // Catatan yang sama (Notes AI / Catatan Bebas / List) tidak dibuat ganda
+        (att.type === "note" && att.noteId && r.noteId === att.noteId) ||
         (att.type === "file" && r.title === att.name),
     );
 
@@ -115,6 +117,8 @@ export function mergeIntoGlobalResources(
         url: att.url,
         uploadId: att.uploadId,
         mimeType: att.mimeType,
+        // Resource catatan dibuka di Notes Space lewat noteId
+        ...(att.type === "note" && att.noteId ? { noteId: att.noteId } : {}),
         date: att.date || new Date().toISOString(),
         createdAt: new Date().toISOString(),
         tags: [contextTag, ...(att.tags ?? [])],

@@ -16,6 +16,7 @@ import {
   ChevronRight,
   CalendarClock,
   Undo2,
+  Plus,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useNavigate } from "react-router";
@@ -268,7 +269,8 @@ function ScheduleDetail({
   const { items: types } = useAgendaTypeList();
   const { items: aiNotes } = useAiNotes();
   const today = formatLocalYMD(useToday());
-  const [addingResult, setAddingResult] = useState(false);
+  // Form Tambah Hasil: null = tertutup; objek = isian awal (kosong, atau Notes AI terhubung yang dimasukkan ke Hasil)
+  const [addingResult, setAddingResult] = useState<Partial<AttachedResource> | null>(null);
   const [outcome, setOutcome] = useState(schedule.outcome ?? "");
   const cleanup = useAttachmentCleanup();
   const [removingResult, setRemovingResult] = useState<AttachedResource | null>(null);
@@ -285,6 +287,8 @@ function ScheduleDetail({
   const { icon: TypeIcon, className: typeClass } = scheduleTypeStyle(schedule.type, types);
   const mediaLinks = scheduleLinks(schedule);
   const linkedNotes = aiNotes.filter((n) => n.linkedScheduleId === schedule.id);
+  // Notes AI terhubung tidak otomatis menjadi lampiran hasil (bisa catatan pribadi) — user memasukkannya bila perlu
+  const resultNoteIds = new Set((schedule.results ?? []).map((r) => r.noteId).filter(Boolean));
   // Agenda milik Project / item Area (Productivity)
   const { items: projects } = useProjects();
   const { items: activities } = useActivities();
@@ -492,8 +496,13 @@ function ScheduleDetail({
                 Ringkasan, catatan dari Notes Space, berkas, atau web link hasil agenda ini.
               </p>
             </div>
-            {canEdit && !addingResult && (
-              <AddAttachmentButton label="Tambah Hasil" onClick={() => setAddingResult(true)} />
+            {canEdit && (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => goto(links.newAiNoteForSchedule(schedule.id))}>
+                  <Sparkles /> Buat Notes AI
+                </Button>
+                {!addingResult && <AddAttachmentButton label="Tambah Hasil" onClick={() => setAddingResult({})} />}
+              </div>
             )}
           </div>
 
@@ -532,55 +541,86 @@ function ScheduleDetail({
           </div>
 
           <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
               <p className="text-xs font-semibold text-muted-foreground">Notes AI terhubung ({linkedNotes.length})</p>
-              {canEdit && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7"
-                  onClick={() => goto(links.newAiNoteForSchedule(schedule.id))}
-                >
-                  <Sparkles /> Buat Notes AI
-                </Button>
-              )}
-            </div>
-            {linkedNotes.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {linkedNotes.map((note) => (
-                  <Button
-                    key={note.id}
-                    variant="secondary"
-                    size="sm"
-                    className="h-auto max-w-full justify-start py-1.5"
-                    onClick={() => goto(links.note("ai", note.id))}
-                  >
-                    <Sparkles className="text-module" />
-                    <span className="truncate">{note.title || "Tanpa judul"}</span>
-                  </Button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground italic">
-                Notes AI yang memilih agenda ini otomatis tampil di sini.
+              <p className="text-[11px] text-muted-foreground">
+                {linkedNotes.length > 0
+                  ? "Tertaut karena memilih agenda ini. Masukkan ke Hasil bila perlu menjadi lampiran hasil / Resource Global; catatan pribadi cukup tertaut."
+                  : "Notes AI yang memilih agenda ini otomatis tertaut di sini."}
               </p>
+            </div>
+            {linkedNotes.length > 0 && (
+              <ul className="flex flex-col divide-y overflow-hidden rounded-xl border bg-card">
+                {linkedNotes.map((note) => {
+                  const included = resultNoteIds.has(`ai-${note.id}`);
+                  return (
+                    <li key={note.id} className="flex min-w-0 items-center gap-2 px-3 py-1.5">
+                      <Sparkles className="size-4 shrink-0 text-module" />
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:text-module hover:underline"
+                        title="Buka Notes AI"
+                        onClick={() => goto(links.note("ai", note.id))}
+                      >
+                        {note.title || "Tanpa judul"}
+                      </button>
+                      {note.date && (
+                        <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+                          {formatShortDate(parseLocalYMD(note.date))}
+                        </span>
+                      )}
+                      {included ? (
+                        <Badge className="shrink-0 bg-success/15 text-success">
+                          <Check /> Di Hasil
+                        </Badge>
+                      ) : (
+                        canEdit && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 shrink-0"
+                            disabled={!!addingResult}
+                            onClick={() =>
+                              setAddingResult({
+                                type: "note",
+                                noteId: `ai-${note.id}`,
+                                name: note.title || "Notes AI",
+                                description: "Notes AI hasil agenda",
+                                aiSummary: note.aiSummary ?? "",
+                                date: note.date || end,
+                              })
+                            }
+                          >
+                            <Plus /> Masukkan ke Hasil
+                          </Button>
+                        )
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </div>
 
           {addingResult && (
             <AttachmentForm
+              key={addingResult.noteId ?? "new"}
+              initial={addingResult}
               defaultDate={end}
               uploadContext="schedule-result"
               offerAiSummary
               idPrefix="sr"
               types={["note", "file", "link", "existing"]}
-              onCancel={() => setAddingResult(false)}
+              onCancel={() => setAddingResult(null)}
               onAdd={(att) => {
                 update({ results: [...(schedule.results ?? []), att] });
-                setAddingResult(false);
+                setAddingResult(null);
               }}
             />
           )}
+          <p className="text-xs font-semibold text-muted-foreground">
+            Lampiran Hasil ({schedule.results?.length ?? 0})
+          </p>
           <AttachmentTable
             resources={schedule.results}
             emptyText="Belum ada lampiran hasil."

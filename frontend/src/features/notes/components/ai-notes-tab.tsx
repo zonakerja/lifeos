@@ -1,7 +1,19 @@
-import { CalendarDays, FileText, Link2, Mic, Paperclip, Pin, PinOff, Plus, Sparkles, Trash2 } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronLeft,
+  FileText,
+  Link2,
+  Mic,
+  Paperclip,
+  Pin,
+  PinOff,
+  Plus,
+  SearchX,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 import { AccessScope } from "@/components/common/access-scope";
-import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { SharedBadge } from "@/features/sharing/shared-badge";
 import { itemAccess } from "@/lib/sharing";
 import { PageLoader } from "@/components/common/page-loader";
@@ -9,8 +21,10 @@ import { PaginationControl } from "@/components/common/pagination-control";
 import { SearchInput } from "@/components/common/search-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { useAiNotes, useSchedules } from "@/data/collections";
+import { useCompleteItem } from "@/data/use-complete-item";
+import { errorMessage } from "@/lib/api/client";
 import { usePagination } from "@/hooks/use-pagination";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSearchParam, useSetSearchParams } from "@/hooks/use-search-param";
@@ -21,7 +35,10 @@ import type { AiNote, Schedule } from "@/types/entities";
 import { agendaLabel } from "../lib/agenda-options";
 import { fileOf, filterAiNotes, sortAiNotes, uploadIdsOf } from "../lib/notes-logic";
 import { removeUploads } from "../lib/remove-uploads";
+import { useOrphanUploadsJanitor } from "../lib/use-orphan-uploads";
 import { AiNoteEditor } from "./ai-note-editor";
+import { NoteDeleteDialog } from "@/features/resources/note-delete-dialog";
+import { noteKey } from "@/features/resources/note-references";
 
 /** Tombol aksi kartu: muncul saat hover di perangkat ber-mouse, selalu terlihat di layar sentuh. */
 const HOVER_ACTIONS =
@@ -59,18 +76,45 @@ export function AiNotesTab() {
   const setParams = useSetSearchParams();
   const [deleting, setDeleting] = useState<AiNote | null>(null);
   const [query, setQuery] = useState("");
+  useOrphanUploadsJanitor("ai_note", notes, setItems);
 
   const visible = sortAiNotes(filterAiNotes(notes, query));
   const { pageItems, setPage, controlProps } = usePagination(visible, 10);
 
   const fromSchedule = noteParam === "new" && scheduleParam ? schedules.find((s) => s.id === scheduleParam) : undefined;
-  const editing =
+  const target =
     noteParam === "new" ? emptyNote(fromSchedule) : (notes.find((n) => String(n.id) === noteParam) ?? null);
+  // Daftar tidak memuat teks dokumen terlampir → isi lengkap diambil saat catatan dibuka
+  const complete = useCompleteItem("ai_note", target);
+  const editing = complete.item;
+  const missing = !!noteParam && noteParam !== "new" && !isLoading && !target;
 
   const upsert = (note: AiNote) =>
     setItems((prev) =>
       prev.some((n) => n.id === note.id) ? prev.map((n) => (n.id === note.id ? note : n)) : [...prev, note],
     );
+
+  if (missing || complete.error) {
+    return (
+      <Empty className="border border-dashed">
+        <EmptyHeader>
+          <EmptyMedia variant="icon" className="bg-muted text-muted-foreground">
+            <SearchX />
+          </EmptyMedia>
+          <EmptyTitle>{missing ? "Notes AI tidak ditemukan" : "Notes AI gagal dibuka"}</EmptyTitle>
+          <EmptyDescription>
+            {missing
+              ? "Catatan ini mungkin sudah dihapus atau tidak lagi dibagikan kepada Anda."
+              : errorMessage(complete.error)}
+          </EmptyDescription>
+        </EmptyHeader>
+        <Button variant="outline" onClick={() => setParams({ note: null, schedule: null })}>
+          <ChevronLeft /> Kembali ke daftar
+        </Button>
+      </Empty>
+    );
+  }
+  if (target && complete.isLoading) return <PageLoader label="Membuka Notes AI..." />;
 
   if (editing) {
     return (
@@ -216,8 +260,8 @@ export function AiNotesTab() {
       )}
       <PaginationControl {...controlProps} />
 
-      <ConfirmDialog
-        open={!!deleting}
+      <NoteDeleteDialog
+        noteKey={deleting ? noteKey("ai", deleting.id) : null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title="Hapus Notes AI?"
         description={
@@ -226,7 +270,6 @@ export function AiNotesTab() {
             : "Catatan ini akan dihapus permanen."
         }
         itemName={deleting?.title || "Tanpa Judul"}
-        confirmLabel="Hapus"
         onConfirm={() => {
           if (deleting) {
             setItems((prev) => prev.filter((n) => n.id !== deleting.id));

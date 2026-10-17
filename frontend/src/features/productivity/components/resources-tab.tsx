@@ -12,6 +12,7 @@ import {
   Upload,
 } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { DateRangeFilter } from "@/components/common/date-range-filter";
@@ -44,7 +45,7 @@ import { useOfficeDiscardConfirm } from "@/features/tools/onlyoffice/use-office-
 import type { UploadedAsset } from "@/types/api";
 import { ResourceAiDialog } from "@/features/resources/resource-ai-dialog";
 import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
-import { openAttachment } from "@/features/resources/resource-utils";
+import { noteAttachmentPath, openAttachment } from "@/features/resources/resource-utils";
 import { readAiSummaryPreference, writeAiSummaryPreference } from "@/features/resources/ai-summary-preference";
 import {
   addFreeTag,
@@ -95,6 +96,13 @@ export function ResourcesTab() {
   const { items: resources, setItems: setResources } = useResources();
   const { canEdit } = usePermissions();
   const actions = useParaActions();
+  const navigate = useNavigate();
+  // Resource catatan (tanpa berkas/link) dibuka di Notes Space; berkas di modal pratinjau, link di tab baru
+  const openResource = (res: Resource) => {
+    const notePath = !res.uploadId && !res.url ? noteAttachmentPath(res.noteId) : null;
+    if (notePath) void navigate(notePath);
+    else void openAttachment(res);
+  };
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState(DEFAULT_DATE_FILTER);
   const [page, setPage] = useState(1);
@@ -173,7 +181,7 @@ export function ResourcesTab() {
                 <TableCell>
                   <button
                     type="button"
-                    onClick={() => void openAttachment(res)}
+                    onClick={() => openResource(res)}
                     className="flex max-w-72 items-center gap-2 text-left font-semibold text-module hover:underline"
                   >
                     {res.type === "file" ? (

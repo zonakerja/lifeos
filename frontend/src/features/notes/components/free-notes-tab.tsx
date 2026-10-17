@@ -1,7 +1,6 @@
-import { Keyboard, NotebookPen, PenLine, Pin, PinOff, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, Keyboard, NotebookPen, PenLine, Pin, PinOff, Plus, SearchX, Trash2 } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import { toast } from "sonner";
-import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { PageLoader } from "@/components/common/page-loader";
 import { PaginationControl } from "@/components/common/pagination-control";
 import { SearchInput } from "@/components/common/search-input";
@@ -13,8 +12,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { useFreeNotes } from "@/data/collections";
+import { fetchCompleteItem, useCompleteItem } from "@/data/use-complete-item";
+import { errorMessage } from "@/lib/api/client";
 import { usePagination } from "@/hooks/use-pagination";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSearchParam } from "@/hooks/use-search-param";
@@ -25,10 +26,13 @@ import { emptyInk, normalizeInk, PAGE_HEIGHT } from "../ink/ink-logic";
 import { InkSurface } from "../ink/ink-surface";
 import { docUploadIds, filterFreeNotes, isFreeNoteEmpty, isHandwritingNote, sortFreeNotes } from "../lib/notes-logic";
 import { removeUploads } from "../lib/remove-uploads";
+import { useOrphanUploadsJanitor } from "../lib/use-orphan-uploads";
 import { noteColor } from "../note-colors";
 import { AccessScope } from "@/components/common/access-scope";
 import { SharedBadge } from "@/features/sharing/shared-badge";
 import { itemAccess } from "@/lib/sharing";
+import { NoteDeleteDialog } from "@/features/resources/note-delete-dialog";
+import { noteKey } from "@/features/resources/note-references";
 
 // Editor (Tiptap + kanvas stylus) dimuat saat catatan dibuka agar daftar catatan tetap ringan
 const FreeNoteEditor = lazy(() => import("./free-note-editor"));
@@ -64,19 +68,45 @@ export function FreeNotesTab() {
   const [noteParam, setNoteParam] = useSearchParam("note");
   const [deleting, setDeleting] = useState<FreeNote | null>(null);
   const [query, setQuery] = useState("");
+  useOrphanUploadsJanitor("free_note", notes, setItems);
 
   const visible = sortFreeNotes(filterFreeNotes(notes, query));
   const { pageItems, setPage, controlProps } = usePagination(visible, 12);
 
-  const editing =
-    noteParam === NEW_TEXT || noteParam === NEW_INK
-      ? emptyNote(noteParam === NEW_INK)
-      : (notes.find((n) => String(n.id) === noteParam) ?? null);
+  const isNew = noteParam === NEW_TEXT || noteParam === NEW_INK;
+  const target = isNew ? emptyNote(noteParam === NEW_INK) : (notes.find((n) => String(n.id) === noteParam) ?? null);
+  // Daftar memuat versi ringan (tanpa dokumen/coretan lengkap) → isi lengkap diambil saat catatan dibuka
+  const complete = useCompleteItem("free_note", target);
+  const editing = complete.item;
+  // ?note=<id> untuk catatan yang tidak ada (sudah dihapus / tidak lagi dibagikan)
+  const missing = !!noteParam && !isNew && !isLoading && !target;
 
   const upsert = (note: FreeNote) =>
     setItems((prev) =>
       prev.some((n) => n.id === note.id) ? prev.map((n) => (n.id === note.id ? note : n)) : [...prev, note],
     );
+
+  if (missing || complete.error) {
+    return (
+      <Empty className="border border-dashed">
+        <EmptyHeader>
+          <EmptyMedia variant="icon" className="bg-muted text-muted-foreground">
+            <SearchX />
+          </EmptyMedia>
+          <EmptyTitle>{missing ? "Catatan tidak ditemukan" : "Catatan gagal dibuka"}</EmptyTitle>
+          <EmptyDescription>
+            {missing
+              ? "Catatan ini mungkin sudah dihapus atau tidak lagi dibagikan kepada Anda."
+              : errorMessage(complete.error)}
+          </EmptyDescription>
+        </EmptyHeader>
+        <Button variant="outline" onClick={() => setNoteParam(null)}>
+          <ChevronLeft /> Kembali ke daftar
+        </Button>
+      </Empty>
+    );
+  }
+  if (target && complete.isLoading) return <PageLoader label="Membuka catatan..." />;
 
   if (editing) {
     return (
@@ -213,19 +243,23 @@ export function FreeNotesTab() {
       )}
       <PaginationControl {...controlProps} sizes={[12, 24, 48]} />
 
-      <ConfirmDialog
-        open={!!deleting}
+      <NoteDeleteDialog
+        noteKey={deleting ? noteKey("free", deleting.id) : null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title="Hapus Catatan?"
         description="Catatan ini akan dihapus permanen."
         itemName={deleting?.title || "Tanpa Judul"}
-        confirmLabel="Hapus"
         onConfirm={() => {
-          if (deleting) {
-            setItems((prev) => prev.filter((n) => n.id !== deleting.id));
-            removeUploads(docUploadIds(deleting.doc));
-          }
+          const note = deleting;
           setDeleting(null);
+          if (!note) return;
+          // Gambar di dokumen ikut dihapus — dokumen lengkap diambil dulu (daftar hanya memuat versi ringan)
+          void fetchCompleteItem("free_note", note)
+            .then((full) => {
+              setItems((prev) => prev.filter((n) => n.id !== note.id));
+              removeUploads(docUploadIds(full.doc));
+            })
+            .catch((error: unknown) => toast.error("Gagal menghapus catatan", { description: errorMessage(error) }));
         }}
       />
     </div>

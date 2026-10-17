@@ -10,11 +10,15 @@ import { ListRecordsQueryDto } from "./dto/list-records-query.dto";
 import { RecordOwnerQueryDto } from "./dto/record-owner-query.dto";
 import { UpsertRecordDto } from "./dto/upsert-record.dto";
 import { domainDelegate } from "./record-delegate";
+import { preserveFields, toLightPayload } from "./record-light";
+import { MERGE_ARRAY_KEYS, mergePayload } from "./record-merge";
 import { type Payload, payloadToRow, rowToPayload, toApiRecord } from "./record-mapper";
 import { RECORD_TABLES, type RecordType, type TableSpec, fieldName } from "./record-schema";
 
 /** Penanda item milik user lain yang dibagikan (dikirim bersama record). */
 type SharedMeta = { ownerId: string; ownerName: string; permission: SharePermission; root: boolean };
+/** Record di respons daftar: `partial` = key payload yang tidak utuh (daftar ringan). */
+type ApiRecord = ReturnType<typeof toApiRecord> & { share?: SharedMeta; partial?: string[] };
 
 /** Metadata akses yang ditempelkan ke respons (bukan bagian data) — dibuang bila ikut terkirim saat menulis. */
 const META_KEYS = ["share"];
@@ -84,9 +88,7 @@ export class RecordsService {
     const orderBy = [{ createdAt: "asc" }, { id: "asc" }];
 
     const own = await table.findMany({ where: { ...where, userId: user.id }, orderBy });
-    const result: (ReturnType<typeof toApiRecord> & { share?: SharedMeta })[] = own.map((row) =>
-      toApiRecord(type, spec, row),
-    );
+    const result: ApiRecord[] = own.map((row) => toApiRecord(type, spec, row));
 
     for (const access of (await this.shareAccess.forUser(user.id)).values()) {
       const entries = [...access.records.values()].filter((e) => e.type === type);
@@ -108,7 +110,31 @@ export class RecordsService {
         });
       }
     }
-    return result;
+    return query.light ? result.map((record) => this.lighten(type, record)) : result;
+  }
+
+  /** Versi daftar: field berat dipotong, ditandai `partial`. */
+  private lighten(type: RecordType, record: ApiRecord): ApiRecord {
+    const { payload, partial } = toLightPayload(type, record.payload);
+    return partial.length ? { ...record, payload, partial } : record;
+  }
+
+  /** Satu record utuh (milik sendiri atau dibagikan kepada user) — dipakai editor setelah daftar ringan. */
+  async findOne(type: RecordType, clientId: string, query: RecordOwnerQueryDto, user: AuthUser) {
+    const spec: TableSpec = RECORD_TABLES[type];
+    const ownerId = query.userId ?? user.id;
+    let share: SharedMeta | undefined;
+    if (ownerId !== user.id) {
+      const access = await this.shareAccess.forOwner(user.id, ownerId);
+      const entry = access?.records.get(accessKey(type, clientId));
+      if (!access || !entry) throw new NotFoundException("Record tidak ditemukan.");
+      share = { ownerId, ownerName: access.ownerName, permission: entry.permission, root: entry.root };
+    }
+    const row = await domainDelegate(this.prisma, type).findUnique({
+      where: { userId_clientId: { userId: ownerId, clientId } },
+    });
+    if (!row || row.deletedAt) throw new NotFoundException("Record tidak ditemukan.");
+    return { ...toApiRecord(type, spec, row), ...(share ? { share } : {}) };
   }
 
   async upsert(type: RecordType, clientId: string, dto: UpsertRecordDto, user: AuthUser) {
@@ -116,21 +142,29 @@ export class RecordsService {
     const payload: Payload = { ...dto.payload, id: dto.payload.id ?? clientId };
     for (const key of META_KEYS) delete payload[key];
     const userId = await this.resolveWriteOwner(type, clientId, dto.userId ?? payload.userId, payload, user);
-    const data = { ...payloadToRow(spec, payload, clientId), deletedAt: null };
+    const mergeKeys = dto.base ? MERGE_ARRAY_KEYS[type] : undefined;
+    const preserve = dto.preserve?.length ? dto.preserve : undefined;
 
     const row = await this.prisma.$transaction(async (tx) => {
       const table = domainDelegate(tx, type);
       const key = { userId_clientId: { userId, clientId } };
-      const before = spec.audit ? await table.findUnique({ where: key }) : null;
+      const before = spec.audit || mergeKeys || preserve ? await table.findUnique({ where: key }) : null;
+      const current = before && !before.deletedAt ? rowToPayload(spec, before) : undefined;
+      let next = payload;
+      // Perubahan client diterapkan di atas isi terkini (perubahan orang lain tidak tertimpa)
+      if (mergeKeys && dto.base) {
+        const base = { ...dto.base };
+        for (const meta of META_KEYS) delete base[meta];
+        next = { ...mergePayload(current, base, next, mergeKeys), id: next.id };
+      }
+      if (preserve) next = preserveFields(type, next, current, preserve);
+      const data = { ...payloadToRow(spec, next, clientId), deletedAt: null };
       const saved = await table.upsert({
         where: key,
         create: { userId, clientId, ...data },
         update: data,
       });
-      if (spec.audit) {
-        const beforePayload = before && !before.deletedAt ? rowToPayload(spec, before) : undefined;
-        await this.audit(tx, type, user, saved.userId, clientId, beforePayload, rowToPayload(spec, saved));
-      }
+      if (spec.audit) await this.audit(tx, type, user, saved.userId, clientId, current, rowToPayload(spec, saved));
       return saved;
     });
     if (userId !== user.id) this.shareAccess.invalidate();

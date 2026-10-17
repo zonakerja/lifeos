@@ -20,6 +20,17 @@ export class RecordsController {
     return this.records.findMany(this.records.parseType(type), query, user);
   }
 
+  /** Satu entitas utuh (`?userId=` = pemilik item yang dibagikan) — melengkapi daftar ringan (`?light=1`). */
+  @Get(":type/:clientId")
+  findOne(
+    @Param("type") type: string,
+    @Param("clientId") clientId: string,
+    @Query() query: RecordOwnerQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.records.findOne(this.records.parseType(type), clientId, query, user);
+  }
+
   /** Buat atau perbarui satu entitas berdasarkan ID buatan client (idempotent). */
   @Put(":type/:clientId")
   upsert(

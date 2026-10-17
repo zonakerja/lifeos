@@ -11,7 +11,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { PageLoader } from "@/components/common/page-loader";
 import { PaginationControl } from "@/components/common/pagination-control";
@@ -32,6 +32,8 @@ import { ShareButton } from "@/features/sharing/share-dialog";
 import { SharedBadge } from "@/features/sharing/shared-badge";
 import { useSearchParam } from "@/hooks/use-search-param";
 import { itemAccess } from "@/lib/sharing";
+import { NoteDeleteDialog } from "@/features/resources/note-delete-dialog";
+import { noteKey } from "@/features/resources/note-references";
 
 type ItemRef = { listId: FreeList["id"]; itemId: ListItem["id"] };
 
@@ -58,6 +60,16 @@ export function ListsTab() {
     query,
   );
   const highlighted = filteredLists.find((l) => String(l.id) === listParam);
+  // Tautan ke list yang sedang tidak terlihat: diarsipkan (ada di tampilan lain) atau sudah tidak ada
+  const linkedList = listParam ? lists.find((l) => String(l.id) === listParam) : undefined;
+  const linkNotice =
+    !listParam || isLoading || highlighted
+      ? null
+      : !linkedList
+        ? "missing"
+        : !!linkedList.archived !== showArchived
+          ? "other-view"
+          : null;
   const displayed = highlighted ? [highlighted, ...filteredLists.filter((l) => l !== highlighted)] : filteredLists;
   const { pageItems, setPage, controlProps } = usePagination(displayed, 9);
 
@@ -72,21 +84,39 @@ export function ListsTab() {
     setQuery("");
   };
 
-  const saveTitle = (e: FormEvent) => {
-    e.preventDefault();
-    if (!editingTitle?.title.trim()) return;
-    updateList(editingTitle.id, (l) => ({ ...l, title: editingTitle.title.trim() }));
+  // Ubah judul/teks item: Enter atau klik di luar = simpan, Esc = batal. Teks kosong tidak disimpan.
+  // Esc menandai batal agar blur yang menyusul (input dilepas) tidak ikut menyimpan.
+  const cancelEditRef = useRef(false);
+  const cancelEdit = () => {
+    cancelEditRef.current = true;
+    setEditingTitle(null);
+    setEditingItem(null);
+  };
+  const commitTitle = () => {
+    if (cancelEditRef.current) return void (cancelEditRef.current = false);
+    const title = editingTitle?.title.trim();
+    if (editingTitle && title) updateList(editingTitle.id, (l) => (l.title === title ? l : { ...l, title }));
     setEditingTitle(null);
   };
+  const saveTitle = (e: FormEvent) => {
+    e.preventDefault();
+    commitTitle();
+  };
 
+  const commitItemText = () => {
+    if (cancelEditRef.current) return void (cancelEditRef.current = false);
+    const text = editingItem?.text.trim();
+    if (editingItem && text) {
+      updateList(editingItem.listId, (l) => ({
+        ...l,
+        items: l.items.map((i) => (i.id === editingItem.itemId && i.text !== text ? { ...i, text } : i)),
+      }));
+    }
+    setEditingItem(null);
+  };
   const saveItemText = (e: FormEvent) => {
     e.preventDefault();
-    if (!editingItem?.text.trim()) return;
-    updateList(editingItem.listId, (l) => ({
-      ...l,
-      items: l.items.map((i) => (i.id === editingItem.itemId ? { ...i, text: editingItem.text.trim() } : i)),
-    }));
-    setEditingItem(null);
+    commitItemText();
   };
 
   return (
@@ -137,6 +167,31 @@ export function ListsTab() {
         </div>
       </div>
 
+      {linkNotice && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm">
+          <span>
+            {linkNotice === "missing"
+              ? "List yang ditautkan tidak ditemukan — mungkin sudah dihapus atau tidak lagi dibagikan."
+              : linkedList?.archived
+                ? `List "${linkedList.title}" ada di arsip.`
+                : `List "${linkedList?.title}" ada di daftar aktif.`}
+          </span>
+          {linkNotice === "other-view" && (
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                setShowArchived(!!linkedList?.archived);
+                setQuery("");
+                setPage(1);
+              }}
+            >
+              {linkedList?.archived ? "Lihat arsip" : "Lihat list aktif"}
+            </Button>
+          )}
+        </div>
+      )}
+
       {isLoading ? (
         <PageLoader />
       ) : displayed.length === 0 ? (
@@ -176,7 +231,9 @@ export function ListsTab() {
                           className="h-8 font-bold"
                           value={editingTitle.title}
                           onChange={(e) => setEditingTitle({ ...editingTitle, title: e.target.value })}
-                          onBlur={() => setEditingTitle(null)}
+                          onFocus={() => (cancelEditRef.current = false)}
+                          onBlur={commitTitle}
+                          onKeyDown={(e) => e.key === "Escape" && cancelEdit()}
                         />
                       </form>
                     ) : (
@@ -272,7 +329,9 @@ export function ListsTab() {
                               className="h-7 text-sm"
                               value={editingItem.text}
                               onChange={(e) => setEditingItem({ ...editingItem, text: e.target.value })}
-                              onBlur={() => setEditingItem(null)}
+                              onFocus={() => (cancelEditRef.current = false)}
+                              onBlur={commitItemText}
+                              onKeyDown={(e) => e.key === "Escape" && cancelEdit()}
                             />
                           </form>
                         ) : (
@@ -380,13 +439,12 @@ export function ListsTab() {
       )}
       <PaginationControl {...controlProps} sizes={[9, 18, 36]} />
 
-      <ConfirmDialog
-        open={!!deleting}
+      <NoteDeleteDialog
+        noteKey={deleting ? noteKey("list", deleting.id) : null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title="Hapus List?"
         description="List dan semua item di dalamnya akan dihapus permanen."
         itemName={deleting?.title}
-        confirmLabel="Hapus"
         onConfirm={() => {
           if (deleting) setItems((prev) => prev.filter((l) => l.id !== deleting.id));
           setDeleting(null);

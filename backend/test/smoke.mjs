@@ -691,6 +691,66 @@ try {
   );
   r = await j("DELETE", `/shares/${seriesShareId}`, null, at);
   ok("revoke series share", r.s === 200, r);
+  // ---------------------------------------------------------------- Daftar ringan & penggabungan tulis (Notes)
+  const heavyInk = {
+    version: 1,
+    height: 1800,
+    paper: "plain",
+    strokes: [
+      { tool: "pen", color: "ink", size: 2, pressure: false, points: [10, 100, 0.5, 20, 110, 0.5] },
+      { tool: "pen", color: "ink", size: 2, pressure: false, points: [10, 1500, 0.5, 20, 1510, 0.5] },
+    ],
+  };
+  await j(
+    "PUT",
+    "/records/free_note/sm-light",
+    { payload: { id: "sm-light", title: "Ringan", content: "teks", doc: { type: "doc" }, ink: heavyInk } },
+    at,
+  );
+  r = await j("GET", "/records/free_note?light=1", null, at);
+  const lightNote = r.d.find((x) => x.clientId === "sm-light");
+  ok(
+    "light list trims heavy note fields",
+    r.s === 200 &&
+      lightNote?.partial?.join() === "doc,ink" &&
+      lightNote.payload.doc === undefined &&
+      lightNote.payload.ink.strokes.length === 1,
+    r,
+  );
+  r = await j("GET", "/records/free_note/sm-light", null, at);
+  ok("single record is complete", r.s === 200 && r.d.payload.ink.strokes.length === 2 && !!r.d.payload.doc, r);
+  r = await j("GET", "/records/free_note/sm-light", null, pt);
+  ok("single record isolated from other user 404", r.s === 404, r);
+  r = await j(
+    "PUT",
+    "/records/free_note/sm-light",
+    { payload: { ...lightNote.payload, pinned: true }, preserve: ["doc", "ink"] },
+    at,
+  );
+  r = await j("GET", "/records/free_note/sm-light", null, at);
+  ok(
+    "preserve keeps heavy fields when writing a light item",
+    r.d.payload.pinned === true && r.d.payload.ink.strokes.length === 2 && !!r.d.payload.doc,
+    r,
+  );
+  await j("DELETE", "/records/free_note/sm-light", null, at);
+  const listBase = { id: "sm-merge", title: "Belanja", items: [{ id: 1, text: "Beras", checked: false }] };
+  await j("PUT", "/records/list/sm-merge", { payload: listBase }, at);
+  // Penulis lain menambah item; client yang masih memegang versi lama menambah item juga
+  await j(
+    "PUT",
+    "/records/list/sm-merge",
+    { payload: { ...listBase, items: [...listBase.items, { id: 2, text: "Teh", checked: false }] }, base: listBase },
+    at,
+  );
+  r = await j(
+    "PUT",
+    "/records/list/sm-merge",
+    { payload: { ...listBase, items: [...listBase.items, { id: 3, text: "Kopi", checked: false }] }, base: listBase },
+    at,
+  );
+  ok("list write merges concurrent items", r.s === 200 && r.d.payload.items.map((i) => i.id).join() === "1,2,3", r);
+  await j("DELETE", "/records/list/sm-merge", null, at);
   // ---------------------------------------------------------------- My Notebook
   r = await j("POST", "/notebooks", { title: "Smoke Notebook", description: "uji" }, at);
   ok("notebook create", r.s === 201 && r.d.title === "Smoke Notebook", r);
@@ -756,6 +816,18 @@ try {
     r.s === 201 && r.d.ownedByNotebook === false && r.d.mimeType === "text/plain",
     r,
   );
+  r = await j("POST", `/notebooks/${nb}/sources`, { kind: "upload", assetId: linkedAsset.d.id }, at);
+  ok("notebook duplicate file source 400", r.s === 400, r);
+  r = await j("GET", "/notebooks/usage", null, at);
+  ok(
+    "notebook usage lists record & file sources",
+    r.s === 200 &&
+      r.d.some((u) => u.recordType === "free_note" && u.recordId === "sm-nb-note" && u.notebookId === nb) &&
+      r.d.some((u) => u.assetId === linkedAsset.d.id),
+    r,
+  );
+  r = await j("DELETE", `/uploads/${linkedAsset.d.id}`, null, at);
+  ok("file used as notebook source cannot be deleted 409", r.s === 409, r);
   r = await j("PATCH", `/notebooks/${nb}/sources/${nbText}`, { enabled: false }, at);
   ok("notebook disable source", r.s === 200 && r.d.enabled === false, r);
   r = await j("GET", `/notebooks/${nb}`, null, at);
@@ -781,6 +853,10 @@ try {
   ok("notebook chat max 4 attachments 400", r.s === 400, r);
   r = await j("POST", `/notebooks/${nb}/chat`, { message: "x", fileIds: [chatImg.d.id] }, pt);
   ok("notebook chat other user's attachment 404", r.s === 404, r);
+  r = await j("POST", `/notebooks/${nb}/chat`, { message: "x", fileIds: [nbAsset.d.id] }, at);
+  ok("notebook chat rejects non-chat upload 400", r.s === 400 && /kotak chat/.test(JSON.stringify(r.d)), r);
+  r = await j("GET", `/notebooks/${nb}/messages?take=5`, null, at);
+  ok("notebook messages paged", r.s === 200 && Array.isArray(r.d.messages) && r.d.hasMore === false, r);
   // Berkas biner yang tidak bisa dibaca (bukan gambar/PDF/dokumen teks) ditolak sebelum AI dipanggil
   const binForm = new FormData();
   binForm.append("file", new Blob([Buffer.from([0, 1, 2, 3])], { type: "application/octet-stream" }), "data.bin");
@@ -797,7 +873,17 @@ try {
   r = await j("GET", "/ai/settings", null, at);
   if (!r.d?.activeProvider) {
     // Dokumen teks (diekstrak server) + gambar sama-sama diterima → sampai ke tahap AI
-    r = await j("POST", `/notebooks/${nb}/chat`, { message: "", fileIds: [chatImg.d.id, nbAsset.d.id] }, at);
+    const docForm = new FormData();
+    docForm.append("file", new Blob(["Lampiran chat: jadwal rapat 3 November."], { type: "text/plain" }), "jadwal.txt");
+    docForm.append("context", "notebook_chat");
+    const chatDoc = await j("POST", "/uploads", docForm, at);
+    for (let i = 0; i < 20; i++) {
+      const meta = await j("GET", `/uploads/${chatDoc.d.id}/metadata`, null, at);
+      if (!["pending", "extracting"].includes(meta.d?.extraction?.status)) break;
+      await new Promise((res) => setTimeout(res, 300));
+    }
+    r = await j("POST", `/notebooks/${nb}/chat`, { message: "", fileIds: [chatImg.d.id, chatDoc.d.id] }, at);
+    await j("DELETE", `/uploads/${chatDoc.d.id}`, null, at);
     ok(
       "notebook chat image + document reaches AI step (no provider 400)",
       r.s === 400 && /AI belum diatur/.test(JSON.stringify(r.d)),

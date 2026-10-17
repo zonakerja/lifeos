@@ -31,3 +31,19 @@ describe("mergeIntoGlobalResources — tag bebas", () => {
     expect(mergeIntoGlobalResources([], [att({ addToGlobal: false, tags: ["SOP"] })], "Agenda")).toEqual([]);
   });
 });
+
+describe("mergeIntoGlobalResources — catatan", () => {
+  const note = att({ type: "note", name: "Notulen Rapat", uploadId: undefined, noteId: "ai-n1" });
+
+  it("resource catatan baru membawa noteId", () => {
+    const [res] = mergeIntoGlobalResources([], [note], "Agenda");
+    expect(res).toMatchObject({ type: "note", noteId: "ai-n1", tags: ["Agenda"] });
+  });
+
+  it("catatan yang sudah menjadi resource hanya mendapat tag konteks (tanpa duplikat)", () => {
+    const existing: Resource = { id: "r1", title: "Notulen", type: "note", noteId: "ai-n1", tags: ["Project"] };
+    const next = mergeIntoGlobalResources([existing], [note], "Agenda");
+    expect(next).toHaveLength(1);
+    expect(next[0].tags).toEqual(["Project", "Agenda"]);
+  });
+});

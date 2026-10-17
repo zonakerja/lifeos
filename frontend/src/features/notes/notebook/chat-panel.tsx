@@ -5,6 +5,7 @@ import {
   Copy,
   Eraser,
   FileText,
+  History,
   Maximize2,
   MessageSquareText,
   Minimize2,
@@ -218,7 +219,7 @@ export function ChatPanel({
   className?: string;
 }) {
   const ai = useAi();
-  const { data: messages = [], isLoading } = useNotebookMessages(notebookId);
+  const { messages, hasMore, isLoading, isLoadingMore, loadMore } = useNotebookMessages(notebookId);
   const clear = useClearNotebookChat(notebookId);
   const { input, setInput, files: chatFiles } = composer;
   const [confirmClear, setConfirmClear] = useState(false);
@@ -245,9 +246,11 @@ export function ChatPanel({
 
   const fileList = (list: FileList | null | undefined) => Array.from(list ?? []);
 
+  // Gulir ke bawah saat ada pesan baru (bukan saat pesan lama dimuat di atas)
+  const lastId = messages.at(-1)?.id;
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, asker.isPending]);
+  }, [lastId, asker.isPending]);
 
   return (
     <section
@@ -334,6 +337,11 @@ export function ChatPanel({
           </Empty>
         ) : (
           <div className="flex flex-col gap-4">
+            {hasMore && (
+              <Button variant="ghost" size="xs" className="self-center" disabled={isLoadingMore} onClick={loadMore}>
+                {isLoadingMore ? <Spinner /> : <History />} Muat pesan lama
+              </Button>
+            )}
             {messages.map((message, i) =>
               message.role === "user" ? (
                 <div key={message.id} className="flex flex-col items-end gap-1.5">

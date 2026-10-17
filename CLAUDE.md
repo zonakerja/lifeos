@@ -230,7 +230,11 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   hanya dirujuk, tidak pernah dihapus); respons sumber membawa `mimeType` & `ownedByNotebook`. Chat menerima `fileIds`
   (maks. 4 milik sendiri, context `notebook_chat`; gambar ≤ 10 MB dikirim ke AI, dokumen ≤ 20 MB dibaca dari teks
   ekstraksi server — PDF tanpa teks dikirim ke AI sebagai berkas; masih diproses / tak terbaca → 400); disimpan di
-  `notebook_messages.attachments`; bersihkan chat / hapus notebook ikut menghapus lampirannya.
+  `notebook_messages.attachments`; bersihkan chat / hapus notebook ikut menghapus lampirannya (hanya berkas context
+  `notebook_chat`; lampiran context lain ditolak 400). Sumber berkas ganda ditolak. `GET /notebooks/usage` = item LifeOS
+  & berkas yang menjadi sumber (dialog hapus catatan menolak bila catatan dipakai notebook). `GET /:id/messages?take=`
+  → `{ messages, hasMore }` (100 terbaru, "Muat pesan lama"). **Berkas yang menjadi sumber notebook tidak bisa dihapus
+  dari fitur lain** (`DELETE /uploads/:id` → 409) sampai dilepas dari notebook.
 - **Settings**: `GET /settings/app` publik (branding login; **tanpa** data logo, hanya `logoVersion`); `GET /settings/app/logo`
   publik = gambar logo (data URL di kolom `app_logo` didekode; `Cache-Control: immutable` karena URL memuat `?v=`,
   `CSP: sandbox`); `PATCH` admin (`appLogo`: tidak dikirim = tetap, `""` = hapus, data URL PNG/JPG/WEBP/GIF/SVG = ganti).
@@ -272,7 +276,12 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
   /records/:type/:clientId` `{ payload, userId? }` (upsert, juga undelete; `userId` = pemilik item bersama, butuh izin
   edit; item baru di dalam item bersama otomatis milik pemilik induknya), `DELETE /records/:type/:clientId?userId=`
-  (soft delete; item induk bersama hanya oleh pemiliknya). `share` di payload dibuang server.
+  (soft delete; item induk bersama hanya oleh pemiliknya). `share` di payload dibuang server. **Daftar ringan**
+  `?light=1` (`record-light.ts` + test: `free_note` tanpa `doc` & `ink` dipotong ke pratinjau, `ai_note` tanpa
+  `fileContext`; record ditandai `partial`) + `GET /records/:type/:clientId?userId=` (satu record utuh, cek berbagi).
+  PUT menerima `preserve` (key tidak utuh → nilai tersimpan dipertahankan) dan `base` (isi sebelum perubahan → untuk
+  tipe di `MERGE_ARRAY_KEYS` = `list`, selisih base → payload diterapkan di atas isi terkini, `record-merge.ts` + test;
+  salinan frontend `lib/record-merge.ts` — ubah keduanya bersamaan).
 - **Uploads** (`ownerId` opsional = unggah ke item bersama berizin edit → berkas milik pemilik, `uploaded_by_id` =
   pengunggah; baca: pemilik/pengunggah/penerima item yang merujuk berkas; hapus: pemilik/pengunggah): multer diskStorage (tmp) → SHA-256 streaming → S3 `<userId>/<yyyy>/<mm>/<ts>-<uuid><ext>` → `assets` +
   `asset_extractions` → job BullMQ `asset-extraction` (≤ 20 MB: teks, PDF, DOCX, XLSX; format kantor lain → konversi
@@ -324,7 +333,12 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `setItems(updater)` = diff prev/next → PUT/DELETE per item (debounce 500 ms, diserialkan per item, optimistis,
   rollback + toast). `flushPendingWrites()` saat logout. Koleksi berisi data sendiri + item bersama (bertanda `share`,
   dibuang saat menulis; respons upsert memperbarui `userId` item baru). Opsi `ownOnly` = hanya milik sendiri (dipakai
-  referensi File Control: `useClassifications/useJraList/usePhysRefs({ includeShared })`).
+  referensi File Control: `useClassifications/useJraList/usePhysRefs({ includeShared })`). `LIGHT_TYPES` (`free_note`,
+  `ai_note`) dimuat sebagai daftar ringan: item bertanda `_partial` (key tidak utuh) — **editor wajib memuat isi lengkap**
+  lewat `useCompleteItem(type, item)` (dan `fetchCompleteItem` sebelum menghapus berkas di dokumen); menulis item
+  `_partial` otomatis mengirim `preserve`, jadi spread `{ ...item, x }` aman — **jangan** membuat ulang objek item
+  partial tanpa spread. Tipe `MERGE_ARRAY_KEYS` (List) mengirim `base` sehingga tulisan bersamaan (kolaborator / tab
+  lain) tidak saling menimpa; hasil gabungan server dipasang ke cache tanpa menimpa perubahan lokal yang lebih baru.
 - **Design system (wajib)**: token OKLCH di `src/index.css`; dilarang warna hardcoded / ternary dark mode. Warna modul
   via `data-module` → `bg-module`, `text-module`, `bg-module-soft`, `bg-module-gradient`, `text-module-foreground`;
   status `success | warning | info | destructive`. Font Figtree. Setiap halaman memakai `<ModulePage module="...">`.
@@ -422,8 +436,15 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `AttachedResource` (`types/entities.ts`): jenis `link | file | note | existing`, file = `uploadId` (Asset backend),
   catatan = `noteId` `free-<id> | ai-<id> | list-<id>`, `addToGlobal` → disalin/di-tag ke Resource global dengan tag
   konteks. Opsi tambahan (default tidak mengubah perilaku lama): `AttachmentForm types={[...]}` membatasi jenis (jenis
-  pertama = pilihan awal), `AddAttachmentButton label`. `AttachmentTable` membuka lampiran **catatan** di dalam aplikasi
-  (Notes Space), bukan tab baru.
+  pertama = pilihan awal), `AddAttachmentButton label`, `AttachmentForm initial` (isian awal). `AttachmentTable` membuka
+  lampiran **catatan** di dalam aplikasi (Notes Space), bukan tab baru; tab Resources juga membuka resource catatan di
+  Notes Space. Lampiran catatan yang disimpan ke Resource Global membawa `noteId` dan dicocokkan lewat `noteId` (tidak
+  dibuat ganda saat item disimpan ulang). **Catatan yang masih dirujuk tidak bisa dihapus**: hapus Catatan Bebas / Notes AI
+  / List lewat `<NoteDeleteDialog noteKey="free|ai|list-<id>">` (`resources/note-delete-dialog.tsx`; logika murni
+  `note-references.ts` + test: lampiran hasil/dasar agenda, Project, Area, Action/Task, Resource Global) — bila ada rujukan,
+  dialog menampilkan tempatnya (klik = buka item untuk melepas tautan) tanpa tombol hapus. `linkedScheduleId` saja bukan
+  rujukan. Snapshot arsip PARA tidak dihitung. Sumber My Notebook ikut dihitung (`useNotebookUsage`). Tempat baru yang
+  menyimpan lampiran catatan → tambahkan ke `noteReferences`.
   - **Buat dokumen ONLYOFFICE** = pilihan Tipe UI `"office"` ("Buat Dokumen (ONLYOFFICE)", `OFFICE_ATTACHMENT_TYPE`) yang
     disimpan sebagai tipe `file` (state `fileSource`): `NewOfficeDocumentPicker` (4 jenis, judul = Nama Resource,
     `uploadContext`/`uploadOwnerId` sama dengan upload) → `acceptAsset` (pending + dibuang bila batal) → `editInOffice`
@@ -526,7 +547,10 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
 - **Agenda (Planner)**: dibuka lewat `<ScheduleDialogs defaultDate?>` (`features/planner/components/schedule-dialogs.tsx`),
   dipasang di Overview, Planner Harian, dan Jadwal; dikendalikan URL: `?agenda=<id>` = **tampilan lihat** (link meeting
   bisa diklik/disalin, keterangan, dasar pelaksanaan, hasil agenda: ringkasan `outcome`, Notes AI terhubung otomatis
-  lewat `AiNote.linkedScheduleId`, lampiran hasil), `?agenda=new` = agenda baru, `?edit=<id>` = form ubah (agenda bersama
+  lewat `AiNote.linkedScheduleId`, lampiran hasil; tombol **Buat Notes AI** di samping **Tambah Hasil**. Notes AI terhubung
+  **tidak otomatis** menjadi lampiran hasil — bisa catatan pribadi — tiap barisnya punya "Masukkan ke Hasil" (form lampiran
+  terisi `type: "note"`, `noteId: "ai-<id>"` lewat `AttachmentForm initial`; Resource Global/tag dipilih user) atau penanda
+  "Di Hasil"), `?agenda=new` = agenda baru, `?edit=<id>` = form ubah (agenda bersama
   tanpa izin edit → tampilan lihat). Link dari modul lain: `links.schedule(id)` (lihat), `links.scheduleEdit(id)` (ubah),
   `links.newAiNoteForSchedule(id)` → `/notes/ai?note=new&schedule=<id>` (Notes AI baru terisi judul/tanggal/agenda).
   Form agenda: `schedule-form.tsx` (`ScheduleFormDialog`, `emptySchedule`, `MediaLink`).
@@ -709,6 +733,8 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Berbagi seri agenda sekaligus (`schedule_series`) + hapus agenda berseri dari Productivity dengan cakupan | ✅ 2026-10-14 — unit backend & frontend, smoke (+6), skrip API dua akun (11/11), UI diuji (Bagikan Seri, hapus "ini & berikutnya" dari project) |
 | Jadwal ulang agenda (majukan/mundurkan, alasan, cek bentrok, kembalikan; juga satu pertemuan seri) | ✅ 2026-10-14 — unit test, lint, typecheck, build, UI diuji di browser (pindah kuliah 27→29 Okt dengan bentrok terdeteksi, baris "Dipindah ke" di tanggal asal, kembalikan) |
 | Pencarian tab Jadwal, Rutinitas, Referensi (per kata, termasuk hari/tanggal, link, pola) | ✅ 2026-10-15 — unit test, lint, typecheck, build, UI diuji di browser |
+| Hasil Agenda ↔ Notes AI (Buat Notes AI di samping Tambah Hasil, Notes AI terhubung dimasukkan ke Hasil secara opsional) + perbaikan resource catatan (`noteId`, tanpa duplikat, bisa dibuka) + catatan bertaut tidak bisa dihapus sebelum dilepas | ✅ 2026-10-17 — unit test, lint, typecheck, UI diuji di browser (masukkan ke Hasil + Resource Global, simpan ulang tanpa duplikat, buka dari tab Resources, hapus Notes AI bertaut ditolak + tautan membuka agenda, catatan tanpa rujukan tetap bisa dihapus) |
+| Audit celah Notes Space (12 temuan): List bersama digabung per item, daftar ringan Catatan/Notes AI, catatan & berkas sumber My Notebook terlindung, unggahan Notes AI tercatat, Simpan saat merekam dicegah, edit List tersimpan saat blur, berkas yatim kolaborator dibersihkan pemilik, tautan item hilang diberi keterangan, lampiran chat dibatasi, sumber berkas ganda ditolak, riwayat chat bertahap | ✅ 2026-10-17 — unit backend (record-merge/light) & frontend, smoke (+12), lint, typecheck, build |
 | Catatan Bebas: editor teks kaya (Tiptap) + tulisan tangan stylus (halaman penuh & blok Coretan) + ubah ke teks (AI) | ✅ 2026-10-11 — unit test, build, smoke, UI diuji di browser (mouse + event pena sintetis + mode HP), pengenalan AI diuji dengan Gemini sungguhan; **uji S Pen di perangkat Android user belum** |
 | Perbaikan Notes Space (simpan otomatis Catatan, cegah perubahan hilang di Notes AI, cari/sematkan/paginasi, dokumen dibaca backend, prompt AI, List urut ulang & progres) | ✅ 2026-10-11 — lint, typecheck, unit test, build, dan UI diuji di browser (desktop + mode HP); ringkasan/transkrip AI sungguhan belum diuji (butuh API key) |
 | **My Notebook** (RAG ala NotebookLM: sumber berkas/item LifeOS/teks/web, chat hibrida bersitasi + riwayat permanen, ringkasan Studio, catatan notebook → Catatan Bebas) + urutan tab Notes (Catatan Bebas, List Bebas, Notes AI, My Notebook) | ✅ 2026-10-14 — unit backend (notebook-context, web-source: 19) & frontend, smoke (+20), lint, typecheck, build, UI diuji di browser (desktop + HP); chat & ringkasan diuji dengan Gemini sungguhan (akun admin dev; Gemini sempat 503 kelebihan beban → jalur error teruji) |
@@ -1132,6 +1158,24 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   isi tidak bisa digulir; kini popover dibatasi ruang layar tersedia dan daftar memakai area gulir biasa. (2) Judul dialog
   Focus Mode kini mengikuti sesi: **Mode Fokus**, **Waktu Rehat**, **Waktu Istirahat** (keterangan & ikon ikut berubah; tombol
   header saat berjalan menampilkan ikon & nama sesi).
+- 2026-10-17 — **Hasil Agenda ↔ Notes AI** (permintaan user): tombol Buat Notes AI dipindah ke samping Tambah Hasil. Notes AI
+  yang memilih agenda tetap hanya **tertaut** (catatan pribadi tidak wajib menjadi resource) dan bisa dimasukkan ke Hasil per
+  catatan (opsional ke Resource Global). Celah yang ditemukan & diperbaiki: lampiran catatan yang disimpan ke Resource
+  Global kehilangan `noteId` dan dibuat ganda setiap item disimpan ulang; resource catatan di tab Resources tidak bisa
+  dibuka ("Tidak ada link/file"). Lanjutan (permintaan user): catatan yang sudah ditautkan sebagai lampiran / Resource
+  Global tidak bisa dihapus sebelum tautannya dilepas (Catatan Bebas, Notes AI, List; dialog menunjukkan tempatnya).
+
+- 2026-10-17 — **Audit celah Notes Space** (permintaan user, semua temuan diperbaiki): (1) List Bebas bersama / di dua tab
+  saling menimpa item → PUT membawa `base` dan server menggabungkan perubahan per item (`record-merge.ts`, dipakai lewat
+  `MERGE_ARRAY_KEYS`; tipe lain tidak berubah); (2) catatan yang menjadi sumber My Notebook kini ikut ditolak dialog hapus
+  (`GET /notebooks/usage`); (3) berkas sumber notebook dilindungi di server (`DELETE /uploads/:id` → 409) agar tidak terhapus
+  saat dokumen Notes AI diganti / resource dihapus; (4) unggahan Notes AI dicatat `trackPendingUpload` sampai disimpan;
+  (5) Simpan Notes AI dikunci selama merekam; (6) daftar Catatan Bebas & Notes AI memakai **daftar ringan** (dokumen, coretan
+  penuh, teks dokumen tidak ikut; editor memuat isi lengkap, tulis item ringan memakai `preserve`) — desain dipilih agar
+  data lama tetap utuh tanpa migrasi; (7) edit judul/item List tersimpan saat klik di luar (Esc = batal); (8) lampiran chat
+  notebook hanya berkas context `notebook_chat`; (9) sumber berkas ganda ditolak; (10) berkas pemilik yang dilepas kolaborator
+  dicatat di `orphanUploadIds` lalu dibersihkan saat pemilik membuka Notes; (11) `?note=`/`?list=` ke item yang hilang /
+  diarsipkan diberi keterangan; (12) riwayat chat dimuat 100 pesan terbaru + "Muat pesan lama".
 - 2026-10-17 — Thread **AI Agent** dimulai: riset OpenClaw, Hermes Agent, n8n, SRIKANDI (hasil & to-do: `docs/AI-AGENT.md`).
   Temuan: n8n = workflow automation (lisensi Sustainable Use, bukan agent pribadi); Hermes & OpenClaw = asisten pribadi
   lewat chat (MIT; OpenClaw punya riwayat keamanan buruk 2026 → bila dipakai, Hermes disarankan); SRIKANDI tidak punya API

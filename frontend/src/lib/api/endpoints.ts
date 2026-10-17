@@ -6,7 +6,8 @@ import type {
   NotebookChatResult,
   NotebookDetail,
   NotebookListItem,
-  NotebookMessage,
+  NotebookMessagePage,
+  NotebookUsage,
   NotebookNote,
   NotebookSource,
   NotebookSummary,
@@ -118,12 +119,26 @@ export const commentsApi = {
 };
 
 export const recordsApi = {
-  list: <T>(type: RecordType, query?: { from?: string; to?: string }) =>
+  /** `light` = daftar ringan: field berat dipotong & ditandai `partial` (lengkapi lewat `get`). */
+  list: <T>(type: RecordType, query?: { from?: string; to?: string; light?: "1" }) =>
     request<ApiRecord<T>[]>(`/records/${type}`, { query }),
-  upsert: <T>(type: RecordType, clientId: string, payload: T, userId?: string) =>
+  /** Satu record utuh; `userId` = pemilik item yang dibagikan. */
+  get: <T>(type: RecordType, clientId: string, userId?: string) =>
+    request<ApiRecord<T>>(`/records/${type}/${encodeURIComponent(clientId)}`, { query: { userId } }),
+  /**
+   * `base` = isi item sebelum perubahan (server menggabungkan perubahan, lihat `lib/record-merge.ts`);
+   * `preserve` = key yang tidak utuh di client (nilai tersimpan dipertahankan).
+   */
+  upsert: <T>(
+    type: RecordType,
+    clientId: string,
+    payload: T,
+    userId?: string,
+    options: { base?: unknown; preserve?: string[] } = {},
+  ) =>
     request<ApiRecord<T>>(`/records/${type}/${encodeURIComponent(clientId)}`, {
       method: "PUT",
-      body: { payload, userId },
+      body: { payload, userId, ...options },
     }),
   remove: (type: RecordType, clientId: string, userId?: string) =>
     request<{ success: boolean }>(`/records/${type}/${encodeURIComponent(clientId)}`, {
@@ -253,7 +268,11 @@ export const notebooksApi = {
     request<NotebookSource>(`/notebooks/${id}/sources/${sourceId}/refresh`, { method: "POST" }),
   removeSource: (id: string, sourceId: string) =>
     request<{ success: boolean }>(`/notebooks/${id}/sources/${sourceId}`, { method: "DELETE" }),
-  messages: (id: string) => request<NotebookMessage[]>(`/notebooks/${id}/messages`),
+  /** `take` pesan terbaru (urut lama → baru) + apakah masih ada pesan lebih lama. */
+  messages: (id: string, take: number) =>
+    request<NotebookMessagePage>(`/notebooks/${id}/messages`, { query: { take } }),
+  /** Item LifeOS & berkas yang menjadi sumber notebook milik user. */
+  usage: () => request<NotebookUsage[]>("/notebooks/usage"),
   clearMessages: (id: string) => request<{ success: boolean }>(`/notebooks/${id}/messages`, { method: "DELETE" }),
   chat: (id: string, message: string, fileIds: string[] = []) =>
     request<NotebookChatResult>(`/notebooks/${id}/chat`, { method: "POST", body: { message, fileIds } }),

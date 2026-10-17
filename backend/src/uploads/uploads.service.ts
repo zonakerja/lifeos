@@ -1,4 +1,11 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { AssetStatus } from "../generated/prisma/client";
 import { createHash, randomUUID } from "node:crypto";
@@ -215,6 +222,12 @@ export class UploadsService {
     const asset = await this.findAccessible(id, user);
     if (asset.userId !== user.id && asset.uploadedById !== user.id) {
       throw new ForbiddenException("Hanya pemilik yang dapat menghapus file ini.");
+    }
+    // Berkas yang menjadi sumber My Notebook tidak dihapus dari fitur lain (mis. dokumen Notes AI diganti, resource
+    // dihapus); notebook menghapus berkas unggahannya sendiri setelah sumbernya dilepas.
+    const sourceCount = await this.prisma.notebookSource.count({ where: { assetId: asset.id } });
+    if (sourceCount > 0) {
+      throw new ConflictException("Berkas masih dipakai sebagai sumber My Notebook. Lepaskan dari notebook dulu.");
     }
     // Versi lama (editor ONLYOFFICE) ikut terhapus (cascade); objek storage-nya dihapus di bawah
     const versions = await this.prisma.assetVersion.findMany({

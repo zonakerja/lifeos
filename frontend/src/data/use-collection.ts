@@ -3,6 +3,7 @@ import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/api/client";
 import { recordsApi } from "@/lib/api/endpoints";
+import { MERGE_ARRAY_KEYS, mergePayload } from "@/lib/record-merge";
 import { queryKeys } from "@/data/query-keys";
 import { useAuthStore } from "@/stores/auth-store";
 import type { RecordType, ShareMeta } from "@/types/api";
@@ -17,10 +18,29 @@ import type { RecordType, ShareMeta } from "@/types/api";
  *   (item baru/berubah → upsert, item hilang → delete).
  * - Update optimistis; upsert di-debounce per item (mis. saat mengetik) dan
  *   diserialkan per item agar urutan tulis terjaga. Bila gagal → toast + resync.
+ * - Tipe di `LIGHT_TYPES` dimuat sebagai daftar ringan: field berat dipotong & item ditandai `_partial`;
+ *   menulis item itu mempertahankan field berat di server (`preserve`). Editor memuat isi lengkap lewat
+ *   `useCompleteItem`.
+ * - Tipe di `MERGE_ARRAY_KEYS` (List) mengirim `base` = isi item sebelum perubahan → server menggabungkan
+ *   perubahan sehingga tulisan orang lain / tab lain tidak tertimpa; hasil gabungan dipasang ke cache.
  * ============================================================================
  */
 
-type EntityBase = { id?: string | number; userId?: string; share?: ShareMeta };
+type EntityBase = { id?: string | number; userId?: string; share?: ShareMeta; _partial?: string[] };
+
+/** Record yang dimuat sebagai daftar ringan (dokumen/coretan/teks dokumen tidak ikut, lihat backend `record-light.ts`). */
+export const LIGHT_TYPES: ReadonlySet<RecordType> = new Set<RecordType>(["free_note", "ai_note"]);
+
+/** Item dari daftar ringan yang belum memuat isi lengkapnya. */
+export const isPartialItem = (item: { _partial?: string[] } | null | undefined) => !!item?._partial?.length;
+
+/** Payload yang dikirim/dibandingkan: tanpa metadata client (`share`, `_partial`). */
+export const stripMeta = <T extends EntityBase>(item: T) => {
+  const { share, _partial, ...payload } = item;
+  void share;
+  void _partial;
+  return payload;
+};
 
 interface CollectionOptions<T> {
   /** Kunci unik entitas. Default: String(item.id). */
@@ -36,7 +56,7 @@ const EMPTY: never[] = [];
 const defaultGetId = (item: EntityBase) => String(item.id);
 
 // ---- Antrian tulis global (dibagi semua komponen yang memakai type yang sama) ----
-type PendingWrite = { timer: ReturnType<typeof setTimeout>; run: () => Promise<unknown> };
+type PendingWrite = { timer: ReturnType<typeof setTimeout>; run: () => Promise<unknown>; base?: unknown };
 const pending = new Map<string, PendingWrite>();
 const chains = new Map<string, Promise<unknown>>();
 
@@ -87,10 +107,15 @@ export function useCollection<T extends EntityBase>(type: RecordType, options: C
     queryKey,
     enabled: enabled && !!user,
     queryFn: async () => {
-      const records = await recordsApi.list<T>(type);
+      const records = await recordsApi.list<T>(type, LIGHT_TYPES.has(type) ? { light: "1" } : undefined);
       return records.map(
         (record) =>
-          ({ ...record.payload, userId: record.userId, ...(record.share ? { share: record.share } : {}) }) as T,
+          ({
+            ...record.payload,
+            userId: record.userId,
+            ...(record.share ? { share: record.share } : {}),
+            ...(record.partial?.length ? { _partial: record.partial } : {}),
+          }) as T,
       );
     },
   });
@@ -98,18 +123,41 @@ export function useCollection<T extends EntityBase>(type: RecordType, options: C
   const all = (query.data ?? EMPTY) as T[];
   const items = useMemo(() => (ownOnly ? all.filter((item) => !item.share) : all), [all, ownOnly]);
 
+  const mergeKeys = MERGE_ARRAY_KEYS[type];
+
   const scheduleUpsert = useCallback(
-    (item: T) => {
+    (item: T, previous?: T) => {
       const id = getId(item);
       const key = `${type}:${id}`;
       const existing = pending.get(key);
       if (existing) clearTimeout(existing.timer);
-      const { share, ...payload } = item;
-      void share;
+      const payload = stripMeta(item);
+      // Base = isi sebelum perubahan pertama yang belum terkirim (beberapa ketikan dalam jeda debounce digabung)
+      const base = mergeKeys ? (existing ? existing.base : previous ? stripMeta(previous) : undefined) : undefined;
+      const options = {
+        ...(base ? { base } : {}),
+        ...(item._partial?.length ? { preserve: item._partial } : {}),
+      };
       const run = () =>
         recordsApi
-          .upsert(type, id, payload, item.userId)
+          .upsert(type, id, payload, item.userId, options)
           .then((saved) => {
+            // Hasil gabungan server (mis. item list dari orang lain) dipasang tanpa menimpa perubahan lokal yang lebih baru
+            if (mergeKeys && base) {
+              client.setQueryData<T[]>(queryKey, (prev) =>
+                prev?.map((p) => {
+                  if (getId(p) !== id) return p;
+                  const local = stripMeta(p);
+                  const merged = mergePayload(
+                    saved.payload as Record<string, unknown>,
+                    payload as Record<string, unknown>,
+                    local as Record<string, unknown>,
+                    mergeKeys,
+                  );
+                  return JSON.stringify(merged) === JSON.stringify(local) ? p : ({ ...p, ...merged } as T);
+                }),
+              );
+            }
             // Item baru di dalam item bersama dimiliki pemilik induknya (ditentukan server) → simpan pemiliknya
             // agar ubah/hapus berikutnya diarahkan ke pemilik yang benar
             if (saved.userId === item.userId) return;
@@ -118,9 +166,9 @@ export function useCollection<T extends EntityBase>(type: RecordType, options: C
             );
           })
           .catch(handleWriteError(client, type));
-      pending.set(key, { run, timer: setTimeout(() => flushKey(key), debounceMs) });
+      pending.set(key, { run, base, timer: setTimeout(() => flushKey(key), debounceMs) });
     },
-    [client, debounceMs, getId, queryKey, type],
+    [client, debounceMs, getId, mergeKeys, queryKey, type],
   );
 
   const scheduleRemove = useCallback(
@@ -157,7 +205,7 @@ export function useCollection<T extends EntityBase>(type: RecordType, options: C
         nextIds.add(id);
         const old = prevById.get(id);
         if (!old || (old !== item && JSON.stringify(old) !== JSON.stringify(item))) {
-          scheduleUpsert(item);
+          scheduleUpsert(item, old);
         }
       }
       for (const item of prev) {

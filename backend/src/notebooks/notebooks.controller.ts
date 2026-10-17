@@ -1,4 +1,17 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  DefaultValuePipe,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
@@ -7,6 +20,7 @@ import { AuthUser } from "../common/types/auth-user";
 import {
   AddNotebookSourceDto,
   CreateNotebookDto,
+  NOTEBOOK_MESSAGES_PAGE,
   NotebookChatDto,
   SaveNotebookNoteDto,
   UpdateNotebookDto,
@@ -31,6 +45,12 @@ export class NotebooksController {
   @Post()
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateNotebookDto) {
     return this.notebooks.create(user.id, dto);
+  }
+
+  /** Item LifeOS & berkas yang menjadi sumber notebook (cek sebelum menghapus catatan/berkas). */
+  @Get("usage")
+  usage(@CurrentUser() user: AuthUser) {
+    return this.notebooks.usage(user.id);
   }
 
   @Get(":id")
@@ -82,8 +102,12 @@ export class NotebooksController {
   // ---------------------------------------------------------------- Chat
 
   @Get(":id/messages")
-  messages(@CurrentUser() user: AuthUser, @Param("id") id: string) {
-    return this.notebooks.messages(user.id, id);
+  messages(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Query("take", new DefaultValuePipe(NOTEBOOK_MESSAGES_PAGE), ParseIntPipe) take: number,
+  ) {
+    return this.notebooks.messages(user.id, id, Math.min(Math.max(take, 1), 2000));
   }
 
   @Delete(":id/messages")

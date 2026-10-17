@@ -58,6 +58,8 @@ interface AttachmentFormProps {
   idPrefix?: string;
   /** Jenis lampiran yang boleh dipilih (default semua); jenis pertama menjadi pilihan awal */
   types?: AttachmentType[];
+  /** Isian awal form (mis. Notes AI terhubung yang dimasukkan ke Hasil Agenda); default form kosong */
+  initial?: Partial<AttachedResource>;
   onAdd: (attachment: AttachedResource) => void;
   onCancel: () => void;
 }
@@ -69,10 +71,15 @@ export function AttachmentForm({
   offerAiSummary = false,
   idPrefix = "tr",
   types = ALL_TYPES,
+  initial,
   onAdd,
   onCancel,
 }: AttachmentFormProps) {
-  const initialDraft = () => ({ ...emptyAttachment(defaultDate), type: types[0] ?? "link" });
+  const initialDraft = (): AttachedResource => ({
+    ...emptyAttachment(defaultDate),
+    type: types[0] ?? "link",
+    ...initial,
+  });
   const [draft, setDraft] = useState<AttachedResource>(initialDraft);
   const [uploading, setUploading] = useState(false);
   // Di dalam item bersama (izin edit), berkas disimpan atas nama pemilik item

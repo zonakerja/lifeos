@@ -341,6 +341,11 @@ export interface FreeNote extends Owned {
   ink?: NoteInk;
   color?: string;
   /** Disematkan di urutan teratas */
+  /**
+   * Berkas pemilik yang dilepas kolaborator berizin Edit (kolaborator tidak boleh menghapusnya) — dibersihkan saat
+   * pemilik membuka Notes (`useOrphanUploadsJanitor`).
+   */
+  orphanUploadIds?: string[];
   pinned?: boolean;
   updatedAt?: string;
 }
@@ -370,6 +375,11 @@ export interface AiNote extends Owned {
   /** Bisa berupa objek kosong bila lampiran tidak tersedia */
   fileAttachment?: NoteFileAttachment | Record<string, never> | null;
   /** Disematkan di urutan teratas */
+  /**
+   * Berkas pemilik yang dilepas kolaborator berizin Edit (kolaborator tidak boleh menghapusnya) — dibersihkan saat
+   * pemilik membuka Notes (`useOrphanUploadsJanitor`).
+   */
+  orphanUploadIds?: string[];
   pinned?: boolean;
   createdAt?: string;
   updatedAt?: string;

@@ -21,6 +21,8 @@ import {
   CreateNotebookDto,
   MAX_CHAT_FILE_BYTES,
   MAX_CHAT_IMAGE_BYTES,
+  NOTEBOOK_CHAT_CONTEXT,
+  NOTEBOOK_MESSAGES_PAGE,
   NOTEBOOK_RECORD_TYPES,
   NOTEBOOK_UPLOAD_CONTEXT,
   type NotebookRecordType,
@@ -151,6 +153,8 @@ export class NotebooksService {
       case NotebookSourceKind.upload: {
         const asset = await this.prisma.asset.findFirst({ where: { id: dto.assetId, userId: user.id } });
         if (!asset) throw new NotFoundException("Berkas tidak ditemukan.");
+        const duplicate = await this.prisma.notebookSource.findFirst({ where: { notebookId, assetId: asset.id } });
+        if (duplicate) throw new BadRequestException("Berkas ini sudah menjadi sumber notebook.");
         data = { notebookId, kind: dto.kind, title: dto.title?.trim() || asset.originalName, assetId: asset.id };
         break;
       }
@@ -245,9 +249,33 @@ export class NotebooksService {
 
   // ---------------------------------------------------------------- Chat
 
-  async messages(userId: string, notebookId: string) {
+  /** Pesan terbaru (`take`, urut lama → baru) + apakah masih ada pesan yang lebih lama. */
+  async messages(userId: string, notebookId: string, take = NOTEBOOK_MESSAGES_PAGE) {
     await this.own(userId, notebookId);
-    return this.prisma.notebookMessage.findMany({ where: { notebookId }, orderBy: { createdAt: "asc" } });
+    const rows = await this.prisma.notebookMessage.findMany({
+      where: { notebookId },
+      orderBy: { createdAt: "desc" },
+      take: take + 1,
+    });
+    return { messages: rows.slice(0, take).reverse(), hasMore: rows.length > take };
+  }
+
+  /**
+   * Item LifeOS & berkas yang dipakai sebagai sumber notebook milik user — agar catatan/berkas itu tidak dihapus
+   * diam-diam dari fitur lain (dialog hapus catatan menampilkan notebook-nya).
+   */
+  async usage(userId: string) {
+    const sources = await this.prisma.notebookSource.findMany({
+      where: { notebook: { userId }, OR: [{ kind: NotebookSourceKind.record }, { assetId: { not: null } }] },
+      select: { recordType: true, recordId: true, assetId: true, notebook: { select: { id: true, title: true } } },
+    });
+    return sources.map((s) => ({
+      notebookId: s.notebook.id,
+      notebookTitle: s.notebook.title,
+      recordType: s.recordType,
+      recordId: s.recordId,
+      assetId: s.assetId,
+    }));
   }
 
   async clearMessages(user: AuthUser, notebookId: string) {
@@ -343,6 +371,10 @@ export class NotebooksService {
     return Promise.all(
       ids.map(async (id, i) => {
         const asset = byId.get(id)!;
+        // Hanya berkas yang diunggah dari kotak chat (berkas LifeOS lain bisa ikut terhapus saat chat dibersihkan)
+        if (asset.context !== NOTEBOOK_CHAT_CONTEXT) {
+          throw new BadRequestException("Lampiran chat harus diunggah dari kotak chat notebook.");
+        }
         const attachment = { uploadId: asset.id, name: asset.originalName, mimeType: asset.mimeType };
         const isImage = asset.mimeType.startsWith("image/");
         if (isImage && asset.size > MAX_CHAT_IMAGE_BYTES)
@@ -392,8 +424,15 @@ export class NotebooksService {
     );
   }
 
+  /** Hapus lampiran chat; berkas dengan context lain (bukan unggahan chat) tidak pernah dihapus dari sini. */
   private async removeUploads(user: AuthUser, ids: string[]) {
-    for (const id of new Set(ids)) {
+    const unique = [...new Set(ids)];
+    if (!unique.length) return;
+    const chatUploads = await this.prisma.asset.findMany({
+      where: { id: { in: unique }, context: NOTEBOOK_CHAT_CONTEXT },
+      select: { id: true },
+    });
+    for (const { id } of chatUploads) {
       await this.uploads.remove(id, user).catch((error: unknown) => {
         this.logger.warn(`Berkas ${id} gagal dihapus: ${error instanceof Error ? error.message : error}`);
       });
