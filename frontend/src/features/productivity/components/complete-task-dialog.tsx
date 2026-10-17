@@ -199,6 +199,7 @@ function CompleteTaskForm({
         )}
         <AttachmentTable
           resources={added}
+          onUpdate={(u) => setAdded((prev) => prev.map((r) => (r.id === u.id ? u : r)))}
           emptyText="Belum ada lampiran hasil."
           onRemove={(id) => {
             const att = added.find((a) => a.id === id);

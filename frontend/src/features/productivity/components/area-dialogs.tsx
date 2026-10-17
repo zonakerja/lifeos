@@ -1,5 +1,6 @@
 import {
   Archive,
+  BookOpen,
   Check,
   ChevronRight,
   ChevronsDownUp,
@@ -20,6 +21,11 @@ import { SearchableSelect } from "@/components/common/searchable-select";
 import { ownedFiles } from "@/features/resources/attachment-cleanup";
 import { DeleteWithFilesDialog } from "@/features/resources/delete-with-files-dialog";
 import { useAttachmentCleanup } from "@/features/resources/use-attachment-cleanup";
+import { AddAttachmentButton, AttachmentForm } from "@/features/resources/attachment-form";
+import { AttachmentTable } from "@/features/resources/attachment-table";
+import { ResourceAiDialog } from "@/features/resources/resource-ai-dialog";
+import { mergeIntoGlobalResources } from "@/features/resources/resource-utils";
+import { useGuardedClose } from "@/components/common/dialog-close-guard";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,7 +40,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
-import { useActivities, useAreas, useProjects, useProjectTasks } from "@/data/collections";
+import { useActivities, useAreas, useProjects, useProjectTasks, useResources } from "@/data/collections";
 import { AccessScope } from "@/components/common/access-scope";
 import { CommentsPanel } from "@/features/sharing/comments-panel";
 import { ShareButton } from "@/features/sharing/share-dialog";
@@ -44,7 +50,7 @@ import { useOpenSession, useRetained } from "@/hooks/use-retained";
 import { formatNumericDate } from "@/lib/dates";
 import { generateId } from "@/lib/ids";
 import { cn } from "@/lib/utils";
-import type { Activity, Area, Project } from "@/types/entities";
+import type { Activity, Area, AttachedResource, Project } from "@/types/entities";
 import {
   activityAncestors,
   activityDepth,
@@ -59,7 +65,7 @@ import {
   rootActivities,
 } from "../lib/para";
 import { taskProgress } from "../lib/progress";
-import { DiscardScope, useDiscardScope } from "../use-attachment-edits";
+import { DiscardScope, useAttachmentEdits, useDiscardScope } from "../use-attachment-edits";
 import { useParaActions } from "../use-para-actions";
 import { ProjectFormDialog } from "./project-dialogs";
 import { TaskManager } from "./task-manager";
@@ -76,13 +82,21 @@ export function AreaFormDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const area = useRetained(areaProp);
+  // Setiap buka = form baru (isi dialog yang belum di-unmount tidak boleh terbawa ke item berikutnya)
+  const session = useOpenSession(areaProp !== null);
   return (
     <Dialog open={areaProp !== null} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{area === "new" ? "Create New Area" : "Edit Area"}</DialogTitle>
         </DialogHeader>
-        {area !== null && <AreaForm area={area === "new" ? null : area} onDone={() => onOpenChange(false)} />}
+        {area !== null && (
+          <AreaForm
+            key={`${area === "new" ? "new" : area.id}-${session}`}
+            area={area === "new" ? null : area}
+            onDone={() => onOpenChange(false)}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -171,7 +185,10 @@ function ActivityFormDialog({
   onSaved: (activity: Activity) => void;
 }) {
   const { items: activities } = useActivities();
+  const { items: areas } = useAreas();
   const target = useRetained(targetProp);
+  const session = useOpenSession(targetProp !== null);
+  const { register, discardAll } = useDiscardScope();
   const parent = target?.parent;
   const level: AreaLevel =
     target?.item && target.item !== "new"
@@ -179,9 +196,14 @@ function ActivityFormDialog({
       : parent
         ? AREA_LEVELS[Math.min(activityDepth(activities, parent) + 1, MAX_AREA_DEPTH)]
         : "Sub Area";
+  // Batal / X / Esc: buang berkas yang diunggah di form tetapi tidak jadi disimpan
+  const close = () => {
+    discardAll();
+    onOpenChange(false);
+  };
   return (
-    <Dialog open={targetProp !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+    <Dialog open={targetProp !== null} onOpenChange={(open) => (open ? onOpenChange(true) : close())}>
+      <DialogContent className="flex max-h-[90svh] flex-col sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{target?.item === "new" ? `Tambah ${level} Baru` : `Edit ${level}`}</DialogTitle>
           {parent && (
@@ -191,17 +213,22 @@ function ActivityFormDialog({
           )}
         </DialogHeader>
         {target !== null && (
-          <ActivityForm
-            activity={target.item === "new" ? null : target.item}
-            parentId={parent?.id}
-            level={level}
-            areaId={areaId}
-            onCancel={() => onOpenChange(false)}
-            onSaved={(saved) => {
-              onSaved(saved);
-              onOpenChange(false);
-            }}
-          />
+          <DiscardScope register={register}>
+            <ActivityForm
+              key={`${target.item === "new" ? `new-${parent?.id ?? "root"}` : target.item.id}-${session}`}
+              activity={target.item === "new" ? null : target.item}
+              parentId={parent?.id}
+              level={level}
+              areaId={areaId}
+              // Item baru di area bersama menjadi milik pemilik area (berkas dibersihkan atas namanya)
+              ownerId={target.item !== "new" ? target.item.userId : areas.find((a) => a.id === areaId)?.userId}
+              onCancel={close}
+              onSaved={(saved) => {
+                onSaved(saved);
+                onOpenChange(false);
+              }}
+            />
+          </DiscardScope>
         )}
       </DialogContent>
     </Dialog>
@@ -213,6 +240,7 @@ function ActivityForm({
   parentId,
   level,
   areaId,
+  ownerId,
   onCancel,
   onSaved,
 }: {
@@ -220,18 +248,35 @@ function ActivityForm({
   parentId?: string;
   level: AreaLevel;
   areaId: string;
+  ownerId?: string;
   onCancel: () => void;
   onSaved: (activity: Activity) => void;
 }) {
+  // Batal melewati penjaga tutup dialog (mis. dokumen ONLYOFFICE berisi di form lampiran)
+  const guardedClose = useGuardedClose();
   const { setItems } = useActivities();
+  const { setItems: setResources } = useResources();
   const [title, setTitle] = useState(activity?.title ?? "");
   const [deadline, setDeadline] = useState(activity?.deadline ?? "");
+  const [description, setDescription] = useState(activity?.description ?? "");
+  const [resources, setAttachments] = useState<AttachedResource[]>(activity?.resources ?? []);
+  const [adding, setAdding] = useState(false);
+  const [aiTarget, setAiTarget] = useState<AttachedResource | null>(null);
+  // Lampiran dasar pelaksanaan: berkas dilepas → dihapus setelah disimpan (atau jadi Resource Global tag "Area")
+  const edits = useAttachmentEdits({ contextTag: "Area", ownerId });
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim()) {
+      toast.error(`Nama ${level.toLowerCase()} wajib diisi.`);
+      return;
+    }
+    if (resources.some((a) => a.addToGlobal)) {
+      setResources((prev) => mergeIntoGlobalResources(prev, resources, "Area"));
+    }
+    const fields = { title: title.trim(), deadline, description, resources };
     if (activity) {
-      const updated = { ...activity, title: title.trim(), deadline };
+      const updated = { ...activity, ...fields };
       setItems((prev) => prev.map((a) => (a.id === activity.id ? updated : a)));
       onSaved(updated);
     } else {
@@ -239,40 +284,94 @@ function ActivityForm({
         id: generateId("act"),
         areaId,
         ...(parentId ? { parentId } : {}),
-        title: title.trim(),
-        deadline,
+        ...fields,
         status: "active",
         createdAt: new Date().toISOString(),
       };
       setItems((prev) => [...prev, created]);
       onSaved(created);
     }
+    edits.commit();
   };
 
   return (
-    <form onSubmit={submit}>
-      <FieldGroup className="gap-4">
-        <Field>
-          <FieldLabel htmlFor="act-title">Nama {level}</FieldLabel>
-          <Input
-            id="act-title"
-            autoFocus
-            placeholder={LEVEL_PLACEHOLDER[level]}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-1">
+        <FieldGroup className="gap-4">
+          <div className="grid gap-4 sm:grid-cols-[1fr_11rem]">
+            <Field>
+              <FieldLabel htmlFor="act-title">Nama {level}</FieldLabel>
+              <Input
+                id="act-title"
+                autoFocus
+                placeholder={LEVEL_PLACEHOLDER[level]}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="act-date">Tanggal (Opsional)</FieldLabel>
+              <Input id="act-date" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+            </Field>
+          </div>
+          <Field>
+            <FieldLabel htmlFor="act-desc">Deskripsi (Opsional)</FieldLabel>
+            <Textarea
+              id="act-desc"
+              rows={2}
+              placeholder={`Uraian singkat ${level.toLowerCase()}...`}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </Field>
+        </FieldGroup>
+
+        <section className="flex flex-col gap-3 rounded-2xl border bg-muted/40 p-4">
+          <div className="flex items-center justify-between">
+            <h4 className="flex items-center gap-2 text-sm font-bold">
+              <BookOpen className="size-4 text-module" /> Dasar Pelaksanaan / Resources
+            </h4>
+            {!adding && <AddAttachmentButton onClick={() => setAdding(true)} />}
+          </div>
+          {adding && (
+            <AttachmentForm
+              defaultDate={deadline}
+              uploadContext="activity"
+              offerAiSummary
+              idPrefix="ar"
+              onCancel={() => setAdding(false)}
+              onAdd={(att) => {
+                edits.trackAdded(att);
+                setAttachments((prev) => [...prev, att]);
+                setAdding(false);
+              }}
+            />
+          )}
+          <AttachmentTable
+            resources={resources}
+            onUpdate={(u) => setAttachments((prev) => prev.map((r) => (r.id === u.id ? u : r)))}
+            onOpenAi={setAiTarget}
+            onRemove={(id) => {
+              const att = resources.find((r) => r.id === id);
+              if (att) edits.requestRemove(att, () => setAttachments((prev) => prev.filter((r) => r.id !== id)));
+            }}
           />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="act-date">Tanggal (Opsional)</FieldLabel>
-          <Input id="act-date" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
-        </Field>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onCancel}>
-            Batal
-          </Button>
-          <Button type="submit">Simpan</Button>
-        </DialogFooter>
-      </FieldGroup>
+        </section>
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={() => void guardedClose(onCancel)}>
+          Batal
+        </Button>
+        <Button type="submit">Simpan</Button>
+      </DialogFooter>
+      {edits.dialog}
+      <ResourceAiDialog
+        resource={aiTarget}
+        onOpenChange={(open) => !open && setAiTarget(null)}
+        onSave={(id, summary) =>
+          setAttachments((prev) => prev.map((r) => (r.id === id ? { ...r, aiSummary: summary } : r)))
+        }
+      />
     </form>
   );
 }

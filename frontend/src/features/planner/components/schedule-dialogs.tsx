@@ -623,6 +623,11 @@ function ScheduleDetail({
           </p>
           <AttachmentTable
             resources={schedule.results}
+            onUpdate={
+              canEdit
+                ? (u) => update({ results: (schedule.results ?? []).map((r) => (r.id === u.id ? u : r)) })
+                : undefined
+            }
             emptyText="Belum ada lampiran hasil."
             onOpenAi={(item) => setAiTarget({ list: "results", item })}
             onRemove={

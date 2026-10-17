@@ -1,3 +1,4 @@
+import { formatLocalYMD } from "@/lib/dates";
 import { Archive, CheckCircle2, FilePen, Paperclip, Plus, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -284,7 +285,7 @@ export function AttachmentForm({
       ...(archive ? { toFileControl: true, addToGlobal: true } : { toFileControl: undefined }),
       ...(draft.tags?.length ? {} : { tags: undefined }),
       id: generateId(idPrefix),
-      date: draft.date || defaultDate || new Date().toISOString().slice(0, 10),
+      date: draft.date || defaultDate || formatLocalYMD(new Date()),
     });
     setDraft(initialDraft());
     setFileSource("upload");

@@ -1,4 +1,5 @@
-import { Bot, ExternalLink, FileText, NotebookPen, Trash2 } from "lucide-react";
+import { Bot, ExternalLink, FileText, NotebookPen, PencilLine, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,12 +9,15 @@ import { cn } from "@/lib/utils";
 import type { AttachedResource } from "@/types/entities";
 import { useOfficeLinkBadges } from "@/data/use-office";
 import { DocumentLinkBadge } from "@/features/tools/onlyoffice/document-links";
+import { AttachmentEditDialog } from "./attachment-edit-dialog";
 import { attachmentLabel, noteAttachmentPath, openAttachment } from "./resource-utils";
 
 interface AttachmentTableProps {
   resources?: AttachedResource[];
   onRemove?: (id: string) => void;
   onOpenAi?: (resource: AttachedResource) => void;
+  /** Diisi → tombol Ubah (nomor, nama, tanggal, deskripsi, tag) tanpa menghapus berkasnya */
+  onUpdate?: (updated: AttachedResource) => void;
   emptyText?: string;
 }
 
@@ -22,9 +26,11 @@ export function AttachmentTable({
   resources = [],
   onRemove,
   onOpenAi,
+  onUpdate,
   emptyText = "Belum ada resource/dasar pelaksanaan dilampirkan.",
 }: AttachmentTableProps) {
   const navigate = useNavigate();
+  const [editing, setEditing] = useState<AttachedResource | null>(null);
   const linkBadges = useOfficeLinkBadges(resources.map((res) => res.uploadId));
   // Lampiran catatan (tanpa file/link) dibuka di Notes Space; berkas di modal pratinjau, link di tab baru (openAttachment)
   const open = (res: AttachedResource) => {
@@ -46,7 +52,7 @@ export function AttachmentTable({
             <TableHead>Nama</TableHead>
             <TableHead>Deskripsi</TableHead>
             <TableHead className="w-28">Tanggal</TableHead>
-            <TableHead className="w-24 text-right">Aksi</TableHead>
+            <TableHead className="w-28 text-right">Aksi</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -97,6 +103,17 @@ export function AttachmentTable({
                       <Bot />
                     </Button>
                   )}
+                  {onUpdate && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      title="Ubah lampiran"
+                      onClick={() => setEditing(res)}
+                    >
+                      <PencilLine />
+                    </Button>
+                  )}
                   {onRemove && (
                     <Button
                       type="button"
@@ -115,6 +132,13 @@ export function AttachmentTable({
           ))}
         </TableBody>
       </Table>
+      {onUpdate && (
+        <AttachmentEditDialog
+          attachment={editing}
+          onOpenChange={(open) => !open && setEditing(null)}
+          onSave={onUpdate}
+        />
+      )}
     </div>
   );
 }

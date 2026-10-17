@@ -454,7 +454,7 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
     (Batal, ganti Tipe, X/Esc dialog Tambah Resource lewat `closeGuardRef`) → `useOfficeDiscardConfirm().confirm(id)`:
     konfirmasi hanya bila dokumen sudah berisi (versi > 1); tombol "Hapus dokumen" → `confirm(id, { explicit: true })`
     (selalu konfirmasi).
-  - **Ringkasan AI saat upload = opsional** (keputusan user): `AttachmentForm offerAiSummary` (form Project/Action/Task) dan
+  - **Ringkasan AI saat upload = opsional** (keputusan user): `AttachmentForm offerAiSummary` (semua form lampiran) dan
     form Resource menampilkan centang **"Ringkas dengan AI"** — default mati, pilihan terakhir diingat per browser
     (`resources/ai-summary-preference.ts`). AI hanya dipanggil bila dicentang (centang setelah upload → langsung diringkas);
     "Tambahkan"/"Simpan" tidak menunggu AI (bila masih berjalan, ringkasan dilewati → buat nanti lewat ikon robot); hasil
@@ -463,9 +463,13 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
     Resource Global dan `AttachmentForm` (khusus berkas; default mati, diingat per browser) → `archivalStatus: "pending"`.
     Pada lampiran, centang ini memaksa `addToGlobal` (`AttachedResource.toFileControl` → `mergeIntoGlobalResources`), karena
     File Control bersumber dari Resource Global. Tanpa centang berkas **tidak** masuk File Control. Helper:
-    `resources/file-control-intake.ts` (`isInFileControl`, `fileControlStatus`, preferensi). Detail: docs/FILE-CONTROL.md §1.
+    `resources/file-control-intake.ts` (`isInFileControl`, `fileControlStatus`, `archiveLockReason`, preferensi). Detail:
+    docs/FILE-CONTROL.md §1. **Arsip yang sudah diberkaskan (Fisik/Digital) dikunci di luar File Control**: tab Resources
+    menolak Hapus (toast + "Buka di File Control" → `links.archive(id, tab)`), form Resource mengunci Tipe, Ganti File, dan
+    Edit di ONLYOFFICE (nama/tanggal/tag/deskripsi tetap bisa diubah) — penghapusan arsip hanya lewat penyusutan.
   - **Tag Resource Global** (`resources/resource-tags.ts` + test): dua macam di satu array `tags` — **tag konteks** otomatis
-    (asal: `Global Resource`, `Project Basis`, `Project`, `Project Action`, `Area`, `Area Task`, `Agenda` = `CONTEXT_TAGS`;
+    (asal: `Global Resource`, `Project Basis`, `Project`, `Project Action`, `Area`, `Area Task`, `Agenda`, `Dokumen Final`,
+    serta penanda File Control `Musnah`/`Statis` = `CONTEXT_TAGS`;
     diberikan `contextTag` saat resource dibuat dari lampiran/penghapusan, tidak bisa diubah user) dan **tag bebas**
     (kategori isi, mis. Regulasi, SOP) yang diketik di form Resource lewat `<TagInput>` (`components/common/tag-input.tsx`:
     Enter/koma/+, Backspace, saran `datalist` dari tag yang sudah dipakai). `addFreeTag` mencegah duplikat tanpa peka huruf
@@ -475,7 +479,12 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
     di `AttachedResource.tags` dan, bila lampiran masuk Resource Global (centang global, File Control, atau jenis Resource
     Global), **ditambahkan** (tanpa duplikat, tidak pernah menghapus) ke resource oleh `mergeIntoGlobalResources`. Semua form lampiran menawarkan "Ringkas dengan AI"
     (`offerAiSummary`). Handler tag wajib pembaruan fungsional (`setX(prev => …)`): menempel "a, b" memanggil `onAdd`
-    beberapa kali dalam satu event.
+    beberapa kali dalam satu event. Tag yang sengaja dihapus user di form Resource dicatat di `Resource.removedTags`
+    (`nextRemovedTags`) dan **tidak** ditambahkan ulang dari lampiran (`mergeAttachmentTags`). Tab Resources: filter per
+    tag + dialog **Kelola Tag** (`resource-tags-dialog.tsx`: ganti nama = gabung bila nama sudah ada, hapus dari semua
+    resource milik sendiri; `freeTagCounts`, `renameResourceTag`). **Ubah lampiran**: `AttachmentTable onUpdate` →
+    `AttachmentEditDialog` (nomor, nama, tanggal, deskripsi, tag; jenis & berkas tidak diubah — ganti berkas = hapus lalu
+    tambah) di semua form lampiran + Hasil Agenda.
   - **Upload yang belum tersimpan** dicatat di `lib/pending-uploads.ts` (localStorage per user: `uploadId`, instans
     halaman, detak) lewat `trackPendingUpload` / `untrackPendingUpload`: `AttachmentForm` (sebelum "Tambahkan"; diserahkan
     ke form pemakai saat ditambahkan), `useAttachmentEdits` (sampai form disimpan) dan form Resource. `usePendingUploadsJanitor`
@@ -503,7 +512,11 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
     form Project) memakai `useAttachmentEdits({ contextTag, ownerId })` (`features/productivity/use-attachment-edits.tsx`:
     `trackAdded`, `requestRemove(att, drop)`, `commit()` setelah simpan, `discard()`, `dialog`); dialog induk memasang
     `<DiscardScope register>` + `discardAll()` saat ditutup (`useDiscardScope`, `useDiscardOnClose`). Hapus **Resource
-    Global** (tab Resources) ikut menghapus berkasnya bila tidak dipakai di tempat lain (`excludeResourceIds`); "Ganti
+    Global** (tab Resources) ikut menghapus berkasnya bila tidak dipakai di tempat lain (`excludeResourceIds`); berkas yang
+    menjadi sumber My Notebook ikut dihitung "Dipakai" (`referenced()` membaca `useNotebookUsage`; server menolak 409) dan
+    hapus resource yang menjadi sumber notebook memberi peringatan. Form Sub Area/Kegiatan/Sub Kegiatan punya Deskripsi +
+    Dasar Pelaksanaan (tag konteks "Area") seperti form Project ("Project Basis"); form Area & item area di-`key` per sesi
+    buka. "Ganti
     File" di form Resource membuang upload sesi & berkas lama setelah disimpan (`replacedUploadId`). Mengarsipkan TIDAK
     menghapus berkas (snapshot arsip melindunginya); belum ada hapus arsip permanen di UI.
   - **Dialog form: `key` per sesi buka** — `useOpenSession(open)` (`hooks/use-retained.ts`) sebagai `key` konten form
@@ -567,7 +580,8 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
     `features/productivity/components/agenda-item.tsx` (status, rentang tanggal, dasar pelaksanaan, penanda Hasil).
     Agenda ikut diarsipkan (`related.schedules`) / dipulihkan / dihapus berantai bersama induknya, dan **ikut dibagikan**
     sebagai turunan project/item area (`share-graph.ts`; Notes AI terhubung ikut). Di Productivity agenda multi-hari tampil
-    **sekali** dengan rentang tanggal (`scheduleDateRangeLabel`: "14 Okt – 16 Okt 2026"), juga di tampilan **Timeline**
+    **sekali** dengan rentang tanggal (`scheduleDateRangeLabel`: "14 Okt – 16 Okt 2026"), agenda berulang **satu baris per
+    seri** (pertemuan berikutnya yang belum lewat, `collapseAgendaSeries` di `lib/para.ts`; sakelar "Gabung seri"), juga di tampilan **Timeline**
     (`TimelineView`: dasar + action/task + agenda, klik agenda → tampilan lihat); di Planner tetap tampil per hari.
   - `scheduleTimeLabel`: jam kosong → "Tanpa jam" (bukan "??:??"); hanya jam selesai → "s.d. HH:mm".
   - **Agenda berulang** (`features/planner/lib/recurrence.ts` + test): setiap pertemuan = **agenda tersendiri** dengan
@@ -652,7 +666,8 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   form lampiran (dokumen ONLYOFFICE berisi).
 - **Tanggal** (`src/lib/dates.ts`): YMD `"2026-10-08"` (schedule/routine/task.dueDate/ai_note) dan `toDateString()`
   `"Thu Oct 08 2026"` (todo.date, completion.date). YMD selalu dibaca dengan `parseLocalYMD`, **jangan**
-  `new Date("YYYY-MM-DD")` (dibaca UTC → bergeser sehari di zona waktu barat UTC).
+  `new Date("YYYY-MM-DD")` (dibaca UTC → bergeser sehari di zona waktu barat UTC). Tanggal "hari ini" ditulis dengan
+  `formatLocalYMD(new Date())`, **jangan** `new Date().toISOString().slice(0, 10)` (tanggal UTC → kemarin sebelum 07.00 WIB).
 - **Link dari input user** (`href`): lewat `toExternalHref()` (`src/lib/urls.ts`) — menambah `https://` dan menolak
   skema selain http/https.
 - **QR & scan**: QR lokal `qrcode.react` (`QrImage`), scan `CameraScanner`/`CameraScanDialog` (import dinamis).
@@ -745,6 +760,8 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Perbaikan Overview (proyek berjalan, tugas mendesak + terlambat, to-do & rutinitas hari ini bisa dicentang, status & Gabung agenda, label Indonesia, notifikasi tugas terlambat & baru dibagikan) | ✅ 2026-10-15 — unit test (`overview-logic.test.ts`: 9), lint, typecheck, build, UI diuji di browser (desktop + HP; centang rutinitas/todo/task, tambah agenda, popover notifikasi) |
 | Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); **tahap 3 ✅ 2026-10-16** (revisi user: AI satu pintu = tab AI bawaan ONLYOFFICE memakai provider & key Pengaturan → AI lewat proxy backend; templat diunggah di Tools; impor berkas saat Buat Dokumen; unit + smoke lulus, UI diuji termasuk Summarization dengan Gemini sungguhan) + **lanjutan ✅** (Tools per role, font diunggah admin + pemantau, tautan konsep ↔ dokumen final) + **tahap 4 produksi ✅ 2026-10-16** (compose profile `office`, Caddy `/office/`, smoke penuh lewat stack produksi lokal); berikutnya agen SRIKANDI & agen pembuat dokumen di Tools (teknologi dibahas user) |
 | Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🔎 riset selesai 2026-10-17 (`docs/AI-AGENT.md`: OpenClaw, Hermes Agent, n8n, knowledge AI, SRIKANDI, e-Kinerja, SIMAN, WSL/Docker) — **menunggu keputusan user AG-1…AG-9**; belum ada perubahan kode/infra |
+| Productivity lanjutan: modal Project/Area lega, kartu ringkas, File Control opt-in, tag bebas Resource Global & lampiran | ✅ 2026-10-12–15 — unit test, lint, typecheck, build, UI diuji di browser (desktop + HP) |
+| Audit celah Productivity (8 temuan + 2 temuan saat uji): arsip yang sudah diberkaskan dikunci dari tab Resources, sumber My Notebook dilindungi di dialog hapus, item Area berlampiran & berdeskripsi, ubah lampiran, agenda berulang digabung per seri, form Area di-`key`, tag terhapus tidak kembali, filter & Kelola Tag, tag Musnah/Statis terkunci, tanggal bawaan lokal | ✅ 2026-10-18 — unit test (frontend 190+), lint, typecheck, build, UI diuji di browser dengan data `UJI-AUDIT` (dibersihkan) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -1158,6 +1175,16 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   isi tidak bisa digulir; kini popover dibatasi ruang layar tersedia dan daftar memakai area gulir biasa. (2) Judul dialog
   Focus Mode kini mengikuti sesi: **Mode Fokus**, **Waktu Rehat**, **Waktu Istirahat** (keterangan & ikon ikut berubah; tombol
   header saat berjalan menampilkan ikon & nama sesi).
+- 2026-10-18 — **Audit celah Productivity** (permintaan user, semua dikerjakan berurutan): (1) arsip Fisik/Digital bisa dihapus
+  permanen dari tab Resources tanpa prosedur penyusutan → ditolak + arahan ke File Control; (2) tipe / berkas arsip yang sudah
+  diberkaskan bisa diganti dari form Resource → dikunci; (7) form Area & Sub Area/Kegiatan tanpa `key` per sesi buka;
+  (4) item area tidak bisa diberi Dasar Pelaksanaan/deskripsi padahal data & tampilan sudah mendukung; (5) lampiran tidak
+  bisa diubah tanpa menghapus berkas → `AttachmentEditDialog`; (6) agenda berulang memenuhi daftar/timeline Project/Area →
+  satu baris per seri; (8) tag asal project ganda ("Project" vs "Project Basis" → seragam "Project Basis" untuk dasar
+  pelaksanaan), tag yang dihapus kembali dari lampiran (`removedTags`), filter + Kelola Tag; (3) berkas sumber My Notebook
+  tidak dikenali dialog hapus (dijanjikan terhapus, 409 diabaikan) → "Dipakai". Ditemukan saat uji: tanggal bawaan lampiran /
+  resource = tanggal UTC (kemarin sebelum 07.00 WIB) → `formatLocalYMD`; tag `Musnah`/`Statis` dari File Control bisa diubah
+  lewat Kelola Tag → tag otomatis. Tanpa migrasi (`removedTags`, deskripsi & lampiran item area di kolom/`extra`).
 - 2026-10-17 — **Hasil Agenda ↔ Notes AI** (permintaan user): tombol Buat Notes AI dipindah ke samping Tambah Hasil. Notes AI
   yang memilih agenda tetap hanya **tertaut** (catatan pribadi tidak wajib menjadi resource) dan bisa dimasukkan ke Hasil per
   catatan (opsional ke Resource Global). Celah yang ditemukan & diperbaiki: lampiran catatan yang disimpan ke Resource
@@ -1428,6 +1455,11 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Compose produksi meneruskan env opsional yang tidak diisi sebagai **string kosong** (`VAR: ${X:-}`), dan
   class-validator `@IsOptional` hanya melewati null/undefined → env opsional bervalidasi (URL, `MinLength`) wajib memakai
   `@Transform(emptyToUndefined)` (`env.validation.ts`, + test). Uji stack produksi juga dengan fitur opsional **dimatikan**.
+
+- `new Date().toISOString().slice(0, 10)` = tanggal **UTC**: di WIB sebelum 07.00 hasilnya kemarin. Untuk "hari ini" pakai
+  `formatLocalYMD(new Date())` (di komponen lewat helper level modul agar lolos oxlint purity).
+- Toast sonner dengan `action` tertutup sendiri setelah beberapa detik — saat uji lewat `javascript_tool`, klik tombol
+  aksinya segera setelah toast muncul.
 
 - Komponen `ScrollArea` (shadcn/Radix) hanya menggulir bila **tingginya pasti** (`h-*`, atau flex item di kontainer
   bertinggi pasti). Dengan `max-h-*` saja viewport (`size-full`) ikut setinggi isi → isi meluber & tidak bisa digulir.

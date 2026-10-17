@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { fileControlStatus, isFiledArchive, isInFileControl } from "./file-control-intake";
+import { archiveLockReason, fileControlStatus, isFiledArchive, isInFileControl } from "./file-control-intake";
+
+describe("archiveLockReason", () => {
+  it("mengunci arsip yang sudah diberkaskan", () => {
+    expect(archiveLockReason({ archivalStatus: "physical", archiveRegId: "ARC-2026-ABC123" })).toContain(
+      "ARC-2026-ABC123",
+    );
+    expect(archiveLockReason({ archivalStatus: "digital" })).toContain("digital");
+  });
+  it("tidak mengunci arsip Gantung / bukan arsip", () => {
+    expect(archiveLockReason({ archivalStatus: "pending" })).toBeNull();
+    expect(archiveLockReason({})).toBeNull();
+    expect(archiveLockReason(null)).toBeNull();
+  });
+});
 
 describe("isInFileControl", () => {
   it("hanya berkas yang sudah dimasukkan", () => {

@@ -203,6 +203,8 @@ export interface Resource extends Owned {
   /** Alternatif: tag tunggal */
   sourceTag?: string;
   aiSummary?: string;
+  /** Tag bebas yang sengaja dihapus user di form Resource — tidak ditambahkan ulang dari lampiran (`mergeAttachmentTags`) */
+  removedTags?: string[];
   /** Status kearsipan; terisi bila berkas dimasukkan ke File Control (lihat `file-control-intake.ts`) */
   archivalStatus?: ArchivalStatus;
 }

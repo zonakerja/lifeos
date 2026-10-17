@@ -17,6 +17,9 @@ Control"** saat dibuat (form Resource Global & form lampiran Project/Action/Task
 otomatis menjadi Resource Global) atau saat diubah di form Resource. Centang mengisi `archivalStatus: "pending"`
 (Gantung); dilepas → `"none"`; kosong/`none` = bukan arsip. Arsip fisik/digital tidak bisa dikeluarkan lewat centang.
 Centang default mati, pilihan terakhir diingat per browser. Logika: `features/resources/file-control-intake.ts` (+ test).
+Arsip yang sudah diberkaskan (Fisik/Digital) **tidak bisa dihapus, diganti berkasnya, atau diubah tipenya dari tab
+Resources** (`archiveLockReason`): penghapusan arsip hanya lewat penyusutan (berita acara) di File Control. Arsip Gantung
+masih boleh dihapus dari Resources (dialog menyebut bahwa arsip ikut keluar dari File Control).
 Resource berkas lama (sebelum opt-in) dimigrasi menjadi `pending` (`20261014120000_file_control_opt_in`).
 
 **Sumber arsip**: resource bertipe file yang masuk File Control (`isInFileControl`, `isArchived: false`) + isi snapshot

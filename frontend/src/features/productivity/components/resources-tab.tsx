@@ -1,3 +1,4 @@
+import { formatLocalYMD } from "@/lib/dates";
 import {
   Archive,
   BookOpen,
@@ -10,6 +11,7 @@ import {
   Plus,
   Trash2,
   Upload,
+  Tags,
 } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -50,12 +52,15 @@ import { readAiSummaryPreference, writeAiSummaryPreference } from "@/features/re
 import {
   addFreeTag,
   collectFreeTags,
+  hasTag,
+  nextRemovedTags,
   isContextTag,
   MAX_TAG_LENGTH,
   resourceTags,
   splitTags,
 } from "@/features/resources/resource-tags";
 import {
+  archiveLockReason,
   fileControlStatus,
   isFiledArchive,
   isInFileControl,
@@ -80,16 +85,22 @@ import { CommentsButton } from "@/features/sharing/comments-panel";
 import { ShareButton } from "@/features/sharing/share-dialog";
 import { SharedBadge } from "@/features/sharing/shared-badge";
 import { itemAccess } from "@/lib/sharing";
+import { links } from "@/lib/deep-links";
 import { PARA_INFO, replacedUploadId, resourceFileAttachment } from "../lib/para";
 import { DiscardScope, useDiscardOnClose, useDiscardScope } from "../use-attachment-edits";
 import { useParaActions } from "../use-para-actions";
 import { ParaInfo } from "./para-info";
+import { ResourceTagsDialog } from "./resource-tags-dialog";
 import { useOpenSession, useRetained } from "@/hooks/use-retained";
 import { useOfficeLinkBadges } from "@/data/use-office";
+import { useNotebookUsage } from "@/data/use-notebooks";
 import { DocumentLinkBadge } from "@/features/tools/onlyoffice/document-links";
 
 /** Waktu sekarang (helper modul agar tidak dianggap pemanggilan tidak murni saat render) */
 const nowIso = () => new Date().toISOString();
+/** Tanggal lokal hari ini (YMD) — bukan potongan ISO yang bertanggal UTC */
+const todayYmd = () => formatLocalYMD(new Date());
+const ALL_TAGS = "__all__";
 
 export function ResourcesTab() {
   const today = useToday();
@@ -105,6 +116,9 @@ export function ResourcesTab() {
   };
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState(DEFAULT_DATE_FILTER);
+  // Filter per tag bebas (kategori isi) + dialog Kelola Tag
+  const [tagFilter, setTagFilter] = useState(ALL_TAGS);
+  const [managingTags, setManagingTags] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [editing, setEditing] = useState<Resource | "new" | null>(null);
@@ -115,6 +129,30 @@ export function ResourcesTab() {
   const deletingFile = deleting ? resourceFileAttachment(deleting) : null;
   const deletingFileShared =
     !!deletingFile?.uploadId && cleanup.referenced([], [deleting!.id]).has(deletingFile.uploadId);
+  const deletingInFileControl = !!deleting && isInFileControl(deleting);
+  // Resource yang menjadi sumber My Notebook: diberi tahu (sumber di notebook tidak lagi bisa dibaca)
+  const { data: notebookUsage } = useNotebookUsage();
+  const deletingNotebooks = deleting
+    ? [
+        ...new Set(
+          (notebookUsage ?? [])
+            .filter((u) => u.recordType === "para_resource" && u.recordId === deleting.id)
+            .map((u) => u.notebookTitle),
+        ),
+      ]
+    : [];
+  // Arsip yang sudah diberkaskan hanya boleh disusutkan lewat File Control (berita acara), bukan dihapus di sini
+  const requestDelete = (res: Resource) => {
+    const reason = archiveLockReason(res);
+    if (!reason) return setDeleting(res);
+    toast.error("Arsip tidak bisa dihapus dari Resources", {
+      description: reason,
+      action: {
+        label: "Buka di File Control",
+        onClick: () => void navigate(links.archive(res.id, res.archivalStatus === "physical" ? "physical" : "digital")),
+      },
+    });
+  };
   const [archiving, setArchiving] = useState<Resource | null>(null);
   // Deep link ?resource=<id> menyorot baris resource
   const [highlightId] = useSearchParam("resource");
@@ -126,8 +164,10 @@ export function ResourcesTab() {
       return !q || [r.title ?? "", ...resourceTags(r)].some((v) => v.toLowerCase().includes(q));
     })
     .filter((r) => matchesDateFilter(r.date, dateFilter, today))
+    .filter((r) => tagFilter === ALL_TAGS || hasTag(r, tagFilter))
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const pageItems = paginate(filtered, page, pageSize);
+  const tagOptions = collectFreeTags(resources);
   // Penanda konsep ↔ dokumen final untuk berkas di halaman ini
   const linkBadges = useOfficeLinkBadges(pageItems.map((res) => res.uploadId));
 
@@ -146,6 +186,32 @@ export function ResourcesTab() {
             }}
             labels={{ custom: "Custom" }}
           />
+          {tagOptions.length > 0 && (
+            <Select
+              value={tagFilter}
+              onValueChange={(v) => {
+                setTagFilter(v);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-full md:w-40" title="Filter tag">
+                <Tags /> <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_TAGS}>Semua tag</SelectItem>
+                {tagOptions.map((tag) => (
+                  <SelectItem key={tag} value={tag}>
+                    {tag}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {canEdit && (
+            <Button variant="outline" onClick={() => setManagingTags(true)}>
+              <Tags /> Kelola Tag
+            </Button>
+          )}
           {canEdit && (
             <Button onClick={() => setEditing("new")}>
               <Plus /> Tambah
@@ -265,7 +331,7 @@ export function ResourcesTab() {
                           size="icon-sm"
                           title="Hapus"
                           className="hover:text-destructive"
-                          onClick={() => setDeleting(res)}
+                          onClick={() => requestDelete(res)}
                         >
                           <Trash2 />
                         </Button>
@@ -287,6 +353,7 @@ export function ResourcesTab() {
         onPageSizeChange={setPageSize}
       />
 
+      <ResourceTagsDialog open={managingTags} onOpenChange={setManagingTags} />
       <ResourceFormDialog resource={editing} onOpenChange={(open) => !open && setEditing(null)} />
       <ResourceAiDialog
         resource={aiTarget}
@@ -302,9 +369,15 @@ export function ResourcesTab() {
         description={
           !deletingFile
             ? "Anda yakin ingin menghapus item ini secara permanen dari database?"
-            : deletingFileShared
-              ? "Resource ini akan dihapus permanen. Berkasnya tetap disimpan karena masih dipakai di tempat lain (lampiran item lain / arsip)."
-              : "Resource ini beserta berkasnya di storage akan dihapus permanen."
+            : (deletingFileShared
+                ? "Resource ini akan dihapus permanen. Berkasnya tetap disimpan karena masih dipakai di tempat lain (lampiran item lain / arsip)."
+                : "Resource ini beserta berkasnya di storage akan dihapus permanen.") +
+              (deletingInFileControl
+                ? " Resource ini juga terdaftar di File Control (Gantung) dan ikut keluar dari sana."
+                : "") +
+              (deletingNotebooks.length
+                ? ` Resource ini menjadi sumber My Notebook: ${deletingNotebooks.join(", ")} — sumber itu tidak lagi bisa dibaca.`
+                : "")
         }
         itemName={deleting?.title}
         confirmLabel="Konfirmasi Hapus"
@@ -567,8 +640,12 @@ function ResourceForm({
     const data: Resource = {
       ...form,
       tags: [...contextTags, ...freeTags],
+      // Tag yang dihapus di sini tidak ditambahkan ulang dari lampiran item lain
+      removedTags: nextRemovedTags(resource?.removedTags, initialTags.free, freeTags).length
+        ? nextRemovedTags(resource?.removedTags, initialTags.free, freeTags)
+        : undefined,
       title: form.title.trim(),
-      date: form.date || nowIso().slice(0, 10),
+      date: form.date || todayYmd(),
       // Resource bukan berkas tidak menyimpan rujukan berkas
       ...(form.type === "file" ? {} : { uploadId: undefined, mimeType: undefined }),
       archivalStatus: fileControlStatus(resource?.archivalStatus, form.type === "file" && toFileControl),
@@ -611,6 +688,7 @@ function ResourceForm({
         <Field>
           <FieldLabel>Tipe</FieldLabel>
           <Select
+            disabled={filed}
             value={officeSource ? OFFICE_ATTACHMENT_TYPE : form.type}
             onValueChange={async (v) => {
               const office = v === OFFICE_ATTACHMENT_TYPE;
@@ -648,6 +726,11 @@ function ResourceForm({
         </Field>
       </div>
 
+      {filed && (
+        <p className="rounded-xl border border-info/30 bg-info/10 px-3 py-2 text-xs text-info">
+          {archiveLockReason(resource)} Tipe dan berkas dikunci; nama, tanggal, tag, dan deskripsi tetap bisa diubah.
+        </p>
+      )}
       {form.type === "link" && (
         <Field>
           <FieldLabel htmlFor="res-url">URL / Link</FieldLabel>
@@ -668,7 +751,8 @@ function ResourceForm({
                 type="button"
                 variant="secondary"
                 size="sm"
-                disabled={uploading}
+                disabled={uploading || filed}
+                title={filed ? "Dokumen arsip yang sudah diberkaskan tidak bisa diganti" : undefined}
                 onClick={() => fileRef.current?.click()}
               >
                 {uploading ? <Spinner /> : <Upload />} {form.uploadId ? "Ganti File" : "Pilih File"}
@@ -716,7 +800,7 @@ function ResourceForm({
                 {officeSource ? "Dokumen dibuat" : "File saat ini"}: {form.title}
               </span>
             )}
-            {form.uploadId && officeEnabled && isOfficeEditable(form.title, form.mimeType) && (
+            {form.uploadId && !filed && officeEnabled && isOfficeEditable(form.title, form.mimeType) && (
               <Button type="button" variant="ghost" size="xs" onClick={() => editInOffice(form.uploadId!, form.title)}>
                 <FilePen /> Edit di ONLYOFFICE
               </Button>

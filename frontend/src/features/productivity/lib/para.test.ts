@@ -6,6 +6,7 @@ import {
   activityLevel,
   activityTreeIds,
   childrenOf,
+  collapseAgendaSeries,
   completionDefaults,
   deleteDescription,
   freeProjectsOf,
@@ -222,5 +223,28 @@ describe("completionDefaults (dialog Tandai Selesai)", () => {
       { id: "c", projectId: "p", title: "C" },
     ];
     expect(completionDefaults(full[1], full, "2026-10-11").weight).toBe(0);
+  });
+});
+
+describe("collapseAgendaSeries", () => {
+  const meet = (id: string, date: string, seriesId?: string): Schedule =>
+    ({ id, title: id, startDate: date, endDate: date, seriesId }) as Schedule;
+  const list = [
+    meet("k1", "2026-10-01", "kuliah"),
+    meet("rapat", "2026-10-05"),
+    meet("k2", "2026-10-08", "kuliah"),
+    meet("k3", "2026-10-15", "kuliah"),
+  ];
+
+  it("satu baris per seri: pertemuan berikutnya yang belum lewat", () => {
+    expect(collapseAgendaSeries(list, "2026-10-08").map((s) => s.id)).toEqual(["rapat", "k2"]);
+  });
+
+  it("semua pertemuan lewat → pertemuan terakhir", () => {
+    expect(collapseAgendaSeries(list, "2026-11-01").map((s) => s.id)).toEqual(["rapat", "k3"]);
+  });
+
+  it("agenda biasa tidak berubah", () => {
+    expect(collapseAgendaSeries([meet("a", "2026-10-01")], "2026-10-02").map((s) => s.id)).toEqual(["a"]);
   });
 });

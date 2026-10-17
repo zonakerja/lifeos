@@ -398,6 +398,7 @@ function ScheduleForm({
           )}
           <AttachmentTable
             resources={form.resources}
+            onUpdate={(u) => patch({ resources: (form.resources ?? []).map((r) => (r.id === u.id ? u : r)) })}
             emptyText="Belum ada dasar pelaksanaan."
             onRemove={(id) => {
               const att = form.resources?.find((r) => r.id === id);

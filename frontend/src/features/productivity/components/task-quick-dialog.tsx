@@ -166,6 +166,7 @@ function TaskQuickDialogInner({ task, kind, open, onOpenChange, onSave }: TaskQu
                 )}
                 <AttachmentTable
                   resources={form.resources}
+                  onUpdate={(u) => patch({ resources: (form?.resources ?? []).map((r) => (r.id === u.id ? u : r)) })}
                   onOpenAi={setAiTarget}
                   onRemove={(id) => {
                     const att = form.resources?.find((r) => r.id === id);

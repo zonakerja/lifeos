@@ -14,6 +14,16 @@ export const isInFileControl = (r: { type?: string; archivalStatus?: string }) =
 export const isFiledArchive = (status?: string) => status === "physical" || status === "digital";
 
 /**
+ * Arsip yang sudah diberkaskan tidak boleh dihapus, diganti berkasnya, atau diubah tipenya dari luar File Control:
+ * pemusnahan arsip hanya lewat penyusutan (berita acara) di File Control. Mengembalikan alasan penolakan, atau null.
+ */
+export function archiveLockReason(r: { archivalStatus?: string; archiveRegId?: string } | null | undefined) {
+  if (!r || !isFiledArchive(r.archivalStatus)) return null;
+  const reg = r.archiveRegId ? ` (No. Arsip ${r.archiveRegId})` : "";
+  return `Resource ini sudah diberkaskan sebagai arsip ${r.archivalStatus === "physical" ? "fisik" : "digital"} di File Control${reg}. Penghapusan atau penggantian dokumen arsip dilakukan lewat penyusutan di File Control.`;
+}
+
+/**
  * `archivalStatus` baru setelah centang diubah. Dicentang → masuk Gantung (status yang lebih lanjut dipertahankan);
  * centang dilepas → `"none"` bila sebelumnya sudah masuk (perubahan tercatat di audit kearsipan), tetap kosong bila belum.
  */

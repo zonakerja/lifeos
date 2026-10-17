@@ -18,6 +18,9 @@ export const links = {
   areas: () => "/productivity/areas",
   area: (id: string) => `/productivity/areas?area=${encodeURIComponent(id)}`,
   resource: (id: string) => `/productivity/resources?resource=${encodeURIComponent(id)}`,
+  /** Detail arsip di File Control (tab sesuai status kearsipan). */
+  archive: (id: string, tab: "pending" | "physical" | "digital" = "pending") =>
+    `/file-control/${tab}?archive=${encodeURIComponent(id)}`,
   notes: (tab: "free" | "ai" | "lists" = "free") => `/notes/${tab}`,
   /** Buka langsung satu catatan (tab Catatan / Notes AI). */
   /** My Notebook (tab Notes Space) — tanpa id = daftar notebook */

@@ -1,3 +1,4 @@
+import { formatLocalYMD } from "@/lib/dates";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import {
@@ -8,6 +9,7 @@ import {
   useResources,
   useSchedules,
 } from "@/data/collections";
+import { useNotebookUsage } from "@/data/use-notebooks";
 import { uploadsApi } from "@/lib/api/endpoints";
 import { generateId } from "@/lib/ids";
 import { useAuthStore } from "@/stores/auth-store";
@@ -41,7 +43,7 @@ const toGlobalResource = (att: AttachedResource, contextTag: string, ownerId?: s
   type: "file",
   uploadId: att.uploadId,
   mimeType: att.mimeType,
-  date: att.date || new Date().toISOString().slice(0, 10),
+  date: att.date || formatLocalYMD(new Date()),
   createdAt: new Date().toISOString(),
   tags: [contextTag],
   aiSummary: att.aiSummary,
@@ -65,6 +67,8 @@ export function useAttachmentCleanup() {
   const { items: activities } = useActivities();
   const { items: archives } = useParaArchives();
   const meId = useAuthStore((st) => st.user?.id);
+  // Berkas yang menjadi sumber My Notebook dilindungi server (hapus → 409) → tandai "Dipakai" di dialog, jangan dihapus
+  const { data: notebookUsage } = useNotebookUsage();
 
   const referenced = useCallback(
     (exclude: AttachedResource[], excludeResourceIds: string[] = []) => {
@@ -80,9 +84,10 @@ export function useAttachmentCleanup() {
         exclude.map((a) => a.id),
       );
       for (const archive of archives) collectUploadIds([archive.data, archive.related], ids);
+      for (const source of notebookUsage ?? []) if (source.assetId) ids.add(source.assetId);
       return ids;
     },
-    [resources, schedules, tasks, projects, activities, archives],
+    [resources, schedules, tasks, projects, activities, archives, notebookUsage],
   );
 
   const release = useCallback(

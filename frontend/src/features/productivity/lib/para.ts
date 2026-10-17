@@ -253,3 +253,21 @@ export const paraParentOf = (id: string | undefined, projects: Project[], activi
     return { kind: "activity" as const, label: activityLevel(activities, activity), title: activity.title, activity };
   return null;
 };
+
+const agendaEnd = (s: Schedule) => s.endDate || s.startDate || "";
+
+/**
+ * Daftar/timeline Project & Area: agenda berulang (satu agenda per pertemuan, `seriesId`) diwakili **satu** baris per seri
+ * agar daftar tidak penuh — pertemuan berikutnya yang belum lewat (`today` = YMD), atau pertemuan terakhir bila semua
+ * sudah lewat. Agenda biasa tidak berubah; urutan asli dipertahankan (wakil menempati posisi wakilnya).
+ */
+export function collapseAgendaSeries(list: Schedule[], today: string): Schedule[] {
+  const representative = new Map<string, Schedule>();
+  const bySeries = new Map<string, Schedule[]>();
+  for (const s of list) if (s.seriesId) bySeries.set(s.seriesId, [...(bySeries.get(s.seriesId) ?? []), s]);
+  for (const [id, members] of bySeries) {
+    const sorted = [...members].sort((a, b) => (a.startDate || "").localeCompare(b.startDate || ""));
+    representative.set(id, sorted.find((s) => agendaEnd(s) >= today) ?? sorted[sorted.length - 1]);
+  }
+  return list.filter((s) => !s.seriesId || representative.get(s.seriesId) === s);
+}

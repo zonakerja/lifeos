@@ -13,6 +13,7 @@ import {
   Paperclip,
   PencilLine,
   Plus,
+  Repeat,
   Trash2,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -27,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useProjectTasks, useResources, useSchedules } from "@/data/collections";
 import { ownedFiles } from "@/features/resources/attachment-cleanup";
@@ -54,7 +56,7 @@ import {
 } from "@/features/planner/lib/planner-logic";
 import { useSetSearchParams } from "@/hooks/use-search-param";
 import type { Activity, AttachedResource, Priority, Project, ProjectTask, Schedule } from "@/types/entities";
-import { type AreaLevel, completionDefaults } from "../lib/para";
+import { type AreaLevel, collapseAgendaSeries, completionDefaults } from "../lib/para";
 import { projectTimeProgress, taskProgress } from "../lib/progress";
 import { useAttachmentEdits } from "../use-attachment-edits";
 import { AgendaDeleteDialog, AgendaItem, ITEM_TAG_STYLE } from "./agenda-item";
@@ -102,6 +104,11 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
   const deletingFiles = ownedFiles(deleting?.resources);
   const ownerTasks = tasks.filter((t) => t.projectId === owner.id);
   const ownerSchedules = schedules.filter((sc) => sc.projectId === owner.id);
+  // Agenda berulang: satu baris per seri (pertemuan berikutnya) agar daftar & timeline tidak penuh; bisa dimatikan
+  const [groupSeries, setGroupSeries] = useState(true);
+  const hasSeries = ownerSchedules.some((sc) => sc.seriesId);
+  const todayYmd = formatLocalYMD(today);
+  const shownSchedules = (list: Schedule[]) => (groupSeries ? collapseAgendaSeries(list, todayYmd) : list);
 
   if (editing) {
     return (
@@ -140,20 +147,21 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
       .filter((t) => !query || t.title.toLowerCase().includes(query))
       .filter((t) => matchesDateFilter(t.dueDate, dateFilter, today))
       .map((task) => ({ kind: "task" as const, key: `t-${task.id}`, sortKey: task.dueDate || "9999", task })),
-    ...(kindFilter === "task" ? [] : ownerSchedules)
-      .filter((sc) => !query || sc.title.toLowerCase().includes(query))
-      // Agenda multi-hari ikut bila tanggal mulai atau selesainya masuk rentang filter
-      .filter(
-        (sc) =>
-          matchesDateFilter(scheduleStart(sc), dateFilter, today) ||
-          matchesDateFilter(scheduleEnd(sc), dateFilter, today),
-      )
-      .map((schedule) => ({
-        kind: "agenda" as const,
-        key: `s-${schedule.id}`,
-        sortKey: `${scheduleStart(schedule) || "9999"} ${schedule.startTime ?? ""}`,
-        schedule,
-      })),
+    ...shownSchedules(
+      (kindFilter === "task" ? [] : ownerSchedules)
+        .filter((sc) => !query || sc.title.toLowerCase().includes(query))
+        // Agenda multi-hari ikut bila tanggal mulai atau selesainya masuk rentang filter
+        .filter(
+          (sc) =>
+            matchesDateFilter(scheduleStart(sc), dateFilter, today) ||
+            matchesDateFilter(scheduleEnd(sc), dateFilter, today),
+        ),
+    ).map((schedule) => ({
+      kind: "agenda" as const,
+      key: `s-${schedule.id}`,
+      sortKey: `${scheduleStart(schedule) || "9999"} ${schedule.startTime ?? ""}`,
+      schedule,
+    })),
   ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
 
   const updateTask = (id: string, values: Partial<ProjectTask>) =>
@@ -381,13 +389,24 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
               <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
             </>
           )}
+          {hasSeries && (
+            <Toggle
+              size="sm"
+              variant="outline"
+              pressed={groupSeries}
+              onPressedChange={setGroupSeries}
+              title={groupSeries ? "Tampilkan semua pertemuan agenda berulang" : "Satu baris per agenda berulang"}
+            >
+              <Repeat /> Gabung seri
+            </Toggle>
+          )}
         </div>
       </div>
 
       {/* Konten */}
       <div className="px-4 py-4 md:flex-1 md:overflow-y-auto md:px-6">
         {view === "timeline" ? (
-          <TimelineView owner={owner} tasks={ownerTasks} schedules={ownerSchedules} taskLabel={label} />
+          <TimelineView owner={owner} tasks={ownerTasks} schedules={shownSchedules(ownerSchedules)} taskLabel={label} />
         ) : entries.length === 0 ? (
           <Empty className="border border-dashed">
             <EmptyHeader>
@@ -753,6 +772,7 @@ function TaskForm({
           )}
           <AttachmentTable
             resources={form.resources}
+            onUpdate={(u) => patch({ resources: (form.resources ?? []).map((r) => (r.id === u.id ? u : r)) })}
             onOpenAi={setAiTarget}
             onRemove={(id) => {
               const att = form.resources?.find((r) => r.id === id);

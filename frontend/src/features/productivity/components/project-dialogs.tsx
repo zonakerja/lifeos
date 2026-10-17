@@ -105,7 +105,8 @@ function ProjectForm({
   const { items: areas } = useAreas();
   const { setItems: setProjects } = useProjects();
   const { setItems: setResources } = useResources();
-  const edits = useAttachmentEdits({ contextTag: "Project", ownerId: initial.userId });
+  // Tag asal sama dengan lampiran yang disimpan ke Resource Global (mergeIntoGlobalResources "Project Basis")
+  const edits = useAttachmentEdits({ contextTag: "Project Basis", ownerId: initial.userId });
   const patch = (values: Partial<Project>) => setForm((prev) => ({ ...prev, ...values }));
   const dropAttachment = (id: string) =>
     setForm((prev) => ({ ...prev, resources: (prev.resources ?? []).filter((r) => r.id !== id) }));
@@ -219,6 +220,7 @@ function ProjectForm({
           )}
           <AttachmentTable
             resources={form.resources}
+            onUpdate={(u) => patch({ resources: (form.resources ?? []).map((r) => (r.id === u.id ? u : r)) })}
             onOpenAi={setAiTarget}
             onRemove={(id) => {
               const att = form.resources?.find((r) => r.id === id);
