@@ -26,18 +26,18 @@ import { OfficeAiCard, OfficeFontsCard, OfficeTemplatesCard } from "./onlyoffice
 /**
  * Tools → ONLYOFFICE. Editor sendiri tidak punya menu dokumen — ia dipanggil dari fitur mana pun yang punya berkas
  * (pratinjau lampiran/resource, "Edit di ONLYOFFICE", "Buat Dokumen" di form lampiran).
- * Tampilan per role (keputusan user): semua user melihat AI di editor, Templat dokumen, dan Cara memakai; status server,
- * format, dan font hanya untuk admin.
+ * Tampilan per role (keputusan user): semua user melihat Cara memakai, Templat dokumen, dan AI di editor (urutan ini);
+ * status server, format, dan font hanya untuk admin, di bawahnya.
  */
 export function OnlyofficeSettings() {
   const admin = isAdminRole(useAuthStore((state) => state.user?.role));
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
-      {admin && <ServerStatusCard />}
-      <OfficeAiCard />
-      <OfficeTemplatesCard />
-      {admin && <OfficeFontsCard />}
       <UsageCard />
+      <OfficeTemplatesCard />
+      <OfficeAiCard />
+      {admin && <ServerStatusCard />}
+      {admin && <OfficeFontsCard />}
     </div>
   );
 }

@@ -609,7 +609,7 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `officeApi.config` mengirim `appOrigin` (alamat proxy AI untuk iframe editor). `NewOfficeDocumentPicker` = dokumen
   kosong + **Impor berkas** (unggah; DOC/PPT/… dikonversi lewat `createDocument({ templateId })`) + **Dari templat**
   (`useOfficeTemplates`) — tombol **Dari templat (n)** membuka `TemplatePickerDialog` (`template-browser.tsx`: cari, filter
-  jenis, paginasi; `TemplateBrowser` juga dipakai kartu Templat Tools); helper `office-templates.ts` (+ test). **Per role** (`onlyoffice-settings.tsx`): user = AI,
+  jenis, paginasi; `TemplateBrowser` juga dipakai kartu Templat Tools); helper `office-templates.ts` (+ test). **Per role** (`onlyoffice-settings.tsx`, urutan: Cara memakai → Templat → AI, lalu khusus admin): user = AI,
   Templat, Cara memakai; admin + Status server & Font (unggah/hapus). **Konsep ↔ final** (`document-links.tsx`):
   `DocumentLinksButton` di header pratinjau & editor (popover + dialog unggah final → Resource Global tag asal "Dokumen
   Final" + File Control, tautkan berkas/konsep), `DocumentLinkBadge` + `useOfficeLinkBadges` di tabel lampiran & Resources.
