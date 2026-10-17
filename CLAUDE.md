@@ -4,14 +4,14 @@ Knowledge base utama untuk Claude Code di proyek LifeOS. **Baca seluruh file ini
 Dokumen ini menggantikan memori percakapan: keputusan, konteks user, status, dan pola wajib tercatat di sini.
 Perbarui **§11 Status** dan **§12 Log Keputusan** setiap selesai satu langkah berarti.
 Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE = fondasi + tech stack & versi, UPGRADE-PLAN, FILE-CONTROL,
-ONLYOFFICE = riset & rencana integrasi editor dokumen).
+ONLYOFFICE = riset & rencana integrasi editor dokumen, AI-AGENT = riset & rencana AI Agent: OpenClaw/Hermes/n8n, SRIKANDI).
 
 ## 0. Memulai Thread Baru (checklist wajib)
 
 1. Baca file ini sampai habis (terutama §11 Status, §14 Resep, §15 Jebakan). Untuk modul File Control baca juga
    `docs/FILE-CONTROL.md`; untuk deploy `docs/DEPLOYMENT.md`; untuk arsitektur & versi tech stack
    `docs/ARCHITECTURE.md` (fondasi); untuk upgrade dependensi `docs/UPGRADE-PLAN.md`; untuk menu Tools → ONLYOFFICE
-   `docs/ONLYOFFICE.md`.
+   `docs/ONLYOFFICE.md`; untuk AI Agent `docs/AI-AGENT.md`.
 2. Cek kondisi repo: `git status`, `git log --oneline -10` (commit terakhir = pekerjaan terakhir).
 3. **Cek status lingkungan dulu (§2a)** — jangan menyalakan yang sudah aktif. Yang belum aktif: nyalakan (lihat §2):
    `wsl -e sh -c "sleep infinity"` (background) →
@@ -151,7 +151,7 @@ LifeOS/
 ├── infra/                    caddy/Caddyfile · backup/{Dockerfile,backup.sh} (image backup) · seaweedfs/s3.json (S3 dev)
 ├── backend/                  NestJS (Dockerfile, prisma/, src/, templates/office/ = dokumen kosong ONLYOFFICE, test/smoke.mjs)
 ├── frontend/                 React SPA (Dockerfile, nginx.conf, src/)
-└── docs/                     SETUP.md · DEPLOYMENT.md · ARCHITECTURE.md · UPGRADE-PLAN.md · FILE-CONTROL.md · ONLYOFFICE.md
+└── docs/                     SETUP.md · DEPLOYMENT.md · ARCHITECTURE.md · UPGRADE-PLAN.md · FILE-CONTROL.md · ONLYOFFICE.md · AI-AGENT.md
 ```
 
 ## 7. Infrastruktur
@@ -718,6 +718,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Layout lanjutan: popover notifikasi panjang bisa digulir (footer tidak tertimpa), judul Mode Fokus sesuai sesi | ✅ 2026-10-16 — lint, typecheck, unit test, build, UI diuji di browser (layar 768 & 460 px) |
 | Perbaikan Overview (proyek berjalan, tugas mendesak + terlambat, to-do & rutinitas hari ini bisa dicentang, status & Gabung agenda, label Indonesia, notifikasi tugas terlambat & baru dibagikan) | ✅ 2026-10-15 — unit test (`overview-logic.test.ts`: 9), lint, typecheck, build, UI diuji di browser (desktop + HP; centang rutinitas/todo/task, tambah agenda, popover notifikasi) |
 | Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); **tahap 3 ✅ 2026-10-16** (revisi user: AI satu pintu = tab AI bawaan ONLYOFFICE memakai provider & key Pengaturan → AI lewat proxy backend; templat diunggah di Tools; impor berkas saat Buat Dokumen; unit + smoke lulus, UI diuji termasuk Summarization dengan Gemini sungguhan) + **lanjutan ✅** (Tools per role, font diunggah admin + pemantau, tautan konsep ↔ dokumen final) + **tahap 4 produksi ✅ 2026-10-16** (compose profile `office`, Caddy `/office/`, smoke penuh lewat stack produksi lokal); berikutnya agen SRIKANDI & agen pembuat dokumen di Tools (teknologi dibahas user) |
+| Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🔎 riset selesai 2026-10-17 (`docs/AI-AGENT.md`: OpenClaw, Hermes Agent, n8n, knowledge AI, SRIKANDI, e-Kinerja, SIMAN, WSL/Docker) — **menunggu keputusan user AG-1…AG-9**; belum ada perubahan kode/infra |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
@@ -1131,6 +1132,18 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   isi tidak bisa digulir; kini popover dibatasi ruang layar tersedia dan daftar memakai area gulir biasa. (2) Judul dialog
   Focus Mode kini mengikuti sesi: **Mode Fokus**, **Waktu Rehat**, **Waktu Istirahat** (keterangan & ikon ikut berubah; tombol
   header saat berjalan menampilkan ikon & nama sesi).
+- 2026-10-17 — Thread **AI Agent** dimulai: riset OpenClaw, Hermes Agent, n8n, SRIKANDI (hasil & to-do: `docs/AI-AGENT.md`).
+  Temuan: n8n = workflow automation (lisensi Sustainable Use, bukan agent pribadi); Hermes & OpenClaw = asisten pribadi
+  lewat chat (MIT; OpenClaw punya riwayat keamanan buruk 2026 → bila dipakai, Hermes disarankan); SRIKANDI tidak punya API
+  publik (otomasi browser berisiko & mungkin melanggar ketentuan). LifeOS belum punya tool calling maupun token akses untuk
+  program luar. Rekomendasi (menunggu keputusan user): A token akses pribadi + MCP server LifeOS → B agen dokumen
+  bertemplat di backend → C pencocokan PDF final ↔ konsep (SRIKANDI semi-otomatis) → D/E n8n / Hermes opsional.
+  Kebutuhan tambahan user (hari yang sama): **knowledge AI terspesialisasi** (user memberi & "melatih" pengetahuan) →
+  rekomendasi tahap **K "Basis Pengetahuan Saya"** = RAG + profil/instruksi tetap + memori usulan AI yang disetujui +
+  contoh gaya + uji pengetahuan, **bukan fine-tuning** (Gemini API tak lagi menyediakan tuning, Claude tidak ada, terikat
+  satu provider, tidak bisa diperbarui); dikerjakan pertama. **Agen e-Kinerja Kemenhub** (login akun SIK, KM 254/2022)
+  & **SIMAN v2** (DJKN, PMK 118/2023): tanpa API publik → rekomendasi **mode asisten** (LifeOS menyiapkan rekap/bukti,
+  user mengirim), tidak menyimpan kata sandi akun pemerintah; otomasi penuh hanya dengan API/izin resmi.
 
 ## 13. Konvensi Kode
 
