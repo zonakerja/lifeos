@@ -38,6 +38,8 @@ export function ParaDetailDialogs({ archivingArea, onArchivingAreaChange }: Para
 
   const openProject = projects.find((p) => p.id === projectId) ?? taskProject ?? null;
   const openArea = areas.find((a) => a.id === areaId) ?? taskArea ?? null;
+  // Dibuka dari task area: kegiatan pemilik task langsung terpilih (tanpa ini panel kanan kosong)
+  const areaSelection = taskArea && !areaId && task ? { kind: "activity" as const, id: task.projectId } : null;
 
   return (
     <>
@@ -50,6 +52,7 @@ export function ParaDetailDialogs({ archivingArea, onArchivingAreaChange }: Para
       />
       <AreaDetailDialog
         area={openArea}
+        initialSelection={areaSelection}
         onArchive={onArchivingAreaChange}
         onOpenChange={(open) => {
           if (open) return;

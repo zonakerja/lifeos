@@ -468,14 +468,18 @@ function AttachProjectForm({
 // Detail Area
 // ============================================================================
 
-type Selection = { kind: "activity" | "project"; id: string } | null;
+export type AreaSelection = { kind: "activity" | "project"; id: string } | null;
+type Selection = AreaSelection;
 
 export function AreaDetailDialog({
   area: areaProp,
+  initialSelection = null,
   onOpenChange,
   onArchive,
 }: {
   area: Area | null;
+  /** Item yang langsung terpilih saat dialog dibuka (mis. kegiatan pemilik task dari `?task=`) */
+  initialSelection?: AreaSelection;
   onOpenChange: (open: boolean) => void;
   onArchive: (area: Area) => void;
 }) {
@@ -495,7 +499,12 @@ export function AreaDetailDialog({
         {area && (
           <AccessScope item={area}>
             <DiscardScope register={register}>
-              <AreaDetail key={`${area.id}-${session}`} area={area} onArchive={onArchive} />
+              <AreaDetail
+                key={`${area.id}-${session}`}
+                area={area}
+                initialSelection={initialSelection}
+                onArchive={onArchive}
+              />
             </DiscardScope>
           </AccessScope>
         )}
@@ -504,7 +513,15 @@ export function AreaDetailDialog({
   );
 }
 
-function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) => void }) {
+function AreaDetail({
+  area,
+  initialSelection,
+  onArchive,
+}: {
+  area: Area;
+  initialSelection: AreaSelection;
+  onArchive: (area: Area) => void;
+}) {
   const { items: activities } = useActivities();
   const { items: projects } = useProjects();
   const { items: tasks } = useProjectTasks();
@@ -513,7 +530,7 @@ function AreaDetail({ area, onArchive }: { area: Area; onArchive: (area: Area) =
   const { canEdit } = usePermissions();
   // Area milik user lain (berbagi): bagikan, arsipkan, ambil/lepas project hanya oleh pemilik
   const sharedArea = !!area.share;
-  const [selection, setSelection] = useState<Selection>(null);
+  const [selection, setSelection] = useState<Selection>(initialSelection);
   const [editingTitle, setEditingTitle] = useState<{ title: string; description: string } | null>(null);
   const [activityForm, setActivityForm] = useState<ActivityFormTarget>(null);
   const [projectForm, setProjectForm] = useState<Project | "new" | null>(null);

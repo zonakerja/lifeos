@@ -552,7 +552,8 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   **Item dibuka sebagai modal di Overview** (keputusan user, tanpa pindah menu): task/action `?task=`, proyek `?project=`,
   todo `?todo=<id>|new` (`TodoDialog`, di-`key` `useOpenSession`); hanya tombol "Lihat Semua" / "+n lainnya di Planner"
   yang berpindah menu. Modal Project/Area = komponen bersama `ParaDetailDialogs`
-  (`features/productivity/components/para-detail-dialogs.tsx`, dipasang di Productivity & Overview).
+  (`features/productivity/components/para-detail-dialogs.tsx`, dipasang di Productivity & Overview); `?task=` milik item
+  Area membuka dialog Area dengan kegiatan pemilik task langsung terpilih (`AreaDetailDialog initialSelection`).
 - **Kalender Harian** (`planner-calendar.tsx`): sel tinggi tetap 56–64 px (bukan persegi); penanda dari `summarizeDay()`
   (`planner-logic.ts`, sumber sama dengan daftar Harian) — titik penuh = ada yang belum selesai, lingkaran = semua
   selesai (todo/task/rutinitas yang sudah selesai tetap ditandai); hover tanggal → tooltip ringkasan agenda, rutinitas,
@@ -1111,6 +1112,9 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   hanya "Lihat Semua" yang berpindah menu. URL logika modal Project/Area dipindah ke `ParaDetailDialogs` (dipakai
   bersama). Ditemukan & diperbaiki saat uji: dialog todo baru mewarisi tanggal todo yang dibuka sebelumnya → `key`
   `useOpenSession`.
+  Perbaikan 2026-10-18 (laporan user): task Tugas Mendesak milik Kegiatan/Sub Area membuka dialog Area dengan panel kanan
+  kosong ("Pilih Sub Area, Kegiatan, atau Project") karena tidak ada item terpilih → `?task=` kini memilih kegiatan
+  pemilik task (berlaku juga di Productivity, notifikasi, pencarian global, chatbot).
 - 2026-10-15 — Thread **integrasi ONLYOFFICE** dimulai (menu baru **Tools**, sub menu pertama **ONLYOFFICE**). Riset:
   ONLYOFFICE Docs **Community** self-hosted (`onlyoffice/documentserver`, amd64+arm64, **tanpa akun**), batas 20 koneksi
   dihapus sejak 9.4, 9.4 = satu proses tanpa RabbitMQ/DB; 10.0 baru rilis 12 Okt → mulai **9.4**, 10.0 setelah ± 9 Nov.
