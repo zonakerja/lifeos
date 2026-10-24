@@ -53,10 +53,12 @@ import { cn } from "@/lib/utils";
 import type { Activity, Area, AttachedResource, Project } from "@/types/entities";
 import {
   activityAncestors,
+  activityFields,
   activityDepth,
   activityLevel,
   activityTreeIds,
   AREA_LEVELS,
+  areaLevelHasSchedule,
   type AreaLevel,
   childrenOf,
   deleteDescription,
@@ -203,7 +205,9 @@ function ActivityFormDialog({
   };
   return (
     <Dialog open={targetProp !== null} onOpenChange={(open) => (open ? onOpenChange(true) : close())}>
-      <DialogContent className="flex max-h-[90svh] flex-col sm:max-w-2xl">
+      <DialogContent
+        className={cn("flex max-h-[90svh] flex-col", areaLevelHasSchedule(level) ? "sm:max-w-2xl" : "sm:max-w-md")}
+      >
         <DialogHeader>
           <DialogTitle>{target?.item === "new" ? `Tambah ${level} Baru` : `Edit ${level}`}</DialogTitle>
           {parent && (
@@ -264,6 +268,8 @@ function ActivityForm({
   const [aiTarget, setAiTarget] = useState<AttachedResource | null>(null);
   // Lampiran dasar pelaksanaan: berkas dilepas → dihapus setelah disimpan (atau jadi Resource Global tag "Area")
   const edits = useAttachmentEdits({ contextTag: "Area", ownerId });
+  // Sub Area = nama + deskripsi (seperti Area); Tanggal & Dasar Pelaksanaan hanya untuk Kegiatan / Sub Kegiatan
+  const scheduled = areaLevelHasSchedule(level);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -271,10 +277,10 @@ function ActivityForm({
       toast.error(`Nama ${level.toLowerCase()} wajib diisi.`);
       return;
     }
-    if (resources.some((a) => a.addToGlobal)) {
+    if (scheduled && resources.some((a) => a.addToGlobal)) {
       setResources((prev) => mergeIntoGlobalResources(prev, resources, "Area"));
     }
-    const fields = { title: title.trim(), deadline, description, resources };
+    const fields = activityFields(level, { title, description, deadline, resources });
     if (activity) {
       const updated = { ...activity, ...fields };
       setItems((prev) => prev.map((a) => (a.id === activity.id ? updated : a)));
@@ -298,7 +304,7 @@ function ActivityForm({
     <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-1">
         <FieldGroup className="gap-4">
-          <div className="grid gap-4 sm:grid-cols-[1fr_11rem]">
+          <div className={cn("grid gap-4", scheduled && "sm:grid-cols-[1fr_11rem]")}>
             <Field>
               <FieldLabel htmlFor="act-title">Nama {level}</FieldLabel>
               <Input
@@ -309,10 +315,12 @@ function ActivityForm({
                 onChange={(e) => setTitle(e.target.value)}
               />
             </Field>
-            <Field>
-              <FieldLabel htmlFor="act-date">Tanggal (Opsional)</FieldLabel>
-              <Input id="act-date" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
-            </Field>
+            {scheduled && (
+              <Field>
+                <FieldLabel htmlFor="act-date">Tanggal (Opsional)</FieldLabel>
+                <Input id="act-date" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+              </Field>
+            )}
           </div>
           <Field>
             <FieldLabel htmlFor="act-desc">Deskripsi (Opsional)</FieldLabel>
@@ -326,37 +334,39 @@ function ActivityForm({
           </Field>
         </FieldGroup>
 
-        <section className="flex flex-col gap-3 rounded-2xl border bg-muted/40 p-4">
-          <div className="flex items-center justify-between">
-            <h4 className="flex items-center gap-2 text-sm font-bold">
-              <BookOpen className="size-4 text-module" /> Dasar Pelaksanaan / Resources
-            </h4>
-            {!adding && <AddAttachmentButton onClick={() => setAdding(true)} />}
-          </div>
-          {adding && (
-            <AttachmentForm
-              defaultDate={deadline}
-              uploadContext="activity"
-              offerAiSummary
-              idPrefix="ar"
-              onCancel={() => setAdding(false)}
-              onAdd={(att) => {
-                edits.trackAdded(att);
-                setAttachments((prev) => [...prev, att]);
-                setAdding(false);
+        {scheduled && (
+          <section className="flex flex-col gap-3 rounded-2xl border bg-muted/40 p-4">
+            <div className="flex items-center justify-between">
+              <h4 className="flex items-center gap-2 text-sm font-bold">
+                <BookOpen className="size-4 text-module" /> Dasar Pelaksanaan / Resources
+              </h4>
+              {!adding && <AddAttachmentButton onClick={() => setAdding(true)} />}
+            </div>
+            {adding && (
+              <AttachmentForm
+                defaultDate={deadline}
+                uploadContext="activity"
+                offerAiSummary
+                idPrefix="ar"
+                onCancel={() => setAdding(false)}
+                onAdd={(att) => {
+                  edits.trackAdded(att);
+                  setAttachments((prev) => [...prev, att]);
+                  setAdding(false);
+                }}
+              />
+            )}
+            <AttachmentTable
+              resources={resources}
+              onUpdate={(u) => setAttachments((prev) => prev.map((r) => (r.id === u.id ? u : r)))}
+              onOpenAi={setAiTarget}
+              onRemove={(id) => {
+                const att = resources.find((r) => r.id === id);
+                if (att) edits.requestRemove(att, () => setAttachments((prev) => prev.filter((r) => r.id !== id)));
               }}
             />
-          )}
-          <AttachmentTable
-            resources={resources}
-            onUpdate={(u) => setAttachments((prev) => prev.map((r) => (r.id === u.id ? u : r)))}
-            onOpenAi={setAiTarget}
-            onRemove={(id) => {
-              const att = resources.find((r) => r.id === id);
-              if (att) edits.requestRemove(att, () => setAttachments((prev) => prev.filter((r) => r.id !== id)));
-            }}
-          />
-        </section>
+          </section>
+        )}
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => void guardedClose(onCancel)}>

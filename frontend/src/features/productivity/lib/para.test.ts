@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Activity, Area, Project, ProjectTask, Schedule } from "@/types/entities";
 import {
   activityAncestors,
+  activityFields,
+  areaLevelHasSchedule,
   activityTreeAttachments,
   activityLevel,
   activityTreeIds,
@@ -246,5 +248,32 @@ describe("collapseAgendaSeries", () => {
 
   it("agenda biasa tidak berubah", () => {
     expect(collapseAgendaSeries([meet("a", "2026-10-01")], "2026-10-02").map((s) => s.id)).toEqual(["a"]);
+  });
+});
+
+describe("isian item area per tingkat", () => {
+  const values = {
+    title: " Kepegawaian ",
+    description: "ASN",
+    deadline: "2026-11-01",
+    resources: [{ id: "r", type: "link" as const }],
+  };
+
+  it("Sub Area hanya nama + deskripsi", () => {
+    expect(areaLevelHasSchedule("Sub Area")).toBe(false);
+    expect(activityFields("Sub Area", values)).toEqual({
+      title: "Kepegawaian",
+      description: "ASN",
+      deadline: undefined,
+      resources: undefined,
+    });
+  });
+
+  it("Kegiatan & Sub Kegiatan tetap punya tanggal dan dasar pelaksanaan", () => {
+    expect(areaLevelHasSchedule("Kegiatan")).toBe(true);
+    expect(activityFields("Sub Kegiatan", values)).toMatchObject({
+      deadline: "2026-11-01",
+      resources: values.resources,
+    });
   });
 });

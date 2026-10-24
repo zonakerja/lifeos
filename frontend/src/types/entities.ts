@@ -247,9 +247,11 @@ export interface Activity extends Owned {
   areaId?: string;
   /** ID induk: kosong = Sub Area; induk Sub Area = Kegiatan; induk Kegiatan = Sub Kegiatan */
   parentId?: string;
+  /** Tanggal — hanya Kegiatan / Sub Kegiatan (Sub Area = nama + deskripsi, lihat `areaLevelHasSchedule`) */
   deadline?: string;
   status?: ParaStatus;
   description?: string;
+  /** Dasar Pelaksanaan — hanya Kegiatan / Sub Kegiatan */
   resources?: AttachedResource[];
   createdAt?: string;
 }

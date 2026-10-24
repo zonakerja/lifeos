@@ -191,7 +191,8 @@ export const RECORD_TABLES = {
     table: "activities",
     titleKey: "title",
     dateKey: "deadline",
-    // Item area bertingkat: tanpa `parentId` = Sub Area; anak Sub Area = Kegiatan; anak Kegiatan = Sub Kegiatan
+    // Item area bertingkat: tanpa `parentId` = Sub Area; anak Sub Area = Kegiatan; anak Kegiatan = Sub Kegiatan.
+    // Sub Area hanya nama + deskripsi; `deadline` & `resources` dipakai Kegiatan / Sub Kegiatan.
     fields: [
       s("title"),
       s("description"),

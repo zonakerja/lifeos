@@ -271,3 +271,19 @@ export function collapseAgendaSeries(list: Schedule[], today: string): Schedule[
   }
   return list.filter((s) => !s.seriesId || representative.get(s.seriesId) === s);
 }
+
+/**
+ * Sub Area = wadah seperti Area (nama + deskripsi saja); Tanggal & Dasar Pelaksanaan hanya untuk Kegiatan / Sub Kegiatan.
+ */
+export const areaLevelHasSchedule = (level: AreaLevel) => level !== "Sub Area";
+
+/** Isian item area yang disimpan sesuai tingkatnya (Sub Area: tanggal & lampiran dikosongkan). */
+export function activityFields(
+  level: AreaLevel,
+  values: { title: string; description: string; deadline: string; resources: AttachedResource[] },
+): Pick<Activity, "title" | "description" | "deadline" | "resources"> {
+  const base = { title: values.title.trim(), description: values.description };
+  return areaLevelHasSchedule(level)
+    ? { ...base, deadline: values.deadline, resources: values.resources }
+    : { ...base, deadline: undefined, resources: undefined };
+}
