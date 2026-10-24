@@ -44,6 +44,8 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: [version-update:semver-major]
+      # Image yang dibangun sendiri (lifeos-backend, lifeos-onlyoffice, …) tidak ada di registry mana pun
+      - dependency-name: "lifeos-*"
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }

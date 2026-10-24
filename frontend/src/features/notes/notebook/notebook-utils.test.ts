@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NotebookSource } from "@/types/api";
-import {
-  answerToNote,
-  stripCitations,
-  readySources,
-  shortTitle,
-  summaryToNote,
-} from "./notebook-utils";
+import { answerToNote, stripCitations, readySources, shortTitle, summaryToNote } from "./notebook-utils";
 
 describe("notebook utils", () => {
   it("hanya sumber aktif & siap yang dipakai", () => {
