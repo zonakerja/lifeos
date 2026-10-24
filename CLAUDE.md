@@ -4,7 +4,7 @@ Knowledge base utama untuk Claude Code di proyek LifeOS. **Baca seluruh file ini
 Dokumen ini menggantikan memori percakapan: keputusan, konteks user, status, dan pola wajib tercatat di sini.
 Perbarui **§11 Status** dan **§12 Log Keputusan** setiap selesai satu langkah berarti.
 Dokumentasi untuk manusia ada di `docs/` (SETUP, DEPLOYMENT, ARCHITECTURE = fondasi + tech stack & versi, UPGRADE-PLAN, FILE-CONTROL,
-ONLYOFFICE = riset & rencana integrasi editor dokumen, AI-AGENT = riset & rencana AI Agent: OpenClaw/Hermes/n8n, SRIKANDI).
+ONLYOFFICE = riset & rencana integrasi editor dokumen, AI-AGENT = riset & rencana AI Agent: Hermes, Obsidian, WhatsApp, SRIKANDI/SIMAN/e-Kinerja).
 
 ## 0. Memulai Thread Baru (checklist wajib)
 
@@ -59,7 +59,9 @@ ONLYOFFICE = riset & rencana integrasi editor dokumen, AI-AGENT = riset & rencan
 - Folder kerja: `D:\Development\Application\LifeOS`. `.claude/launch.json` berisi konfigurasi `backend` & `frontend`
   untuk preview browser Claude. Panel browser Claude sering tersembunyi → uji UI lewat `javascript_tool`.
 - **Aturan port (semua thread sama, tidak boleh diganti)**: frontend 5173, backend 4000, PostgreSQL 5432, Redis 6379,
-  SeaweedFS 8333/8888, ONLYOFFICE 8080 (profile `office`) (opsional: Prisma Studio 5555, Vite preview 4173, stack prod uji 80/443). Satu komponen = satu
+  SeaweedFS 8333/8888, ONLYOFFICE 8080 (profile `office`) (opsional: Prisma Studio 5555, Vite preview 4173, stack prod uji 80/443).
+  Proyek user lain di laptop yang sama, **OnTrack Data Hub** (sumber data SIMAN/MyIntress, `docs/AI-AGENT.md` §16), memakai
+  port sendiri (keputusan 2026-10-24): web 5174, API/MCP 3000, PostgreSQL 5433, Redis 6380 — jangan dipakai LifeOS. Satu komponen = satu
   proses: cek §2a dulu; bila port sudah dipakai (mis. user menjalankan dev server di terminalnya), **pakai yang ada**
   — jangan `preview_start {name}` lagi; untuk melihat UI cukup `preview_start {url: "http://localhost:5173"}`. Vite
   `strictPort: true` → gagal alih-alih pindah ke 5174. Panduan user: `docs/SETUP.md` §2–§6.
@@ -270,7 +272,8 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
     `extra` dipindah) + `20261014120000_file_control_opt_in` (resource berkas lama → `archival_status = 'pending'`) +
   `20261014130000_notebooks` (My Notebook) + `20261014140000_notebook_message_attachments` (gambar di pesan chat) +
   `20261015120000_asset_versions` (versi berkas ONLYOFFICE) + `20261016120000_office_ai` (sakelar AI editor) +
-  `20261016130000_asset_draft_link` (konsep ↔ dokumen final). Migrasi baru → lihat docs/SETUP.md §10
+  `20261016130000_asset_draft_link` (konsep ↔ dokumen final) + `20261018120000_sub_area_without_date` (Sub Area tanpa
+  tanggal & lampiran). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
@@ -514,8 +517,9 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
     `<DiscardScope register>` + `discardAll()` saat ditutup (`useDiscardScope`, `useDiscardOnClose`). Hapus **Resource
     Global** (tab Resources) ikut menghapus berkasnya bila tidak dipakai di tempat lain (`excludeResourceIds`); berkas yang
     menjadi sumber My Notebook ikut dihitung "Dipakai" (`referenced()` membaca `useNotebookUsage`; server menolak 409) dan
-    hapus resource yang menjadi sumber notebook memberi peringatan. Form Sub Area/Kegiatan/Sub Kegiatan punya Deskripsi +
-    Dasar Pelaksanaan (tag konteks "Area") seperti form Project ("Project Basis"); form Area & item area di-`key` per sesi
+    hapus resource yang menjadi sumber notebook memberi peringatan. Form item area: **Sub Area = nama + deskripsi** (seperti
+    Area); Kegiatan/Sub Kegiatan + Tanggal & Dasar Pelaksanaan (tag konteks "Area") seperti form Project ("Project Basis") —
+    `areaLevelHasSchedule` / `activityFields` (`lib/para.ts`); form Area & item area di-`key` per sesi
     buka. "Ganti
     File" di form Resource membuang upload sesi & berkas lama setelah disimpan (`replacedUploadId`). Mengarsipkan TIDAK
     menghapus berkas (snapshot arsip melindunginya); belum ada hapus arsip permanen di UI.
@@ -680,7 +684,8 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
 
 - **PARA**: Projects (deadline, tasks/actions berbobot, timeline), Areas (tanggung jawab berkelanjutan; hierarki
   **Area → Sub Area → Kegiatan → Sub Kegiatan → Task**; ketiga tingkat = `para_activity` (tanpa `parentId` = Sub Area,
-  tingkat dari rantai `parentId`, maks. 3, semuanya menyimpan `areaId`); task boleh melekat di tingkat mana pun;
+  tingkat dari rantai `parentId`, maks. 3, semuanya menyimpan `areaId`; **Sub Area hanya nama + deskripsi**, Tanggal &
+  Dasar Pelaksanaan hanya Kegiatan/Sub Kegiatan); task boleh melekat di tingkat mana pun;
   helper di `features/productivity/lib/para.ts` (`AREA_LEVELS`, `activityLevel`, `activityTreeIds`, …); area juga
   memuat project — Free Project = project tanpa area yang valid, bisa diambil ke area dari dialog Area atau dilepas;
   Project & item Area punya **Action/Task** dan **Agenda** (satu daftar & timeline bertag di detail item). Centang
@@ -760,7 +765,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Layout lanjutan: popover notifikasi panjang bisa digulir (footer tidak tertimpa), judul Mode Fokus sesuai sesi | ✅ 2026-10-16 — lint, typecheck, unit test, build, UI diuji di browser (layar 768 & 460 px) |
 | Perbaikan Overview (proyek berjalan, tugas mendesak + terlambat, to-do & rutinitas hari ini bisa dicentang, status & Gabung agenda, label Indonesia, notifikasi tugas terlambat & baru dibagikan) | ✅ 2026-10-15 — unit test (`overview-logic.test.ts`: 9), lint, typecheck, build, UI diuji di browser (desktop + HP; centang rutinitas/todo/task, tambah agenda, popover notifikasi) |
 | Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); **tahap 3 ✅ 2026-10-16** (revisi user: AI satu pintu = tab AI bawaan ONLYOFFICE memakai provider & key Pengaturan → AI lewat proxy backend; templat diunggah di Tools; impor berkas saat Buat Dokumen; unit + smoke lulus, UI diuji termasuk Summarization dengan Gemini sungguhan) + **lanjutan ✅** (Tools per role, font diunggah admin + pemantau, tautan konsep ↔ dokumen final) + **tahap 4 produksi ✅ 2026-10-16** (compose profile `office`, Caddy `/office/`, smoke penuh lewat stack produksi lokal); berikutnya agen SRIKANDI & agen pembuat dokumen di Tools (teknologi dibahas user) |
-| Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🔎 riset selesai 2026-10-17 (`docs/AI-AGENT.md`: OpenClaw, Hermes Agent, n8n, knowledge AI, SRIKANDI, e-Kinerja, SIMAN, WSL/Docker) — **menunggu keputusan user AG-1…AG-9**; belum ada perubahan kode/infra |
+| Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🔎 riset tahap 1 (2026-10-17) & tahap 2 (2026-10-18) selesai — rencana terkini `docs/AI-AGENT.md` §9–§16 (kajian RAG, Obsidian, Hermes, 3 pekerjaan, konektor sesi; revisi 2026-10-24: data SIMAN & MyIntress dari OnTrack Data Hub via MCP/API); **menunggu keputusan user AG-10…AG-21**; belum ada perubahan kode/infra |
 | Productivity lanjutan: modal Project/Area lega, kartu ringkas, File Control opt-in, tag bebas Resource Global & lampiran | ✅ 2026-10-12–15 — unit test, lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Audit celah Productivity (8 temuan + 2 temuan saat uji): arsip yang sudah diberkaskan dikunci dari tab Resources, sumber My Notebook dilindungi di dialog hapus, item Area berlampiran & berdeskripsi, ubah lampiran, agenda berulang digabung per seri, form Area di-`key`, tag terhapus tidak kembali, filter & Kelola Tag, tag Musnah/Statis terkunci, tanggal bawaan lokal | ✅ 2026-10-18 — unit test (frontend 190+), lint, typecheck, build, UI diuji di browser dengan data `UJI-AUDIT` (dibersihkan) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
@@ -1179,6 +1184,9 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   isi tidak bisa digulir; kini popover dibatasi ruang layar tersedia dan daftar memakai area gulir biasa. (2) Judul dialog
   Focus Mode kini mengikuti sesi: **Mode Fokus**, **Waktu Rehat**, **Waktu Istirahat** (keterangan & ikon ikut berubah; tombol
   header saat berjalan menampilkan ikon & nama sesi).
+- 2026-10-18 — **Sub Area tanpa tanggal** (keputusan user): Sub Area = wadah seperti Area, hanya nama + deskripsi; Tanggal &
+  Dasar Pelaksanaan hanya untuk Kegiatan / Sub Kegiatan (kolom `activities.deadline`/`resources` tetap karena dipakai
+  keduanya). Migrasi `20261018120000_sub_area_without_date` membersihkan sisa data Sub Area (data dev: 0 baris terdampak).
 - 2026-10-18 — **Audit celah Productivity** (permintaan user, semua dikerjakan berurutan): (1) arsip Fisik/Digital bisa dihapus
   permanen dari tab Resources tanpa prosedur penyusutan → ditolak + arahan ke File Control; (2) tipe / berkas arsip yang sudah
   diberkaskan bisa diganti dari form Resource → dikunci; (7) form Area & Sub Area/Kegiatan tanpa `key` per sesi buka;
@@ -1219,6 +1227,33 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   satu provider, tidak bisa diperbarui); dikerjakan pertama. **Agen e-Kinerja Kemenhub** (login akun SIK, KM 254/2022)
   & **SIMAN v2** (DJKN, PMK 118/2023): tanpa API publik → rekomendasi **mode asisten** (LifeOS menyiapkan rekap/bukti,
   user mengirim), tidak menyimpan kata sandi akun pemerintah; otomasi penuh hanya dengan API/izin resmi.
+- 2026-10-18 — AI Agent riset tahap 2 (`docs/AI-AGENT.md` §9–§15). **Kajian RAG**: chatbot melayang global **tidak memakai
+  indeks** (konteks disusun di browser dari data terpotong `lifeos-context.ts`; indeks hanya dipakai My Notebook &
+  `/ai/index/search`); semua potongan terindeks dikirim ke embedding Gemini — **key Gemini gratis (unpaid) boleh dipakai
+  Google & dibaca reviewer** → untuk data kantor wajib billing aktif / embedding lokal; belum ada koleksi/metadata/status
+  berlaku, pemotongan buta struktur, embedding hanya Gemini. **Obsidian** (gratis untuk kerja sejak Feb 2025) diusulkan
+  sebagai tempat user menulis pengetahuan; vault disinkron ke server (Syncthing + Git di server), LifeOS membaca & mengindeks
+  (+ graf `[[tautan]]`), hanya menulis ke `00-Inbox/`. **Agen: Hermes saja** (memori, keamanan default, WhatsApp Cloud API
+  resmi, MCP) dengan dua instans: publik (bot satker, memori tulis mati — studi memory poisoning) & pribadi. Tiga pekerjaan
+  user: bot WhatsApp ketentuan BMN, pengajuan dokumen bertemplat (PSP, SK panitia penghapusan, SK pemanfaatan) →
+  ONLYOFFICE → SRIKANDI, konsep jawaban surat satker (selalu diverifikasi user) — semua lewat Antrian Verifikasi LifeOS.
+  Sketsa robot (dibahas nanti): Playwright, profil browser persisten, sesi diperbarui user lewat browser jarak jauh
+  (password & kode authenticator diketik user; tidak menyimpan kata sandi/rahasia TOTP), robot tidak pernah menandatangani;
+  SIMAN baca-saja, e-Kinerja bulanan (butuh tautan publik bertoken), SRIKANDI isi + unggah.
+- 2026-10-24 — **Keputusan user: tidak ada robot SIMAN di LifeOS.** Data master aset SIMAN & data keuangan MyIntress
+  diambil dari **OnTrack Data Hub** (proyek user sendiri, `D:\Development\Application\OnTrack`: NestJS 3000 + PostgreSQL 16,
+  vault kredensial, Playwright, rencana REST API ber-API key + MCP `query_siman_assets` / `query_myintress_data`).
+  Rekomendasi (`docs/AI-AGENT.md` §16): **MCP untuk agen + REST API untuk fitur LifeOS** (bukan baca DB langsung / clone
+  scraper); Hermes publik tanpa akses OnTrack. Per 2026-10-24 modul siman/myintress/API/MCP OnTrack **belum ada di kode**
+  (baru skema & dokumen) → integrasi menunggu OnTrack. Robot pengisian **e-Kinerja & SRIKANDI tetap** direncanakan.
+  Bentrok port dev (keduanya 5173/5432/6379) → usulan OnTrack pindah port saat dev (AG-19).
+  Keputusan user (hari yang sama): AG-18 ✅ MCP + REST API; AG-19 ✅ OnTrack pindah ke 5174/3000/5433/6380 (dikerjakan user
+  lewat Antigravity di repo OnTrack); AG-20 ✅ Hermes publik tanpa MCP OnTrack, **tetapi** nomor WhatsApp terverifikasi
+  yang di-assign ke satker boleh menanyakan data satkernya sendiri — `satkerCode` diambil server dari pemetaan nomor
+  (`wa_contacts`), bukan dari pesan/model; AG-21 ditunda sampai prototipe OnTrack selesai (finishing OnTrack nanti
+  diserahkan ke Claude). User meminta lanjut **tahap 1 (fondasi pengetahuan) & tahap 2 (konektor Obsidian)** → AG-10
+  (urutan) & AG-11 (Obsidian sumber pengetahuan, LifeOS membaca + `00-Inbox`) dianggap disetujui; sinkron vault (AG-12)
+  baru relevan di server — di dev backend membaca folder vault lokal.
 
 ## 13. Konvensi Kode
 
@@ -1421,6 +1456,16 @@ utama tetap < 500 kB (cek output `npm run build`).
 - WSL/Docker bisa **macet** (bukan berhenti): `wsl -e …`/`docker ps` menggantung, port 5432 tetap terbuka tetapi
   backend `/health` timeout & sesi browser ter-logout. Pulihkan (dengan izin user): `wsl --shutdown` → `wsl -e sh -c
   "sleep infinity"` (latar) → `docker compose up -d --wait`; data volume aman.
+- Setelah WSL dimatikan paksa (`wsl --shutdown` saat Docker macet), Redis bisa gagal start: container `lifeos-redis`
+  terus restart / **unhealthy**, log "Bad file format reading the append only file … appendonly.aof.N.incr.aof".
+  Pulihkan (data dev Redis = antrian & cache): `docker stop lifeos-redis` → `docker run --rm -v lifeos-redis-data:/data
+  redis:8.10-alpine sh -c 'cd /data && cp -a appendonlydir appendonlydir.bak-$(date +%s) && echo y | redis-check-aof --fix
+  appendonlydir/appendonly.aof.manifest'` → `docker start lifeos-redis`. Hanya ujung yang rusak yang dibuang.
+- **Project Docker lain di laptop** (mis. OnTrack: `ontrack_postgres`, `ontrack_redis`, restart `unless-stopped`) ikut
+  menyala saat WSL/Docker start bila sebelumnya mati karena `wsl --shutdown`/laptop ditutup (bukan `docker stop`) →
+  merebut port 5432/6379; container LifeOS tetap "Up" tetapi **tanpa port**, backend gagal konek. Cek `docker ps -a`
+  (kolom port) + `docker compose ls -a`; perbaiki: `docker stop ontrack_postgres ontrack_redis` (sekali `stop` = tidak
+  menyala lagi otomatis) → `docker restart lifeos-postgres lifeos-redis`.
 - DOCX yang merujuk gaya (`w:tblStyle`/`w:pStyle`) tanpa `word/styles.xml` membuat `mammoth` melempar TypeError → ekstraksi
   berstatus `failed` (worker tetap jalan). Dokumen Word asli selalu punya styles.xml; generator DOCX uji jangan merujuk gaya.
 - Provider AI sungguhan bisa menjawab 503 "high demand" (Gemini) atau menggantung sampai `AI_TIMEOUT_MS` (3 menit) —
@@ -1465,6 +1510,8 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Toast sonner dengan `action` tertutup sendiri setelah beberapa detik — saat uji lewat `javascript_tool`, klik tombol
   aksinya segera setelah toast muncul.
 
+- Bash tool: heredoc panjang berisi tanda kutip tunggal (mis. "Anda's", `'EOF'` + teks ber-apostrof) bisa gagal
+  "unexpected EOF while looking for matching `''" → tulis isi ke scratchpad dengan tool Write lalu `cat … >> berkas`.
 - Komponen `ScrollArea` (shadcn/Radix) hanya menggulir bila **tingginya pasti** (`h-*`, atau flex item di kontainer
   bertinggi pasti). Dengan `max-h-*` saja viewport (`size-full`) ikut setinggi isi → isi meluber & tidak bisa digulir.
   Untuk panel ber-`max-h` (popover) pakai `div overflow-y-auto`.

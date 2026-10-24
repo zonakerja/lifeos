@@ -1,6 +1,9 @@
 # AI Agent — Riset & Rencana Integrasi
 
-Status: **riset selesai 2026-10-17, menunggu keputusan user (§6)**. Belum ada kode/infra yang diubah. Dokumen ini
+Status: **riset tahap 2 selesai 2026-10-18 — rencana terkini ada di §9–§16** (revisi 2026-10-24 §16: data SIMAN & MyIntress dari OnTrack, bukan robot LifeOS) (kajian RAG, Obsidian, Hermes vs OpenClaw,
+tiga pekerjaan yang didelegasikan, konektor SRIKANDI/SIMAN/e-Kinerja, tahapan & to-do revisi). §1–§8 = riset awal
+2026-10-17 (tetap berlaku sebagai latar; urutan tahap & to-do di §5–§7 digantikan §14–§15). Belum ada kode/infra yang
+diubah. Dokumen ini
 menjadi acuan thread integrasi AI Agent: penjelasan istilah, hasil riset OpenClaw / Hermes Agent / n8n, kondisi LifeOS,
 pilihan arsitektur, rekomendasi, dan daftar tugas (user & Claude). Kebutuhan dari user:
 1. **Agen SRIKANDI** (mengambil PDF final bertanda tangan elektronik lalu menautkannya ke konsep) dan **agen pembuat
@@ -282,3 +285,383 @@ dokumen sambil tahap lain dibangun). A adalah syarat untuk D, E, dan F.
   [SIMAN 2 Mobile](https://play.google.com/store/apps/details?id=com.siman.sensusbmn&hl=en).
 - SRIKANDI: [Instruksi Kepala ANRI No. 1/2021](https://archive.ipb.ac.id/wp-content/uploads/2022/06/Instruksi-Kepala-ANRI_Srikandi_nomor-1_-2021.pdf),
   [jurnal kearsipan ANRI](https://jurnalkearsipan.anri.go.id/index.php/ojs/article/view/131).
+
+---
+
+# Bagian II — Riset tahap 2 & rencana terkini (2026-10-18)
+
+Arahan user: integrasi SRIKANDI / SIMAN / e-Kinerja **dibahas detail nanti** (sketsa kebutuhan dicatat di §13); fokus
+sekarang = kaji ulang RAG, integrasi **Obsidian** sebagai jaringan pengetahuan, pilihan **Hermes / OpenClaw**, dan tiga
+pekerjaan yang ingin didelegasikan/dikolaborasikan:
+1. **Chatbot WhatsApp** menjawab pertanyaan sesuai ketentuan (peraturan + praktik lapangan, dibangun di Obsidian).
+2. **Memproses pengajuan dokumen bertemplat** dari satker (masuk via WhatsApp) → dokumen ONLYOFFICE → dikirim ke
+   SRIKANDI (manual / agen). Contoh: Penetapan Status Penggunaan (PSP) BMN, SK Penetapan Panitia Penghapusan, SK
+   Pelaksanaan Pemanfaatan BMN (sewa, KSP, dsb.).
+3. **Menjawab surat satker** (permintaan arahan/tanggapan) memakai pengetahuan & memori — **kolaborasi**: hasil agen selalu
+   diverifikasi/diedit user.
+
+## 9. Kajian ulang RAG / indeks pengetahuan yang sudah ada
+
+Yang sudah dibangun (ARCHITECTURE §3.2): ekstraksi berkas → potongan ± 1.800 karakter di `ai_chunks` → embedding
+`gemini-embedding-2` (768 dimensi) memakai **key Gemini milik user** → pencarian gabungan makna (pgvector HNSW) + kata
+persis (full-text) dengan RRF. 17 tipe record + isi berkas diindeks otomatis; sakelar per user; tanpa key Gemini =
+pencarian kata saja.
+
+| # | Temuan | Dampak | Usulan perbaikan |
+|---|---|---|---|
+| R-1 | **Chatbot melayang (global) tidak memakai indeks.** `floating-chatbot.tsx` menyusun konteks di browser dari data yang dipotong (`lifeos-context.ts`: ringkasan resource 250 karakter, judul Notes AI, dst.) lalu memanggil `/ai/generate`. Indeks hanya dipakai **My Notebook** dan `GET /ai/index/search`. | Chatbot tidak bisa menjawab dari **isi dokumen**/peraturan; prompt membengkak seiring data bertambah. | **RAG tahap 2**: `POST /ai/chat` di backend (pola `notebook-context.ts`: cari → potongan bersitasi → jawab), riwayat permanen. Endpoint ini juga dipakai bot WhatsApp & agen. |
+| R-2 | **Data yang dikirim ke Google**: setiap potongan teks record & berkas dikirim ke API embedding Gemini (sekali per perubahan), + OCR gambar/PDF scan, + teks pertanyaan. Menurut ketentuan Gemini API, **kuota gratis (unpaid)** boleh dipakai Google untuk memperbaiki produk dan **dibaca reviewer manusia**; **layanan berbayar** (billing Cloud aktif) tidak dipakai untuk melatih model. | Untuk surat dinas / data BMN / data satker, key Gemini **gratis tidak layak**. | User: aktifkan **billing** di project Google Cloud key tersebut (biaya embedding kecil) atau matikan indeks; opsi lanjut: embedding lokal di server (model embedding terbuka lewat Ollama) agar isi tidak keluar sama sekali. Tampilkan peringatan di Pengaturan → AI. |
+| R-3 | Embedding **hanya Gemini**. | User yang hanya punya key Claude/OpenAI tidak mendapat pencarian makna. | Abstraksi penyedia embedding (Gemini / OpenAI / lokal); ganti model = indeks ulang (dimensi kolom). |
+| R-4 | Tidak ada **koleksi / prioritas / metadata**: peraturan, catatan harian, dan todo bercampur dengan bobot sama; tidak ada status berlaku, nomor peraturan, tanggal. | Jawaban bisa merujuk catatan lama / aturan yang sudah dicabut. | Kolom `collection` (mis. `knowledge`, `workspace`) + `metadata` jsonb (jenis, nomor, status, berlaku sejak, dicabut oleh, tag) di `ai_chunks`; filter "hanya yang berlaku"; prioritas koleksi pengetahuan. |
+| R-5 | **Pemotongan buta struktur** (per 1.800 karakter). | Pasal/ayat terpotong di tengah; sitasi kurang tepat. | Pemotongan sadar struktur untuk Markdown/peraturan: per judul (`#`), Pasal, Ayat; judul induk ikut di setiap potongan. |
+| R-6 | Tanpa **reranking** & tanpa **graf tautan**. | Hasil teratas kadang bukan yang paling relevan; hubungan antar-aturan tidak dimanfaatkan. | Rerank oleh model (opsional) + ekspansi lewat tautan (§10: GraphRAG ringan). |
+| R-7 | Item **dibagikan** tidak ikut dicari; pencarian hanya data milik sendiri. | Sudah tercatat di CLAUDE.md §11. | Tetap — basis pengetahuan dimiliki satu user. Bot publik memakai koleksi pengetahuan milik user pemilik bot (§12.1). |
+| R-8 | Belum ada **evaluasi** mutu jawaban. | Tidak terukur saat ganti model/provider. | Set uji pertanyaan + jawaban acuan (§2.4 poin 5). |
+
+## 10. Obsidian sebagai jaringan pengetahuan
+
+**Apa itu**: aplikasi catatan (Windows, Mac, Linux, Android, iOS) yang menyimpan catatan sebagai **berkas Markdown biasa**
+di satu folder ("vault"). Kekuatannya: tautan antar-catatan `[[Nama Catatan]]`, **backlink** otomatis, **graph view**
+(peta jaringan pengetahuan), properti YAML di kepala catatan (`nomor:`, `status:`, `tags:`), templat, dan ribuan plugin.
+**Gratis untuk pemakaian kerja/komersial sejak 20 Feb 2025** (lisensi komersial kini opsional). Aplikasinya tidak open
+source, tetapi datanya Markdown terbuka → tidak terkunci.
+
+**Peran yang diusulkan**: **Obsidian = tempat Anda menulis & merawat pengetahuan** (peraturan, tafsir pasal, praktik
+lapangan, FAQ, contoh kasus, alur PSP/penghapusan/pemanfaatan). **LifeOS = mesin yang membaca vault, mengindeks, dan
+melayani** chatbot, agen, dan WhatsApp. Satu arah utama (vault → LifeOS) agar tidak ada konflik; LifeOS hanya menulis ke
+folder `00-Inbox/` (usulan pengetahuan baru dari pertanyaan yang belum terjawab / jawaban yang Anda setujui) untuk Anda
+kurasi di Obsidian.
+
+### 10.1 Cara vault sampai ke server
+
+| Cara | Biaya | Kelebihan | Kekurangan |
+|---|---|---|---|
+| **Git** (plugin komunitas Obsidian Git → repo privat / repo di server) | Gratis | **Riwayat & audit perubahan** (cocok untuk aturan: siapa mengubah apa, kapan), mudah di-backup | Di Android agak repot; konflik bila menyunting di dua perangkat bersamaan |
+| **Syncthing** (sinkron folder P2P laptop ↔ HP ↔ server) | Gratis | Paling mudah di Android, otomatis, tanpa cloud pihak ketiga | Tanpa riwayat versi bawaan (bisa diaktifkan "file versioning") |
+| **Obsidian Sync** + klien resmi **`obsidian-headless` (CLI `ob`)** di server (rilis Feb 2026) | Langganan Obsidian Sync | Paling mulus lintas perangkat, terenkripsi, resmi | Berbayar; data lewat server Obsidian |
+| **Self-hosted LiveSync** (plugin komunitas + CouchDB) | Gratis | Real-time, self-host | Paling rumit (CouchDB tambahan), klien headless masih komunitas |
+
+**Rekomendasi**: **Syncthing** untuk laptop ↔ HP ↔ server (mudah) **+ Git di server** (LifeOS meng-commit snapshot vault
+setiap ada perubahan → riwayat/audit & backup). Bila kelak berlangganan Obsidian Sync, cukup ganti ke `ob` tanpa
+mengubah LifeOS. Plugin "Local REST API"/MCP Obsidian **tidak** dipakai di server (butuh aplikasi desktop menyala).
+
+### 10.2 Konektor Obsidian di LifeOS (rancangan)
+
+- Service pemantau folder vault (volume `obsidian-vault`, hanya-baca kecuali `00-Inbox/`) → setiap berkas `.md` berubah:
+  baca properti YAML, judul, isi; potong per judul/Pasal (R-5); indeks ke `ai_chunks` dengan `sourceType = "obsidian"`,
+  `collection = "knowledge"`, `metadata` dari properti.
+- Tabel `knowledge_links` (dari `[[tautan]]`, tag, properti `dasar_hukum:`) → saat menjawab, potongan teratas
+  **diperluas ke catatan yang ditautkan** (mis. tanya sewa → catatan "Sewa BMN" → tertaut PMK pemanfaatan + SOP + contoh
+  kasus) — "GraphRAG ringan" tanpa layanan baru.
+- Aturan status: catatan `status: dicabut` tidak dipakai untuk menjawab (hanya sebagai riwayat), catatan `status: draf`
+  dan `publik: false` tidak dipakai bot publik.
+- UI: Tools / Pengaturan → **Pengetahuan**: status sinkron, jumlah catatan, catatan bermasalah (tanpa properti wajib),
+  graf ringkas, uji pertanyaan.
+- Lampiran PDF peraturan di vault ikut diekstrak (pipeline ekstraksi yang ada).
+
+### 10.3 Struktur vault yang disarankan (Anda yang mengisi)
+
+```
+Pengetahuan-BMN/
+├── 00-Inbox/                 usulan dari LifeOS/agen (Anda kurasi)
+├── 10-Peraturan/             satu catatan per peraturan (+ PDF); properti: jenis, nomor, tahun, status, mencabut
+│   └── Pasal/                catatan per pasal penting (tafsir Anda, tertaut ke peraturan)
+├── 20-Topik/                 PSP, Penghapusan, Pemanfaatan (Sewa, KSP, KSPI, BGS/BSG, Pinjam Pakai), Pemindahtanganan…
+├── 30-Praktik-Lapangan/      kasus nyata, kendala, cara penyelesaian, "yang sering salah"
+├── 40-FAQ/                   tanya-jawab siap pakai bot (pertanyaan, jawaban, dasar hukum)
+├── 50-Persyaratan/           checklist kelengkapan per jenis pengajuan (dipakai agen pengajuan §12.2)
+├── 60-Gaya-Surat/            contoh surat/nota dinas yang baik + catatan gaya
+└── 90-Templat/               templat catatan Obsidian (peraturan, FAQ, kasus)
+```
+
+Contoh properti catatan:
+
+```yaml
+---
+jenis: faq            # peraturan | pasal | topik | praktik | faq | persyaratan | gaya
+topik: [sewa, pemanfaatan]
+dasar_hukum: ["[[PMK tentang Pemanfaatan BMN]]"]
+status: berlaku       # berlaku | draf | dicabut
+publik: true          # boleh dipakai bot WhatsApp satker
+diperbarui: 2026-10-18
+---
+```
+
+## 11. Hermes atau OpenClaw?
+
+**Rekomendasi: Hermes Agent saja (bukan keduanya).**
+
+| Aspek | Hermes | OpenClaw |
+|---|---|---|
+| Memori | **Bawaan & terstruktur**: catatan agen + profil user (selalu dimuat, dibatasi ± 2.200 & 1.375 karakter), riwayat sesi SQLite + pencarian FTS5, skill yang dibuat sendiri | Berkas Markdown + pencarian SQLite, diambil saat agen memanggil alat pencari |
+| Keamanan bawaan | Persetujuan perintah aktif, dashboard wajib login, menolak berjalan sebagai root, hard-stop loop tool, allowlist per channel (Cloud API: tanpa allowlist semua pesan ditolak) | Sandbox mati secara default; riwayat 2026: ratusan skill berbahaya di ClawHub, CVE-2026-25253, banyak instance terbuka |
+| WhatsApp | **Dua jalur**: Baileys (QR, nomor pribadi, tidak resmi) dan **WhatsApp Business Cloud API resmi** (`hermes whatsapp-cloud`) | Banyak channel, umumnya via jalur tidak resmi |
+| MCP | Klien MCP bawaan (`mcp_servers`, filter tools per server) | Lewat plugin |
+| Lisensi | MIT | MIT |
+
+**Kenapa tidak keduanya**: fungsinya tumpang-tindih (sama-sama gateway chat + agen), dua kali biaya RAM, pembaruan, dan
+permukaan serangan, tanpa kemampuan tambahan yang berarti. Karena **semua pengetahuan & aksi ada di LifeOS (MCP)**,
+mengganti Hermes ke OpenClaw kelak cukup mengganti klien.
+
+**Catatan penting — "memory poisoning"**: studi arXiv 2606.04329 (2026) menemukan Hermes **lebih mudah diracuni lewat
+memori** (tingkat keberhasilan serangan ± 67% vs 34% OpenClaw) karena memorinya selalu disuntikkan ke prompt. Artinya:
+pesan dari orang luar (satker) **tidak boleh** bisa menulis memori agen. Mitigasi wajib (§12.1): dua instans terpisah —
+bot publik tanpa memori tulis & tanpa alat berbahaya; asisten pribadi (memori aktif) hanya untuk Anda. Pengetahuan
+"resmi" tetap di Obsidian/LifeOS (dikurasi Anda), bukan di memori agen — memori Hermes cukup untuk preferensi kerja &
+konteks percakapan.
+
+## 12. Rancangan tiga pekerjaan
+
+Prinsip: **LifeOS = sumber kebenaran + antrian kerja + alat (MCP); Hermes = antarmuka chat & otak agen; Anda = pemeriksa
+akhir.** Setiap keluaran agen yang bersifat resmi masuk **Antrian Verifikasi** di LifeOS (baru → diproses → menunggu
+verifikasi → disetujui → dikirim), tercatat di log aktivitas.
+
+```
+Satker --WhatsApp (Cloud API resmi)--> Hermes "publik" --MCP (baca pengetahuan publik, buat/cek pengajuan)--+
+Anda   --WhatsApp/Telegram----------> Hermes "pribadi" (memori) --MCP (penuh, aksi tulis dikonfirmasi)-----+
+Obsidian (laptop/HP) --Syncthing--> vault di server --> Konektor Obsidian --> indeks pengetahuan            |
+                                                                                                            v
+                         LifeOS: /ai/chat (RAG) · Pengajuan · Mesin templat -> ONLYOFFICE · Antrian Verifikasi
+                                 · (nanti) Robot SRIKANDI / SIMAN / e-Kinerja
+```
+
+### 12.1 Chatbot WhatsApp (tanya ketentuan)
+
+- **Jalur WhatsApp: Cloud API resmi Meta** (nomor khusus layanan, Meta Business account, webhook HTTPS publik → butuh
+  VPS + domain; uji dev lewat tunnel). Baileys (WhatsApp Web) **tidak disarankan** untuk layanan ke satker: tidak resmi,
+  nomor bisa diblokir. **Kebijakan Meta sejak 15 Jan 2026 melarang asisten AI serba-guna** di WhatsApp Business API, tetapi
+  bot **khusus tugas** (layanan informasi/konsultasi BMN, penerimaan pengajuan) tetap diizinkan → bot dibatasi topik
+  (menolak pertanyaan di luar BMN/kedinasan). Perhatikan jendela 24 jam (di luar itu hanya pesan templat berbayar).
+- **Hermes publik**: allowlist nomor satker terdaftar, toolset hanya MCP LifeOS `knowledge.search` (koleksi `publik: true`,
+  `status: berlaku`), `request.create`, `request.status`; tanpa shell, browser, berkas lokal, cron; **memori tulis mati**;
+  aturan menjawab: selalu sebut dasar hukum + tanggal pembaruan, jawab "akan dikonfirmasi" bila tidak yakin.
+- Pertanyaan yang tidak terjawab / ragu → tiket ke Anda (LifeOS + notifikasi ke Hermes pribadi) → jawaban Anda dikirim ke
+  satker **dan** diusulkan menjadi catatan FAQ baru di `00-Inbox/` (lingkaran belajar tanpa input berulang).
+- Riwayat percakapan per satker disimpan di LifeOS (audit), bukan hanya di Hermes.
+
+### 12.2 Pengajuan dokumen bertemplat (PSP, SK Panitia Penghapusan, SK Pemanfaatan — sewa, KSP, …)
+
+1. Satker mengirim surat permohonan + lampiran via WhatsApp → Hermes publik `request.create` → LifeOS modul baru
+   **Pengajuan** (jenis, satker, nomor & tanggal surat, berkas; berkas masuk Asset → ekstraksi teks).
+2. Agen membaca berkas → mengisi **formulir terstruktur per jenis** (mis. PSP: daftar BMN, kode barang, NUP, nilai
+   perolehan, dasar perolehan) → **cek kelengkapan** memakai checklist `50-Persyaratan/` → bila kurang, membalas satker
+   daftar kekurangan.
+3. **Mesin templat**: templat DOCX instansi (Tools → ONLYOFFICE, sudah ada 29 templat) diberi placeholder
+   (`{nomor_surat}`, `{nama_satker}`, tabel berulang `{#barang}…{/barang}`) → diisi otomatis (pustaka pure JS
+   `docxtemplater` — inti MIT, cocok ARM64; alternatif ONLYOFFICE Document Builder) → dokumen baru tertaut ke Pengajuan.
+4. Anda memeriksa/menyunting di ONLYOFFICE → **Setujui** → (manual) unggah ke SRIKANDI, atau (nanti) robot SRIKANDI
+   §13 → PDF final bertanda tangan ditautkan kembali (fitur konsep ↔ final sudah ada) → satker diberi kabar status.
+
+### 12.3 Menjawab surat satker (kolaborasi)
+
+- Surat masuk (WhatsApp, unggah manual, atau nanti dari SRIKANDI) → agen merangkum pokok permasalahan, mencari dasar
+  hukum & praktik (koleksi pengetahuan + **surat/jawaban serupa sebelumnya**), lalu menyusun **konsep jawaban** dengan
+  templat Nota Dinas/Surat + catatan gaya `60-Gaya-Surat/`.
+- Keluaran: konsep DOCX di ONLYOFFICE + **lembar telaah** (ringkasan masalah, dasar hukum bersitasi, opsi tanggapan,
+  risiko) di Antrian Verifikasi. Anda menyunting → hasil final disimpan sebagai **contoh gaya** & jawaban acuan untuk kasus
+  berikutnya (agen makin mirip Anda tanpa fine-tuning).
+- Agen **tidak pernah** mengirim jawaban surat sendiri.
+
+## 13. Sketsa konektor SRIKANDI / SIMAN / e-Kinerja (dibahas detail nanti)
+
+Kebutuhan dari user (dicatat apa adanya):
+1. **SRIKANDI** — robot mengisi isian & mengunggah dokumen; tujuan dan penandatangan diisi di LifeOS lalu diteruskan ke
+   SRIKANDI.
+2. **SIMAN** — **hanya mengambil data** aset secara berkala (harian/mingguan), bukan pengajuan. **Revisi 2026-10-24:
+   tidak lagi dikerjakan robot LifeOS — data diambil dari OnTrack Data Hub lewat API/MCP (§16).**
+3. **e-Kinerja** — SKP awal ditetapkan & diisi sendiri di e-Kinerja; yang diotomasi tiap bulan: **rincian rencana aksi,
+   jumlah dokumen, link dokumen**. SKP dimasukkan juga ke LifeOS; agen memetakan pekerjaan LifeOS ke tiap RHK/kegiatan,
+   lalu robot mengisikannya ke e-Kinerja.
+4. SRIKANDI & SIMAN memakai **MFA authenticator**; di komputer/server yang sama kode diminta ± sebulan sekali → LifeOS
+   butuh **konektor sesi** yang mendeteksi login kedaluwarsa dan meminta pembaruan.
+
+Arah teknis awal:
+- **Playwright** (bukan Selenium): satu bahasa dengan backend (TypeScript), menunggu elemen otomatis, image Docker resmi
+  arm64/amd64, mendukung profil browser persisten. Berjalan sebagai service/container terpisah `robot` (antrian BullMQ,
+  satu job per sistem, jeda wajar), bukan di proses backend.
+- **Konektor sesi**: profil browser **persisten** per user per sistem (cookie/penanda "perangkat tepercaya" ikut tersimpan,
+  dienkripsi seperti key AI) → cek sesi sebelum tiap job → kedaluwarsa = job ditunda + notifikasi → Anda membuka
+  **Pengaturan → Konektor → Perbarui login**: LifeOS menampilkan **browser jarak jauh** (tayangan langsung browser robot)
+  tempat Anda mengetik sendiri username, password, dan kode authenticator → sesi tersimpan, status "aktif s.d. …".
+  **LifeOS tidak menyimpan kata sandi dan tidak menyimpan rahasia TOTP** (menyimpan rahasia TOTP = MFA tidak berarti).
+- Batas tindakan: SRIKANDI berhenti pada **simpan konsep / kirim ke pemeriksa** dengan konfirmasi Anda — **robot tidak
+  pernah menandatangani** (TTE tetap oleh pejabat di SRIKANDI). ~~SIMAN hanya baca (unduh ekspor → tabel snapshot aset +
+  perubahan)~~ (diganti OnTrack, §16). e-Kinerja: pemetaan RHK diusulkan agen, Anda setujui, baru robot mengisi; tangkapan layar tiap langkah di log.
+- **Link dokumen e-Kinerja** harus bisa dibuka atasan/penilai → LifeOS perlu **tautan publik bertoken** (baca-saja,
+  kedaluwarsa, bisa dicabut) — fitur ini belum ada (tercatat "Belum: tautan publik").
+- Server robot sebaiknya **VPS di Indonesia** dengan IP tetap (situs pemerintah sering menolak IP luar negeri; IP
+  berubah dapat memicu MFA ulang).
+- Tetap perlu **izin pengelola sistem** (SRIKANDI: admin instansi/ANRI; SIMAN: DJKN/pengelola BMN; e-Kinerja: Biro SDM)
+  karena otomasi memakai akun resmi.
+
+## 14. Tahapan revisi (menggantikan §5)
+
+| Tahap | Isi | Hasil yang bisa dicoba |
+|---|---|---|
+| **1. Fondasi pengetahuan** | R-1 `POST /ai/chat` RAG backend + riwayat; R-4/R-5 koleksi, metadata, pemotongan sadar struktur; peringatan data Gemini (R-2); profil kerja & instruksi tetap (§2.4) | Chatbot LifeOS menjawab dari isi dokumen/peraturan dengan sitasi |
+| **2. Konektor Obsidian** | Volume vault + pemantau + indeks `obsidian` + `knowledge_links` + halaman Pengetahuan + `00-Inbox` | Menulis di Obsidian → beberapa detik kemudian bisa ditanyakan di LifeOS |
+| **3. Token akses + MCP LifeOS** | Token pribadi bercakupan, MCP server (`knowledge.search`, `request.*`, `document.*`, `task.*`), log aktivitas | Hermes / Claude Desktop bisa memakai LifeOS |
+| **4. Pengajuan + mesin templat + Antrian Verifikasi** | Modul Pengajuan (PSP / penghapusan / pemanfaatan), ekstraksi field, cek kelengkapan, placeholder templat → ONLYOFFICE, telaah & konsep jawaban surat | Use case 2 & 3 bisa dikerjakan lewat UI LifeOS (unggah manual) sebelum WhatsApp |
+| **5. Hermes** | Compose profile `agent`: `hermes-private` (memori, Telegram/WhatsApp Anda) + `hermes-public` (WhatsApp Cloud API, terkunci) | Use case 1 lewat WhatsApp; pengajuan masuk otomatis |
+| **5b. Konektor OnTrack** (revisi 2026-10-24, §16) | Klien REST API OnTrack (API key) di backend + OnTrack sebagai server MCP kedua untuk Hermes; data SIMAN & MyIntress untuk pengajuan, telaah, dan chatbot | Agen bisa mencocokkan NUP/kode barang & data keuangan tanpa robot di LifeOS |
+| **6. Robot & konektor sesi** | Service Playwright + profil persisten + browser jarak jauh; **hanya e-Kinerja (bulanan) → SRIKANDI** (SIMAN pindah ke OnTrack) | Detail dibahas setelah tahap 4–5 |
+
+Kebutuhan server (perkiraan): LifeOS + ONLYOFFICE ± 8 GB; + 2 instans Hermes + robot Playwright → **VPS 12–16 GB**, lokasi
+Indonesia, domain HTTPS (wajib untuk webhook WhatsApp Cloud API).
+
+## 15. Keputusan & to-do (revisi, menggantikan §6–§7)
+
+### 15.1 Keputusan
+
+| ID | Pertanyaan | Rekomendasi |
+|---|---|---|
+| AG-10 | Urutan tahap §14 (1 → 6)? | Ya |
+| AG-11 | Obsidian sebagai sumber pengetahuan, LifeOS hanya membaca (+ folder `00-Inbox`)? | Ya |
+| AG-12 | Sinkron vault: Syncthing (+ Git di server) / Obsidian Sync / Git saja? | Syncthing + Git di server |
+| AG-13 | Agen: **Hermes saja**, dua instans (pribadi & publik)? | Ya |
+| AG-14 | WhatsApp satker lewat **Cloud API resmi** (nomor khusus) — bukan nomor pribadi/Baileys? | Ya |
+| AG-15 | Key Gemini: aktifkan billing (paid tier) atau pindah ke embedding lokal? | Aktifkan billing dulu; embedding lokal nanti |
+| AG-16 | Placeholder templat: Anda menandai sendiri di DOCX, atau agen mengusulkan placeholder lalu Anda setujui? | Agen mengusulkan, Anda setujui |
+| AG-17 | Pengguna bot WhatsApp: hanya nomor satker terdaftar (allowlist) atau siapa pun? | Allowlist |
+
+AG-7 (RAG + instruksi/memori, bukan fine-tuning), AG-8 (memori disetujui user), dan AG-9 (mode asisten, tanpa menyimpan
+kata sandi) tetap berlaku; AG-9 diperjelas oleh §13 (robot boleh, kata sandi & rahasia TOTP tetap tidak disimpan).
+
+### 15.2 To-do user
+
+- [ ] **Pasang Obsidian** (laptop & HP) dan buat vault `Pengetahuan-BMN` dengan struktur §10.3; mulai dari 10–20 catatan
+      inti (peraturan utama, FAQ yang paling sering ditanyakan, checklist PSP / penghapusan / sewa / KSP).
+- [ ] **Pasang Syncthing** (laptop & HP) bila AG-12 disetujui (folder server disiapkan Claude di tahap 2).
+- [ ] **Google Cloud**: aktifkan billing di project key Gemini (AG-15) — atau sampaikan bila ingin embedding lokal.
+- [ ] Siapkan **3 contoh per jenis pengajuan** (surat permohonan satker + SK/dokumen hasil yang sudah jadi; boleh
+      disamarkan) untuk PSP, SK Panitia Penghapusan, SK Pemanfaatan (sewa, KSP).
+- [ ] Siapkan **5–10 pasang surat satker + jawaban Anda** (contoh gaya & bahan evaluasi).
+- [ ] (Tahap 5) **Meta Business account** + **nomor khusus** untuk WhatsApp Cloud API; tanyakan ke instansi apakah boleh
+      memakai nomor/nama instansi; bot Telegram (@BotFather) opsional untuk Hermes pribadi.
+- [ ] (Tahap 6) Izin pengelola SRIKANDI / SIMAN / e-Kinerja untuk otomasi akun; login & kode authenticator selalu Anda
+      ketik sendiri.
+- [ ] (Saat siap) VPS Indonesia 12–16 GB + domain.
+
+### 15.3 To-do Claude
+
+1. Tahap 1 — `POST /ai/chat` + riwayat permanen, chatbot melayang memakai endpoint baru; `collection`/`metadata` di
+   `ai_chunks` (migrasi), pemotongan per judul/Pasal, filter status; peringatan unpaid tier; profil kerja; unit + smoke.
+2. Tahap 2 — konektor vault (volume dev atau folder Syncthing), pemantau, parser YAML/wikilink, `knowledge_links`,
+   ekspansi graf saat mencari, halaman Pengetahuan, penulis `00-Inbox`.
+3. Tahap 3–6 sesuai §14; setiap tahap: perbarui dokumen ini, ARCHITECTURE, CLAUDE.md, aturan port (Hermes 8642/9119 bila
+   dibuka, robot tanpa port publik).
+
+### 15.4 Sumber tambahan (tahap 2)
+
+- Obsidian: [gratis untuk kerja](https://obsidian.md/blog/free-for-work/), [license overview](https://obsidian.md/license),
+  [Headless Sync resmi](https://obsidian.md/help/sync/headless), [headless + systemd](https://prokopov.me/posts/obsidian-headless-sync-systemd/),
+  [LiveSync headless (komunitas)](https://github.com/VII-VII/obsidian-headless-sync), [Local REST API plugin](https://community.obsidian.md/plugins/rest-api),
+  [panduan MCP Obsidian 2026](https://mcp.directory/blog/obsidian-mcp-complete-guide-2026).
+- Hermes vs OpenClaw: [Composio](https://composio.dev/content/openclaw-vs-hermes-agent), [Gizmodo](https://gizmodo.com/best-web-hosting/openclaw-vs-hermes),
+  [Firecrawl](https://www.firecrawl.dev/blog/openclaw-vs-hermes), [studi memory poisoning (arXiv 2606.04329)](https://arxiv.org/pdf/2606.04329).
+- WhatsApp: [Hermes — WhatsApp Cloud API](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/whatsapp-cloud),
+  [Baileys vs Cloud API](https://hermes-agent.ai/integrations/whatsapp), [kebijakan chatbot WhatsApp 2026](https://respond.io/blog/whatsapp-chatbot-policy-2026).
+- Gemini data: [Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms_preview).
+- Playwright sesi & MFA: [Checkly — authentication](https://www.checklyhq.com/learn/playwright/authentication/),
+  [Supergood — MFA](https://supergood.ai/blog/handling-mfa-in-playwright).
+
+---
+
+## 16. Revisi 2026-10-24 — Data SIMAN & MyIntress dari OnTrack Data Hub
+
+**Keputusan user**: robot pengambil data SIMAN **tidak dibuat di LifeOS**. Data master aset SIMAN (DJKN) dan data
+keuangan MyIntress (DJPb) diambil dari aplikasi milik user sendiri, **OnTrack Data Hub** (`D:\Development\Application\OnTrack`),
+yang memang dirancang untuk scraping + vault kredensial + penyedia data. Robot/agen **pengisian e-Kinerja dan SRIKANDI
+tetap** direncanakan di LifeOS (§13, tahap 6).
+
+### 16.1 Yang dimiliki OnTrack (dibaca dari `ARCHITECTURE.md`, `PRD.md`, kode `apps/api` per 2026-10-24)
+
+| Bagian | Isi menurut dokumen | Status di kode |
+|---|---|---|
+| Stack | NestJS (port 3000) + React/Vite (5173) + PostgreSQL 16 (5432, DB `ontrack_db`) + Redis 7 (6379) + BullMQ + Playwright | ✅ kerangka |
+| Vault & sesi | Kredensial portal AES-256-GCM + `storageState` Playwright + dialog OTP/Captcha *human-in-the-loop* | Modul `vault` ✅ |
+| Data | Tabel `SimanBmnRecord`, `MyIntressPagu/Sp2d/Kontrak/Piutang/…Record`, `RefSatker`, `RefBagianAnggaran` | ✅ skema Prisma |
+| Scraper SIMAN / MyIntress | Ekspor BMN Aktif (polling log unduhan 8–15 menit), SSO DIGIT Kemenkeu | ⏳ modul `siman`, `myintress`, `scraper-engine` **belum ada** |
+| REST API (API Key / JWT) | `GET /api/v1/siman/assets?kategori=`, `GET /api/v1/myintress/pagu|realisasi|sp2d`, `POST /api/v1/jobs/trigger` | ⏳ belum ada |
+| MCP (`/api/mcp`, SSE / Streamable HTTP) | Tools `query_siman_assets`, `query_myintress_data`, `trigger_scraping_job`, `get_job_status`; resources skema & ringkasan | ⏳ modul `mcp-server` **belum ada** |
+| Peran | `SUPERADMIN` (orkestrasi, vault, penerbitan key MCP) · `USER` (lihat data, akun akses MCP) | Modul `auth`/`users` ✅ |
+
+Artinya integrasi LifeOS ↔ OnTrack **bergantung pada penyelesaian modul siman/myintress/API/MCP di OnTrack** (dikerjakan
+di thread/proyek OnTrack).
+
+### 16.2 Pilihan cara menyambung
+
+| Cara | Penilaian |
+|---|---|
+| **A. MCP + REST API** (direkomendasikan) | Agen (Hermes) memakai **OnTrack sebagai server MCP kedua** di samping MCP LifeOS; backend LifeOS memanggil **REST API OnTrack** dengan API key milik akun `USER` OnTrack (fitur non-agen: validasi NUP/kode barang di form Pengajuan, panel data aset di telaah surat, chatbot). Satu sumber kebenaran, hak akses & audit tetap di OnTrack, kontrak data jelas (API terdokumentasi Swagger). |
+| B. Baca database OnTrack langsung | Cepat tapi rapuh: perubahan skema OnTrack langsung merusak LifeOS, melewati auth & audit OnTrack. Hanya bila suatu saat perlu laporan berat — itu pun lewat **user DB baca-saja + view** yang disepakati. |
+| C. Clone (menyalin kode scraper ke LifeOS) | Tidak disarankan: dua scraper & dua vault kredensial akun yang sama → dua kali perawatan saat portal berubah, risiko sesi saling menendang. |
+| D. Salin data ke LifeOS (cache) | Hanya bila perlu: tabel snapshot ringan (mis. daftar BMN per satker) yang diisi dari API OnTrack terjadwal, untuk pencarian cepat / RAG. Sumber tetap OnTrack. |
+
+### 16.3 Rancangan di LifeOS (tahap 5b)
+
+- Env baru backend: `ONTRACK_API_URL`, `ONTRACK_API_KEY` (opsional; kosong = fitur OnTrack tersembunyi) — atau per user di
+  Pengaturan → Integrasi (key terenkripsi seperti key AI) bila nanti ada lebih dari satu pengguna OnTrack.
+- `src/integrations/ontrack/` — klien REST (timeout, cache Redis singkat, pemetaan error → 422/429 sesuai §15 CLAUDE.md).
+- Dipakai: (1) **Pengajuan PSP / penghapusan / pemanfaatan**: agen mencocokkan daftar BMN dari surat satker dengan master
+  SIMAN (kode barang, NUP, nilai perolehan, status) dan menandai yang tidak cocok; (2) **telaah surat**: data aset &
+  anggaran satker sebagai konteks; (3) **chatbot** (pribadi): pertanyaan data ("berapa aset tanah satker X?").
+- Hermes: `mcp_servers` = `lifeos` + `ontrack`. **Hermes publik (satker) tidak diberi akses OnTrack** — data keuangan &
+  aset bukan untuk dijawab ke pihak luar tanpa verifikasi; cukup lewat agen pengajuan yang hasilnya Anda periksa.
+- Tidak ada scraping, vault SIMAN, maupun penjadwal SIMAN di LifeOS.
+
+### 16.4 Lingkungan dev: bentrok port LifeOS ↔ OnTrack
+
+Kedua aplikasi mengunci port yang sama (**5173, 5432, 6379**; OnTrack juga 3000) dan sama-sama `restart: unless-stopped`
+→ hanya satu yang bisa menyala (kejadian 2026-10-24, CLAUDE.md §15). Untuk menguji integrasi, keduanya harus menyala
+bersamaan. Pilihan:
+
+| Pilihan | Catatan |
+|---|---|
+| **OnTrack pindah port host saat dev** (mis. web 5174, PostgreSQL 5433, Redis 6380; API tetap 3000) — direkomendasikan | Perubahan kecil di repo OnTrack (`docker-compose.yml`, `.env`, `ARCHITECTURE.md` §2.2); LifeOS tidak berubah. |
+| OnTrack memakai PostgreSQL & Redis milik LifeOS (DB `ontrack_db` terpisah, Redis DB index lain) | Hemat RAM, tetapi versi PostgreSQL berbeda (OnTrack 16, LifeOS 18) dan dua proyek jadi saling bergantung. |
+| Bergantian (salah satu dimatikan) | Tidak bisa menguji integrasi. |
+
+Produksi (VPS yang sama): kedua stack di jaringan Docker bersama, LifeOS memanggil `http://ontrack-api:3000` (tanpa port
+publik); bila VPS berbeda → HTTPS + API key + allowlist IP.
+
+### 16.5 Keputusan & to-do tambahan
+
+| ID | Pertanyaan | Rekomendasi |
+|---|---|---|
+| AG-18 | Cara sambung LifeOS ↔ OnTrack: MCP (agen) + REST API (fitur LifeOS)? | ✅ Ya |
+| AG-19 | Bentrok port dev: OnTrack pindah ke 5174/5433/6380? | ✅ Ya |
+| AG-20 | Hermes publik (satker) tanpa akses OnTrack; hanya Hermes pribadi & agen pengajuan? | ✅ Ya + data satker sendiri untuk nomor terverifikasi (lihat bawah) |
+| AG-21 | Robot e-Kinerja & SRIKANDI dibangun di LifeOS, atau memanfaatkan mesin Playwright + vault + dialog OTP OnTrack (pola sama, sudah ada)? | Diputuskan saat tahap 6 — memakai ulang mesin OnTrack layak dipertimbangkan |
+
+**Keputusan user (2026-10-24)**:
+- **AG-18 ✅** MCP (agen) + REST API (fitur LifeOS).
+- **AG-19 ✅** OnTrack pindah port host saat dev (dikerjakan user lewat Antigravity di repo OnTrack; aturan "satu port
+  satu komponen, tanpa dualisme" tetap berlaku di kedua proyek). Matriks port gabungan laptop:
+
+  | Komponen | LifeOS | OnTrack |
+  |---|---|---|
+  | Frontend (Vite) | 5173 | **5174** |
+  | Backend / API | 4000 | 3000 (+ MCP `/api/mcp`) |
+  | PostgreSQL | 5432 | **5433** |
+  | Redis | 6379 | **6380** |
+  | Lainnya | SeaweedFS 8333/8888, ONLYOFFICE 8080 | — |
+
+- **AG-20 ✅ dengan perluasan**: Hermes publik **tidak** mendapat MCP OnTrack mentah. Namun pengguna WhatsApp yang
+  **terverifikasi** dan di-assign user ke **satker tertentu** boleh menanyakan **data satkernya sendiri**. Rancangan: tabel
+  `wa_contacts` di LifeOS (nomor WA, nama, satker, status verifikasi, di-assign user), MCP LifeOS menyediakan tool
+  `satker.assets` / `satker.budget` yang **mengambil `satkerCode` dari pemetaan nomor pengirim di server** (tidak pernah
+  dari isi pesan/argumen model) lalu memanggil REST API OnTrack dengan filter satker itu → model tidak bisa diakali untuk
+  membuka satker lain. Nomor belum terverifikasi = hanya pengetahuan publik. Setiap akses tercatat di log.
+- **AG-21 — ditunda**: robot e-Kinerja & SRIKANDI akan dibangun di LifeOS; keputusan memakai ulang mesin Playwright/vault
+  OnTrack diambil setelah prototipe OnTrack selesai (finishing OnTrack akan diserahkan user ke Claude). Catatan untuk saat
+  itu: e-Kinerja dan SRIKANDI adalah **dua sistem berbeda** → tetap butuh skrip/alur per sistem; yang bisa dipakai bersama
+  hanya "mesin" (pool browser, vault sesi terenkripsi, dialog OTP human-in-the-loop, antrian & log). Untung memakai mesin
+  yang sama: satu kode keamanan sesi, satu cara memperbarui login, satu tempat memantau. Konsekuensi: LifeOS bergantung pada
+  OnTrack untuk pengisian, dan data yang diisi (konsep surat, realisasi kinerja) harus dikirim ke OnTrack.
+
+To-do user (proyek OnTrack): selesaikan modul `siman`, `myintress`, REST API (`/api/v1/siman/assets`, …) dan
+`mcp-server`; terbitkan **API key akun `USER`** untuk LifeOS; (bila AG-19 disetujui) pindahkan port dev OnTrack.
+
+To-do Claude (LifeOS, setelah API OnTrack tersedia): klien `src/integrations/ontrack/` + env + uji kontrak (smoke dengan
+OnTrack menyala), pemakaian di Pengajuan/telaah/chatbot, konfigurasi `mcp_servers` Hermes.
