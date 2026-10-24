@@ -78,6 +78,9 @@ Prisma, build image Docker; untuk perubahan infra juga stack produksi lokal + ce
 
 ## 3. Temuan audit yang masih dipantau (`npm audit`)
 
+Per 2026-10-24 `npm audit --omit=dev` di backend hanya menyisakan `deepmerge-ts` (advisory `body-parser`, `multer`,
+`fast-uri` yang diumumkan 19–22 Okt sudah ditutup — lihat [ARCHITECTURE.md §2.3](ARCHITECTURE.md#23-kebijakan-dependensi)).
+
 | Lokasi | Paket | Severity | Masuk produksi? | Tindak lanjut |
 |---|---|---|---|---|
 | Backend | `deepmerge-ts` 7.x (via `@prisma/config`) | high (stack exhaustion objek rekursif) | Ya, hanya membaca `prisma.config.ts` milik kita | Fix hanya di major 8 (API berbeda) → tunggu patch Prisma 7.x |

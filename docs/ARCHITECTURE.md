@@ -94,6 +94,10 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
   |---|---|---|---|
   | `backend/package.json` | `prisma > mysql2` → 3.24.4 | Prisma 7.10 mem-pin `mysql2` 3.15.3 (advisory high; hanya dipakai Prisma Studio untuk MySQL) | `npm view prisma@<versi> dependencies.mysql2` ≥ 3.23.1 |
   | `frontend/package.json` | `katex: "$katex"` (langsung `^0.18.9`) | `rehype-katex`/`micromark-extension-math` masih `^0.16` (advisory prototype pollution < 0.18.2) | keduanya mendukung katex ≥ 0.18 |
+  | `backend/package.json` | `multer` → 2.5.0 | `@nestjs/platform-express` 12.1.2 mem-pin `multer` 2.4.0 (advisory high GHSA-q7qp-rjg7-q26m, DoS `fileFilter` asinkron) | `npm view @nestjs/platform-express@<versi> dependencies.multer` ≥ 2.5.0 |
+
+  Advisory 2026-10-19–22 `body-parser` ≤ 2.3.0 (via `express`) dan `fast-uri` ≤ 3.1.8 (via `ajv`) ditutup cukup dengan
+  `npm update --before=<tanggal>` dalam rentang semver induknya (2.4.0 / 3.1.9) — tanpa override.
 
 ## 3. Backend (`backend/`)
 
