@@ -400,3 +400,25 @@ sebentar). Volume font **tidak** ikut backup harian — simpan berkas font aslin
 **Pembaruan ONLYOFFICE** (major, mis. 10 → 11): ganti tag di `infra/onlyoffice/Dockerfile`, `dc build onlyoffice` (build
 gagal bila struktur plugin AI berubah → periksa `infra/onlyoffice/lifeos-ai-bridge.js`), salin ulang daftar format
 (`document-formats/onlyoffice-docs-formats.json` → `office-formats.ts` backend & frontend), uji di stack lokal (`docs/ONLYOFFICE.md`).
+
+## 10. Basis pengetahuan: vault Obsidian (Syncthing)
+
+Basis pengetahuan AI ditulis user di **Obsidian** (laptop/HP) lalu dibaca server (docs/AI-AGENT.md §10, §17). Di
+produksi folder vault ada di host `./knowledge-vaults/<nama folder>` (di-mount ke backend `/app/knowledge-vaults`,
+env `KNOWLEDGE_VAULTS_DIR` sudah diatur di `docker-compose.prod.yml`). Isinya **bukan** bagian repo dan ikut backup VPS
+Anda (folder host); salinan juga ada di laptop/HP.
+
+1. Siapkan folder: `mkdir -p knowledge-vaults && sudo chown 1000:1000 knowledge-vaults` (user `node` di container
+   ber-UID 1000; backend perlu izin tulis untuk folder `00-Inbox`).
+2. Pasang **Syncthing** di VPS (paket `syncthing`, jalankan sebagai user yang memiliki folder di atas, mis. service
+   `syncthing@<user>`) dan di laptop/HP. GUI Syncthing VPS cukup dibuka lewat tunnel SSH
+   (`ssh -L 8384:localhost:8384 <user>@<vps>` → http://localhost:8384), **jangan** dibuka ke internet.
+3. Bagikan folder vault dari laptop ke VPS dengan path tujuan `.../knowledge-vaults/<nama folder>` (nama: huruf,
+   angka, spasi, `.` `_` `-`). Aktifkan *File Versioning* (Staggered) di sisi VPS sebagai riwayat perubahan.
+4. Di LifeOS: **Tools → Basis Pengetahuan → Pakai folder yang sudah ada** → pilih folder itu. Server memantau
+   perubahan otomatis; tombol **Pindai** memaksa baca ulang.
+5. Alternatif tanpa Syncthing: berlangganan Obsidian Sync dan jalankan klien resmi `obsidian-headless` (`ob`) di VPS
+   ke folder yang sama; atau **Buat vault baru dari templat** di LifeOS lalu sinkronkan folder itu ke perangkat.
+
+Catatan: isi vault & data kerja dikirim ke penyedia AI (embedding Gemini & provider aktif) — untuk data kantor pakai
+API key berbayar (billing Google Cloud aktif).

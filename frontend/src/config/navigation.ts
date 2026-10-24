@@ -14,6 +14,7 @@ import {
   HardDrive,
   Hourglass,
   Layers,
+  Library,
   LayoutGrid,
   ListChecks,
   NotebookPen,
@@ -126,12 +127,16 @@ export const MODULES: ModuleDef[] = [
   {
     key: "tools",
     label: "Tools",
-    description: "Pengaturan alat bantu kerja yang dipakai di seluruh aplikasi, seperti editor dokumen ONLYOFFICE.",
+    description:
+      "Alat bantu kerja yang dipakai di seluruh aplikasi: editor dokumen ONLYOFFICE dan basis pengetahuan AI.",
     path: "/tools",
     icon: Wrench,
     sidebarSubmenu: true,
     sidebarGroup: "system",
-    tabs: [{ id: "onlyoffice", label: "ONLYOFFICE", icon: FilePen }],
+    tabs: [
+      { id: "onlyoffice", label: "ONLYOFFICE", icon: FilePen },
+      { id: "knowledge", label: "Basis Pengetahuan", icon: Library },
+    ],
   },
   {
     key: "settings",

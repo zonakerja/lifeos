@@ -1,6 +1,6 @@
 # AI Agent — Riset & Rencana Integrasi
 
-Status: **riset tahap 2 selesai 2026-10-18 — rencana terkini ada di §9–§16** (revisi 2026-10-24 §16: data SIMAN & MyIntress dari OnTrack, bukan robot LifeOS) (kajian RAG, Obsidian, Hermes vs OpenClaw,
+Status: **tahap 1 (fondasi pengetahuan) & tahap 2 (konektor Obsidian) selesai 2026-10-24 — hasil di §17**; rencana terkini §9–§16 (revisi 2026-10-24 §16: data SIMAN & MyIntress dari OnTrack, bukan robot LifeOS) (kajian RAG, Obsidian, Hermes vs OpenClaw,
 tiga pekerjaan yang didelegasikan, konektor SRIKANDI/SIMAN/e-Kinerja, tahapan & to-do revisi). §1–§8 = riset awal
 2026-10-17 (tetap berlaku sebagai latar; urutan tahap & to-do di §5–§7 digantikan §14–§15). Belum ada kode/infra yang
 diubah. Dokumen ini
@@ -665,3 +665,47 @@ To-do user (proyek OnTrack): selesaikan modul `siman`, `myintress`, REST API (`/
 
 To-do Claude (LifeOS, setelah API OnTrack tersedia): klien `src/integrations/ontrack/` + env + uji kontrak (smoke dengan
 OnTrack menyala), pemakaian di Pengajuan/telaah/chatbot, konfigurasi `mcp_servers` Hermes.
+
+---
+
+## 17. Hasil tahap 1 & 2 (2026-10-24)
+
+Dikerjakan setelah user menyetujui lanjut tahap 1 & 2 (AG-10, AG-11). Detail teknis: [ARCHITECTURE.md §3.6](ARCHITECTURE.md);
+produksi: [DEPLOYMENT.md §10](DEPLOYMENT.md).
+
+**Tahap 1 — fondasi pengetahuan** (menjawab temuan §9):
+- R-1 ✅ `POST /ai/chat` di backend: RAG atas koleksi pengetahuan + data kerja, sitasi `[n]`, riwayat percakapan
+  permanen (`ai_conversations`, `ai_messages`). Chatbot melayang memakai endpoint ini: tombol percakapan baru, riwayat
+  (buka/hapus), chip sitasi (catatan vault → dialog, berkas → pratinjau, item → halamannya), Salin, **Simpan ke
+  Inbox** Obsidian. Ringkasan agenda/to-do dari browser tetap dikirim sebagai `<data_aplikasi>` (tautan `app:`).
+- R-2 ✅ peringatan kuota gratis Gemini di Pengaturan → AI dan Tools → Basis Pengetahuan (billing tetap tindakan user).
+- R-4 ✅ `ai_chunks.collection` + `metadata`; status `dicabut`/templat tidak dipakai menjawab.
+- R-5 ✅ pemotongan sadar struktur (judul, BAB, Bagian, Pasal) untuk berkas, sumber notebook, dan catatan vault.
+- Profil kerja & instruksi tetap (§2.4 poin 1) ✅ `users.ai_profile`, diisi di Tools → Basis Pengetahuan, ikut di chat
+  LifeOS & My Notebook.
+- Belum (tahap berikut): R-3 embedding selain Gemini, R-6 reranking, R-8 uji pengetahuan, memori usulan AI (AG-8),
+  contoh gaya terstruktur (sementara: folder `60-Gaya-Surat` di vault).
+
+**Tahap 2 — konektor Obsidian** ✅:
+- Vault = subfolder di `KNOWLEDGE_VAULTS_DIR` (dev: `infra/knowledge-vaults/`, tidak ikut git; produksi:
+  `./knowledge-vaults` + Syncthing). Pilih folder yang ada atau **buat dari templat** (struktur §10.3 + templat catatan
+  di `90-Templat` + catatan "Mulai di sini"; `backend/templates/knowledge-vault/`).
+- Server memantau perubahan (± 3 detik), membaca properti YAML, `[[tautan]]` (termasuk di properti `dasar_hukum`),
+  tag, dan menyalin PDF/DOCX/XLSX di vault ke storage untuk diekstrak & diindeks.
+- **GraphRAG ringan**: saat menjawab, catatan yang tertaut dengan catatan yang ditemukan ikut dibaca AI.
+- Tools → **Basis Pengetahuan**: profil kerja, status vault (jumlah catatan/berkas/tautan, catatan perlu dirapikan,
+  tautan ke catatan yang belum ada), daftar catatan (cari + filter status) dengan dialog isi + tautan keluar/backlink.
+- `00-Inbox`: jawaban chat bisa disimpan sebagai catatan **draf** (sitasi diubah menjadi `[[wikilink]]`) untuk
+  dikurasi di Obsidian — lingkaran belajar tanpa input berulang.
+
+**Diuji**: unit backend (+22: pemotongan berstruktur, parser vault, konteks chat) & frontend (+7), smoke (+20: profil,
+chat tanpa provider, isolasi percakapan & catatan, vault aman/templat/Inbox/lepas), skrip API vault (15 skenario: folder
+tidak aman/tidak ada ditolak, templat, tautan & properti terselesaikan, tautan hilang & catatan tanpa properti
+dilaporkan, indeks koleksi knowledge, potongan BAB/Pasal), chat dengan Gemini sungguhan (catatan `dicabut` tidak dipakai,
+catatan tertaut ikut disitasi), UI di browser (desktop & HP: halaman Basis Pengetahuan, dialog catatan & backlink,
+chatbot, sitasi, Simpan ke Inbox, riwayat percakapan).
+
+**Langkah user berikutnya**: (1) Tools → Basis Pengetahuan → **Buat vault baru dari templat** (mis. `Pengetahuan-BMN`)
+→ buka folder `infra/knowledge-vaults/Pengetahuan-BMN` di Obsidian (*Open folder as vault*) → mulai menulis;
+(2) isi Profil kerja; (3) Pengaturan → AI → **Indeks ulang** sekali (aturan pemotongan baru); (4) aktifkan billing
+Gemini untuk data kantor. Berikutnya: tahap 3 (token akses + MCP LifeOS).

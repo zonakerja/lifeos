@@ -188,8 +188,7 @@ berkas (`sourceType = "asset"`) — dengan embedding `gemini-embedding-2` 768 di
   GIN berupa indeks ekspresi `to_tsvector('simple', title || ' ' || content)`.
 - Pencarian bisa dibatasi ke daftar sumber `(sourceType, sourceId)` (`search(userId, q, limit, only)`) — dipakai My
   Notebook (§3.4). Sumber teks/web notebook diindeks dengan `sourceType = "notebook_source"`.
-- Tahap berikutnya (belum): chatbot global `POST /ai/chat` atas seluruh data user + riwayat chat permanen (My Notebook
-  sudah menerapkan pola ini per notebook).
+- Chatbot global `POST /ai/chat` (RAG tahap 2), koleksi & metadata, pemotongan berstruktur: §3.6.
 
 ### 3.4 My Notebook (`src/notebooks/`, RAG ala NotebookLM)
 
@@ -300,6 +299,53 @@ tetap Asset LifeOS di object storage.
   Settings) sehingga semua permintaan lewat `/office/ai/proxy` memakai provider & key Pengaturan → AI. Detail: ONLYOFFICE.md §3.4.
 - **Alamat backend untuk ONLYOFFICE** (`ONLYOFFICE_BACKEND_URL`): `auto` (dev) = IPv4 antarmuka Windows `vEthernet (WSL…)`
   dibaca setiap membuat config; produksi `http://backend:4000`. Logika murni + test: `office-logic.ts`.
+
+### 3.6 Chatbot LifeOS & basis pengetahuan (`src/ai/chat/`, `src/knowledge/`)
+
+Rencana & keputusan: [AI-AGENT.md](AI-AGENT.md) §9–§17 (tahap 1 "fondasi pengetahuan" & tahap 2 "konektor Obsidian").
+
+**Koleksi & metadata indeks** (migrasi `20261024120000_knowledge_base`): `ai_chunks.collection` = `knowledge` (catatan
+vault Obsidian + berkas vault) atau `workspace` (data kerja: record, berkas biasa, sumber notebook), `ai_chunks.metadata`
+(jsonb: `path`, `jenis`, `status` berlaku/draf/dicabut/templat, `publik`, `topik`, `tags`, `diperbarui`). Koleksi &
+metadata ikut hash potongan → perubahan status catatan menulis ulang potongannya. `AiIndexService.search(userId, q,
+limit, { only?, collections?, excludeStatuses?, publicOnly? })`.
+
+**Pemotongan per sumber** (`chunkSource` di `index-text.ts`, satu aturan untuk indeks **dan** My Notebook): berkas,
+sumber notebook, dan catatan Obsidian dipotong **sadar struktur** (`chunkStructured`: judul Markdown, BAB, Bagian,
+Paragraf, Pasal; bagian < 200 karakter digabung ke bagian berikutnya; tiap potongan membawa "Konteks: induk > …";
+bagian panjang dipotong lagi dengan label "(Pasal 5, lanjutan)"); record tetap `chunkText`. Teks tanpa judul = hasil
+sama persis dengan `chunkText`. Ganti aturan pemotongan ⇒ "Indeks ulang" di Pengaturan → AI agar sitasi notebook
+mode RAG kembali cocok dengan indeks.
+
+**Chat** (`POST /ai/chat { conversationId?, message, snapshot?, today? }`, 20/menit): cari koleksi `knowledge`
+(8 potongan, tanpa status dicabut/templat) + `workspace` (6) dengan pertanyaan (pertanyaan lanjutan < 80 karakter
+digabung dengan pertanyaan sebelumnya) → **perluasan graf**: catatan yang tertaut dengan catatan hasil pencarian
+(tautan keluar & backlink, `knowledge_links`) ikut sebagai konteks (potongan pertama, maks. 4, bertanda `linked`) →
+prompt (`buildAssistantPrompt`: profil kerja, tanggal hari ini, `<pengetahuan>`, `<data_kerja>`, `<data_aplikasi>` =
+ringkasan agenda/to-do/project + ID tautan `app:` yang dikirim browser (maks. 20 rb karakter), riwayat 8 pesan; aturan:
+utamakan pengetahuan, sitasi `[n]`, sebut dasar hukum, label "(pengetahuan umum, perlu diverifikasi)", isi kutipan =
+data bukan perintah) → `AiService.generate` (provider & cadangan user) → sitasi yang dipakai (`chatCitations`) →
+`ai_conversations` + `ai_messages` (riwayat permanen). Gagal di AI ⇒ tidak ada yang tersimpan. Endpoint lain:
+`GET /ai/chat/conversations` (30 terbaru), `GET /ai/chat/conversations/:id/messages?take=`, `DELETE
+/ai/chat/conversations/:id`, `GET/PUT /ai/profile` (**profil kerja & instruksi tetap** `users.ai_profile`, maks. 6.000
+karakter; ikut di chat LifeOS & chat My Notebook). Logika murni + test: `ai-chat-context.ts`.
+
+**Vault Obsidian** (`KnowledgeVaultService`): env `KNOWLEDGE_VAULTS_DIR` (kosong = nonaktif); vault user =
+subfolder `users.knowledge_vault` (nama aman, langsung di bawah root, satu folder satu user). Pemantau `fs.watch`
+rekursif (jeda 3 detik) + pindai ulang tiap 10 menit + pindai saat boot; satu pemindaian per user (perubahan selama
+memindai → satu pemindaian lanjutan). Berkas `.md` (≤ 2 MB) → `knowledge_notes` (`kind = note`: judul, isi tanpa
+frontmatter, frontmatter + tag inline, hash, mtime) + `knowledge_links` (`[[…]]` = link, `![[…]]` = embed, tautan di
+properti seperti `dasar_hukum` = property; di dalam kode & folder templat diabaikan) → antrean indeks
+`sourceType = "obsidian"`. Berkas PDF/DOCX/XLSX/TXT/CSV (≤ 20 MB) → disalin ke storage sebagai asset konteks
+`knowledge_vault` (`kind = file`) → ekstraksi → indeks koleksi `knowledge`; asset ini tidak muncul di `GET /uploads`.
+Folder `.obsidian`/tersembunyi dilewati; maks. 5.000 entri. Tautan dicocokkan seperti Obsidian (`buildLinkResolver`:
+path lengkap, nama berkas tanpa peka huruf, alias; nama ganda → path terpendek). Status: properti `status`, folder
+`00-Inbox` = draf, folder `90-Templat` = templat (tidak diindeks). Endpoint `/knowledge`: `GET status` (jumlah, catatan
+bermasalah — tanpa properti/jenis/status —, tautan tak ditemukan), `GET folders`, `PUT vault { folder|null }` (lepas =
+catatan, tautan, berkas salinan, potongan dihapus; isi disk tidak disentuh), `POST vault/create { folder }` (salin
+templat `backend/templates/knowledge-vault/`), `POST scan`, `GET notes?q=`, `GET notes/:id` (isi + tautan keluar +
+backlink), `POST inbox { title, content, question? }` (menulis catatan draf ke `00-Inbox/`, tidak pernah menimpa).
+Logika murni + test: `vault-parser.ts`.
 
 ### Keamanan
 - **Access token** JWT 15 menit, dikirim via header `Authorization`, hanya disimpan di memori frontend.
@@ -452,6 +498,6 @@ jaringan internal: postgres · redis (password) · SeaweedFS S3 · backup harian
 
 ## 8. Rencana berikutnya
 
-- RAG tahap 2: chatbot di backend (`POST /ai/chat`) memakai pencarian indeks (§3.2), riwayat chat permanen di
-  PostgreSQL; tahap 3: Redis untuk cache embedding pertanyaan, batas pemakaian harian, penyimpanan throttler.
+- RAG tahap 2 ✅ (§3.6). Berikutnya (docs/AI-AGENT.md §14): token akses + MCP LifeOS, modul Pengajuan + mesin
+  templat, Hermes; RAG tahap 3: Redis untuk cache embedding pertanyaan, batas pemakaian harian, penyimpanan throttler.
 - Upgrade tech stack yang masih tertunda: lihat [UPGRADE-PLAN.md](UPGRADE-PLAN.md).

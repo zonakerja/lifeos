@@ -63,7 +63,107 @@ export interface AiSearchHit {
   chunkIndex: number;
   title: string;
   content: string;
+  /** `knowledge` = basis pengetahuan (vault Obsidian), `workspace` = data kerja */
+  collection: string;
+  metadata: Record<string, unknown> | null;
   score: number;
+}
+
+// ---------------------------------------------------------------- Chatbot LifeOS & basis pengetahuan
+
+export interface AiChatCitation {
+  n: number;
+  /** Record type, `asset`, atau `obsidian` (catatan vault) */
+  sourceType: string;
+  sourceId: string;
+  collection: string;
+  title: string;
+  excerpt: string;
+  /** Catatan tertaut (graf `[[...]]`), bukan hasil pencarian langsung */
+  linked?: boolean;
+}
+
+export interface AiChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  citations: AiChatCitation[] | null;
+  createdAt: string;
+}
+
+export interface AiConversation {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiChatResult {
+  conversation: AiConversation;
+  userMessage: AiChatMessage;
+  assistantMessage: AiChatMessage;
+  fallback?: { from: AiProviderId; reason: string; message: string };
+  used: { knowledge: number; workspace: number };
+}
+
+export interface KnowledgeStatus {
+  /** Server punya folder vault (KNOWLEDGE_VAULTS_DIR) */
+  configured: boolean;
+  folder: string | null;
+  folderExists: boolean;
+  watching: boolean;
+  scanning: boolean;
+  lastScanAt: string | null;
+  lastError: string | null;
+  notes: number;
+  files: number;
+  links: number;
+  unresolvedLinks: { target: string; noteId: string; path: string }[];
+  problems: { noteId: string; path: string; issues: string[] }[];
+}
+
+export type KnowledgeNoteStatus = "berlaku" | "draf" | "dicabut" | "templat";
+
+export interface KnowledgeNoteListItem {
+  id: string;
+  path: string;
+  kind: "note" | "file";
+  title: string;
+  assetId: string | null;
+  updatedAt: string;
+  jenis: string | null;
+  status: KnowledgeNoteStatus | null;
+  publik: boolean | null;
+  links: number;
+  backlinks: number;
+}
+
+export interface KnowledgeNoteRef {
+  id: string;
+  title: string;
+  path: string;
+}
+
+export interface KnowledgeNoteDetail {
+  id: string;
+  path: string;
+  kind: "note" | "file";
+  title: string;
+  content: string | null;
+  frontmatter: Record<string, unknown> | null;
+  metadata: {
+    path: string;
+    jenis?: string;
+    status?: KnowledgeNoteStatus;
+    publik?: boolean;
+    topik?: string[];
+    diperbarui?: string;
+  };
+  problems: string[];
+  assetId: string | null;
+  updatedAt: string;
+  linksOut: { target: string; kind: string; note: KnowledgeNoteRef | null }[];
+  backlinks: { kind: string; note: KnowledgeNoteRef }[];
 }
 
 export interface AiGenerateResult {

@@ -22,3 +22,8 @@ Thumbs.db
 
 # Backup produksi
 /backups/
+
+# Vault Obsidian (basis pengetahuan) — isi milik user, bukan bagian repo (lihat infra/obsidian/)
+/infra/knowledge-vaults/*
+!/infra/knowledge-vaults/README.md
+/knowledge-vaults/

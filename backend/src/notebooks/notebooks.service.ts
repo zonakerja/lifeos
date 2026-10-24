@@ -314,8 +314,10 @@ export class NotebooksService {
       orderBy: { createdAt: "desc" },
       take: 8,
     });
+    const owner = await this.prisma.user.findUnique({ where: { id: userId }, select: { aiProfile: true } });
     const prompt = buildChatPrompt({
       notebookTitle: notebook.title,
+      profile: owner?.aiProfile,
       chunks: numbered,
       history: history.reverse(),
       question,
@@ -443,7 +445,7 @@ export class NotebooksService {
   private async vectorKeys(userId: string, question: string, parts: SourcePart[]) {
     const refs = [...new Map(parts.map((p) => [`${p.ref.sourceType}|${p.ref.sourceId}`, p.ref])).values()];
     try {
-      const hits = await this.index.search(userId, question, 30, refs);
+      const hits = await this.index.search(userId, question, 30, { only: refs });
       return hits.map((h) => chunkKey({ sourceType: h.sourceType, sourceId: h.sourceId }, h.chunkIndex));
     } catch (error) {
       this.logger.warn(`Pencarian indeks notebook gagal: ${error instanceof Error ? error.message : error}`);

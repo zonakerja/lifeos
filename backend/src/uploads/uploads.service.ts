@@ -16,6 +16,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { AuthUser } from "../common/types/auth-user";
 import { ASSET_SOURCE } from "../ai/index/index-text";
+import { KNOWLEDGE_VAULT_CONTEXT } from "../knowledge/knowledge-constants";
 import { ExtractionQueueService } from "../extraction/extraction-queue.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { type SharePermission } from "../sharing/share-graph";
@@ -167,7 +168,8 @@ export class UploadsService {
 
   async list(user: AuthUser, take = 50) {
     const assets = await this.prisma.asset.findMany({
-      where: { userId: user.id },
+      // Berkas vault Obsidian dikelola konektor basis pengetahuan, bukan daftar berkas biasa
+      where: { userId: user.id, OR: [{ context: null }, { context: { not: KNOWLEDGE_VAULT_CONTEXT } }] },
       include: ASSET_INCLUDE,
       orderBy: { createdAt: "desc" },
       take: Math.min(Math.max(take, 1), 100),

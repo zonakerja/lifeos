@@ -90,9 +90,12 @@ services:
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
       ONLYOFFICE_BACKEND_URL: http://backend:4000
       ONLYOFFICE_FONTS_DIR: ${ONLYOFFICE_URL:+/app/office-fonts}
+      # Vault Obsidian (basis pengetahuan): folder host ./knowledge-vaults/<folder user>, diisi Syncthing (DEPLOYMENT §10)
+      KNOWLEDGE_VAULTS_DIR: /app/knowledge-vaults
     volumes:
       # Font tambahan yang diunggah admin (Tools → ONLYOFFICE); dibaca container onlyoffice
       - onlyoffice-fonts:/app/office-fonts
+      - ./knowledge-vaults:/app/knowledge-vaults
     deploy: { resources: { limits: { memory: "${BACKEND_MEM_LIMIT:-768m}" } } }
     logging: *logging
 

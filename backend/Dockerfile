@@ -30,11 +30,11 @@ WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/prisma ./prisma
-# Templat dokumen kosong ONLYOFFICE (POST /office/documents)
+# Templat dokumen kosong ONLYOFFICE (POST /office/documents) + templat vault Obsidian (Tools → Basis Pengetahuan)
 COPY --from=build --chown=node:node /app/templates ./templates
 COPY --from=build --chown=node:node /app/package.json /app/prisma.config.ts ./
-# Folder font ONLYOFFICE (volume bersama); dibuat di image agar volume baru dimiliki user node
-RUN mkdir -p /app/office-fonts && chown node:node /app/office-fonts
+# Folder font ONLYOFFICE (volume bersama) & folder vault Obsidian; dibuat di image agar dimiliki user node
+RUN mkdir -p /app/office-fonts /app/knowledge-vaults && chown node:node /app/office-fonts /app/knowledge-vaults
 USER node
 EXPOSE 4000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \

@@ -12,20 +12,24 @@ import { AiService } from "../ai.service";
 import { AiProviderError } from "../providers/ai-client";
 import { AiIndexQueueService } from "./ai-index-queue.service";
 import { embedTexts } from "./gemini-embedding";
+import { KNOWLEDGE_VAULT_CONTEXT } from "../../knowledge/knowledge-constants";
+import { knowledgeMetadata, noteIndexText, TEMPLATE_DIR } from "../../knowledge/vault-parser";
 import {
   ASSET_SOURCE,
-  chunkText,
+  chunkSource,
   documentEmbeddingText,
   EMBEDDING_MODEL,
   hashText,
   INDEXED_TYPES,
   isIndexedType,
-  MAX_SOURCE_CHARS,
+  KNOWLEDGE_COLLECTION,
   NOTEBOOK_SOURCE,
+  OBSIDIAN_SOURCE,
   queryEmbeddingText,
   reciprocalRankFusion,
   renderRecord,
   toVectorLiteral,
+  WORKSPACE_COLLECTION,
 } from "./index-text";
 
 interface SourceDocument {
@@ -33,6 +37,9 @@ interface SourceDocument {
   sourceId: string;
   title: string;
   text: string;
+  /** `knowledge` (vault Obsidian & berkasnya) atau `workspace` (data kerja) */
+  collection: string;
+  metadata?: Record<string, unknown> | null;
 }
 
 interface FindManyDelegate {
@@ -53,7 +60,20 @@ export interface SearchHit {
   chunkIndex: number;
   title: string;
   content: string;
+  collection: string;
+  metadata: Record<string, unknown> | null;
   score: number;
+}
+
+export interface SearchOptions {
+  /** Batasi ke sumber tertentu (mis. sumber satu notebook) */
+  only?: SourceRef[];
+  /** Batasi ke koleksi tertentu */
+  collections?: string[];
+  /** Buang potongan berstatus ini (`metadata.status`), mis. `dicabut` */
+  excludeStatuses?: string[];
+  /** Hanya potongan yang boleh dipakai publik (`metadata.publik = true`) */
+  publicOnly?: boolean;
 }
 
 /** Status pengindeksan per user di Redis (bukan data penting → TTL 30 hari). */
@@ -157,10 +177,12 @@ export class AiIndexService {
    */
   private async indexDocuments(userId: string, apiKey: string | null, docs: SourceDocument[]) {
     const prepared = docs.map((doc) => {
-      const chunks = chunkText(doc.text.slice(0, MAX_SOURCE_CHARS));
+      const chunks = chunkSource(doc.sourceType, doc.text);
       // Sumber tanpa isi (mis. hanya judul) tetap diindeks satu potongan berisi judul
       const contents = chunks.length ? chunks : [doc.title];
-      return { doc, contents, hashes: contents.map((c) => hashText(`${doc.title}\n${c}`)) };
+      // Koleksi & metadata ikut hash: perubahan status catatan menulis ulang potongannya
+      const meta = `${doc.collection}|${JSON.stringify(doc.metadata ?? null)}`;
+      return { doc, contents, hashes: contents.map((c) => hashText(`${meta}\n${doc.title}\n${c}`)) };
     });
 
     const existing = await this.prisma.aiChunk.findMany({
@@ -191,9 +213,10 @@ export class AiIndexService {
         ...rows.map(
           (row, i) => this.prisma.$executeRaw`
             INSERT INTO ai_chunks (id, user_id, source_type, source_id, chunk_index, title, content, content_hash, model,
-                                   embedding, created_at, updated_at)
+                                   embedding, collection, metadata, created_at, updated_at)
             VALUES (${randomUUID()}, ${userId}, ${doc.sourceType}, ${doc.sourceId}, ${i}, ${doc.title}, ${row.content},
-                    ${row.hash}, ${model}, ${row.vector ? toVectorLiteral(row.vector) : null}::vector, now(), now())`,
+                    ${row.hash}, ${model}, ${row.vector ? toVectorLiteral(row.vector) : null}::vector, ${doc.collection},
+                    ${doc.metadata ? JSON.stringify(doc.metadata) : null}::jsonb, now(), now())`,
         ),
       ]);
     }
@@ -207,8 +230,18 @@ export class AiIndexService {
         where: { id: sourceId, notebook: { userId }, content: { not: null } },
       });
       return source?.content?.trim()
-        ? { sourceType, sourceId, title: `Sumber notebook: ${source.title}`, text: source.content }
+        ? {
+            sourceType,
+            sourceId,
+            title: `Sumber notebook: ${source.title}`,
+            text: source.content,
+            collection: WORKSPACE_COLLECTION,
+          }
         : null;
+    }
+    if (sourceType === OBSIDIAN_SOURCE) {
+      const note = await this.prisma.knowledgeNote.findFirst({ where: { id: sourceId, userId, kind: "note" } });
+      return note ? this.noteDocument(note) : null;
     }
     if (sourceType === ASSET_SOURCE) {
       const asset = await this.prisma.asset.findFirst({
@@ -217,7 +250,7 @@ export class AiIndexService {
       });
       const text =
         asset?.extraction?.status === AssetExtractionStatus.completed ? asset.extraction.extractedText : null;
-      return asset && text?.trim() ? { sourceType, sourceId, title: `Berkas: ${asset.originalName}`, text } : null;
+      return asset && text?.trim() ? this.assetDocument(asset, text) : null;
     }
     if (!isIndexedType(sourceType)) return null;
     const spec: TableSpec = RECORD_TABLES[sourceType];
@@ -225,7 +258,48 @@ export class AiIndexService {
       where: { userId_clientId: { userId, clientId: sourceId } },
     });
     if (!row || row.deletedAt) return null;
-    return { sourceType, sourceId, ...renderRecord(sourceType, rowToPayload(spec, row), spec.titleKey) };
+    return {
+      sourceType,
+      sourceId,
+      collection: WORKSPACE_COLLECTION,
+      ...renderRecord(sourceType, rowToPayload(spec, row), spec.titleKey),
+    };
+  }
+
+  /** Catatan vault Obsidian → dokumen koleksi pengetahuan (templat tidak diindeks: isinya kerangka). */
+  private noteDocument(note: {
+    id: string;
+    path: string;
+    title: string;
+    content: string | null;
+    frontmatter: unknown;
+  }): SourceDocument | null {
+    if (note.path.split("/")[0] === TEMPLATE_DIR) return null;
+    const frontmatter = (note.frontmatter as Record<string, unknown> | null) ?? null;
+    const tags = Array.isArray(frontmatter?.tags)
+      ? frontmatter.tags.filter((t): t is string => typeof t === "string")
+      : [];
+    return {
+      sourceType: OBSIDIAN_SOURCE,
+      sourceId: note.id,
+      title: `Pengetahuan: ${note.title}`,
+      text: noteIndexText({ title: note.title, content: note.content ?? "", frontmatter }),
+      collection: KNOWLEDGE_COLLECTION,
+      metadata: { ...knowledgeMetadata(note.path, frontmatter, tags) },
+    };
+  }
+
+  /** Isi berkas: berkas vault Obsidian masuk koleksi pengetahuan, berkas lain = data kerja. */
+  private assetDocument(asset: { id: string; originalName: string; context: string | null }, text: string) {
+    const knowledge = asset.context === KNOWLEDGE_VAULT_CONTEXT;
+    return {
+      sourceType: ASSET_SOURCE,
+      sourceId: asset.id,
+      title: knowledge ? `Pengetahuan (berkas): ${asset.originalName}` : `Berkas: ${asset.originalName}`,
+      text,
+      collection: knowledge ? KNOWLEDGE_COLLECTION : WORKSPACE_COLLECTION,
+      metadata: knowledge ? { path: asset.originalName } : null,
+    } satisfies SourceDocument;
   }
 
   private async loadAllSources(userId: string): Promise<SourceDocument[]> {
@@ -237,6 +311,7 @@ export class AiIndexService {
         docs.push({
           sourceType: type,
           sourceId: row.clientId as string,
+          collection: WORKSPACE_COLLECTION,
           ...renderRecord(type, rowToPayload(spec, row), spec.titleKey),
         });
       }
@@ -247,9 +322,7 @@ export class AiIndexService {
     });
     for (const asset of assets) {
       const text = asset.extraction?.extractedText;
-      if (text?.trim()) {
-        docs.push({ sourceType: ASSET_SOURCE, sourceId: asset.id, title: `Berkas: ${asset.originalName}`, text });
-      }
+      if (text?.trim()) docs.push(this.assetDocument(asset, text));
     }
     const notebookSources = await this.prisma.notebookSource.findMany({
       where: { notebook: { userId }, content: { not: null } },
@@ -261,8 +334,14 @@ export class AiIndexService {
           sourceId: source.id,
           title: `Sumber notebook: ${source.title}`,
           text: source.content,
+          collection: WORKSPACE_COLLECTION,
         });
       }
+    }
+    const notes = await this.prisma.knowledgeNote.findMany({ where: { userId, kind: "note" } });
+    for (const note of notes) {
+      const doc = this.noteDocument(note);
+      if (doc) docs.push(doc);
     }
     return docs;
   }
@@ -322,19 +401,29 @@ export class AiIndexService {
    * Pencarian gabungan: kemiripan makna (pgvector, cosine) + kata persis (full-text PostgreSQL, penting untuk nomor
    * arsip/kode), digabung dengan Reciprocal Rank Fusion. Tanpa key Gemini hanya pencarian kata.
    */
-  async search(userId: string, query: string, limit = 8, only?: SourceRef[]): Promise<SearchHit[]> {
+  async search(userId: string, query: string, limit = 8, options: SearchOptions = {}): Promise<SearchHit[]> {
+    const { only, collections, excludeStatuses, publicOnly } = options;
     if (only && only.length === 0) return [];
+    if (collections && collections.length === 0) return [];
     const candidates = Math.max(limit * 3, 20);
-    // Filter sumber (notebook): pasangan (source_type, source_id)
-    const scope = only
-      ? Prisma.sql`AND (source_type, source_id) IN (${Prisma.join(
-          only.map((ref) => Prisma.sql`(${ref.sourceType}, ${ref.sourceId})`),
-        )})`
-      : Prisma.empty;
+    // Filter: sumber tertentu (notebook), koleksi, status (mis. dicabut), publik
+    const filters = [
+      only
+        ? Prisma.sql`AND (source_type, source_id) IN (${Prisma.join(
+            only.map((ref) => Prisma.sql`(${ref.sourceType}, ${ref.sourceId})`),
+          )})`
+        : Prisma.empty,
+      collections ? Prisma.sql`AND collection IN (${Prisma.join(collections)})` : Prisma.empty,
+      excludeStatuses?.length
+        ? Prisma.sql`AND coalesce(metadata->>'status', '') NOT IN (${Prisma.join(excludeStatuses)})`
+        : Prisma.empty,
+      publicOnly ? Prisma.sql`AND metadata->>'publik' = 'true'` : Prisma.empty,
+    ];
+    const scope = Prisma.join(filters, " ");
     type Row = Omit<SearchHit, "score"> & { contentHash: string };
     const keyword = await this.prisma.$queryRaw<Row[]>`
       SELECT id, source_type AS "sourceType", source_id AS "sourceId", chunk_index AS "chunkIndex", title, content,
-             content_hash AS "contentHash"
+             collection, metadata, content_hash AS "contentHash"
       FROM ai_chunks
       WHERE user_id = ${userId} ${scope}
         AND to_tsvector('simple', title || ' ' || content) @@ websearch_to_tsquery('simple', ${query})
@@ -349,7 +438,7 @@ export class AiIndexService {
       // `embedding IS NOT NULL` wajib agar indeks HNSW parsial terpakai
       semantic = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
         SELECT id, source_type AS "sourceType", source_id AS "sourceId", chunk_index AS "chunkIndex", title, content,
-             content_hash AS "contentHash"
+             collection, metadata, content_hash AS "contentHash"
         FROM ai_chunks
         WHERE user_id = ${userId} AND embedding IS NOT NULL ${scope}
         ORDER BY embedding <=> ${literal}::vector

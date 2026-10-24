@@ -2,7 +2,13 @@ import { apiUrl, request } from "@/lib/api/client";
 import { useAuthStore } from "@/stores/auth-store";
 import type {
   AddNotebookSourceInput,
+  AiChatMessage,
+  AiChatResult,
+  AiConversation,
   AiGenerateResult,
+  KnowledgeNoteDetail,
+  KnowledgeNoteListItem,
+  KnowledgeStatus,
   NotebookChatResult,
   NotebookDetail,
   NotebookListItem,
@@ -249,6 +255,36 @@ export const aiApi = {
     files.forEach((file, i) => form.append("files", file, file instanceof File ? file.name : `lampiran-${i + 1}`));
     return request<AiGenerateResult>("/ai/generate", { method: "POST", body: form });
   },
+};
+
+/** Chatbot LifeOS: RAG atas basis pengetahuan (vault Obsidian) + data kerja, riwayat permanen, profil kerja. */
+export const aiChatApi = {
+  send: (input: { conversationId?: string; message: string; snapshot?: string; today?: string }) =>
+    request<AiChatResult>("/ai/chat", { method: "POST", body: input }),
+  conversations: () => request<AiConversation[]>("/ai/chat/conversations"),
+  messages: (id: string, take = 100) =>
+    request<{ messages: AiChatMessage[]; hasMore: boolean }>(`/ai/chat/conversations/${id}/messages`, {
+      query: { take },
+    }),
+  remove: (id: string) => request<{ success: boolean }>(`/ai/chat/conversations/${id}`, { method: "DELETE" }),
+  profile: () => request<{ profile: string | null }>("/ai/profile"),
+  saveProfile: (profile: string | null) =>
+    request<{ profile: string | null }>("/ai/profile", { method: "PUT", body: { profile } }),
+};
+
+/** Basis pengetahuan: vault Obsidian milik user (Tools → Basis Pengetahuan). */
+export const knowledgeApi = {
+  status: () => request<KnowledgeStatus>("/knowledge/status"),
+  folders: () => request<string[]>("/knowledge/folders"),
+  setVault: (folder: string | null) =>
+    request<KnowledgeStatus>("/knowledge/vault", { method: "PUT", body: { folder } }),
+  createVault: (folder: string) =>
+    request<KnowledgeStatus>("/knowledge/vault/create", { method: "POST", body: { folder } }),
+  scan: () => request<KnowledgeStatus>("/knowledge/scan", { method: "POST" }),
+  notes: (q?: string) => request<KnowledgeNoteListItem[]>("/knowledge/notes", { query: q ? { q } : undefined }),
+  note: (id: string) => request<KnowledgeNoteDetail>(`/knowledge/notes/${id}`),
+  addToInbox: (input: { title: string; content: string; question?: string }) =>
+    request<{ path: string }>("/knowledge/inbox", { method: "POST", body: input }),
 };
 
 /** My Notebook: sumber + chat RAG bersitasi + ringkasan Studio + catatan notebook. */

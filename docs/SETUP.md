@@ -86,6 +86,11 @@ Aturan main:
 3. **Thread Claude** mengikuti aturan yang sama (CLAUDE.md §2a): Claude mengecek status lebih dulu, memakai server yang
    sudah berjalan bila ada, dan hanya menyalakan yang belum aktif (lewat `.claude/launch.json`, port sama).
 4. Port 80/443 hanya dipakai stack produksi uji; matikan stack itu (`docker compose -p <nama> down -v`) setelah selesai.
+5. **Proyek lain di laptop yang sama**: OnTrack Data Hub (sumber data SIMAN/MyIntress, docs/AI-AGENT.md §16) memakai port
+   sendiri — web **5174**, API/MCP **3000**, PostgreSQL **5433**, Redis **6380** (keputusan 2026-10-24) — sehingga bisa
+   menyala bersamaan dengan LifeOS. Bila container OnTrack masih memakai 5432/6379 (versi lama), PostgreSQL/Redis LifeOS
+   menyala **tanpa port**: hentikan `docker stop ontrack_postgres ontrack_redis` lalu `docker restart lifeos-postgres
+   lifeos-redis`.
 
 ## 3. Setup awal (sekali saja)
 
@@ -334,6 +339,10 @@ npm run dev                     # http://localhost:4000/api/v1
 - Akun demo (seed development): `admin@lifeos.com` / `123` (super_admin), `user@lifeos.com` / `123` (member, untuk uji
   berbagi). Data setiap akun terisolasi — admin pun tidak melihat data akun lain kecuali dibagikan.
 - Semua env divalidasi saat boot (`src/config/env.validation.ts`); daftar lengkap di `backend/.env.example`.
+- **Basis pengetahuan (vault Obsidian)**: `KNOWLEDGE_VAULTS_DIR="../infra/knowledge-vaults"` — setiap subfolder = satu
+  vault (tidak ikut git). Buat dari **Tools → Basis Pengetahuan → Buat vault baru dari templat**, lalu buka foldernya di
+  Obsidian (*Open folder as vault*). Perubahan di Obsidian terbaca otomatis (± 3 detik). Folder `smoke-vault` dipakai
+  ulang oleh smoke test.
 
 | Perintah | Fungsi |
 |---|---|

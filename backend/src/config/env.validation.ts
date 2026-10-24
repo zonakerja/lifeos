@@ -149,6 +149,16 @@ class EnvironmentVariables {
   @IsString()
   ONLYOFFICE_FONTS_DIR?: string;
 
+  /**
+   * Folder induk vault Obsidian (basis pengetahuan). Setiap user memilih subfolder vault-nya di Tools → Basis
+   * Pengetahuan; server membaca catatan & lampirannya lalu mengindeks. Kosong = konektor Obsidian nonaktif.
+   * Dev: `../infra/knowledge-vaults`; produksi: `/app/knowledge-vaults` (disinkronkan Syncthing dari laptop/HP).
+   */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @IsString()
+  KNOWLEDGE_VAULTS_DIR?: string;
+
   /** true bila API berada di belakang reverse proxy (nginx) agar IP klien asli terbaca (rate limit). */
   @Transform(({ value }) => value === true || ["true", "1"].includes(String(value).toLowerCase()))
   @IsBoolean()

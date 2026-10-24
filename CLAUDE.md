@@ -151,7 +151,9 @@ LifeOS/
 ├── .env.example              variabel produksi (disalin ke .env di VPS)
 ├── .github/                  workflows/ci.yml + dependabot.yml
 ├── infra/                    caddy/Caddyfile · backup/{Dockerfile,backup.sh} (image backup) · seaweedfs/s3.json (S3 dev)
-├── backend/                  NestJS (Dockerfile, prisma/, src/, templates/office/ = dokumen kosong ONLYOFFICE, test/smoke.mjs)
+├── backend/                  NestJS (Dockerfile, prisma/, src/, templates/office/ = dokumen kosong ONLYOFFICE,
+│                             templates/knowledge-vault/ = templat vault Obsidian, test/smoke.mjs)
+├── infra/knowledge-vaults/   vault Obsidian dev (KNOWLEDGE_VAULTS_DIR; isi tidak ikut git, hanya README)
 ├── frontend/                 React SPA (Dockerfile, nginx.conf, src/)
 └── docs/                     SETUP.md · DEPLOYMENT.md · ARCHITECTURE.md · UPGRADE-PLAN.md · FILE-CONTROL.md · ONLYOFFICE.md · AI-AGENT.md
 ```
@@ -252,6 +254,20 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `gemini-embedding-2` dengan key Gemini pemilik data; tanpa key → tanpa embedding, pencarian kata saja), antrian BullMQ
   `ai-index` dipicu `RecordsService` & ekstraksi, sakelar `users.ai_index_enabled`, `GET /ai/index`,
   `POST /ai/index/rebuild`, `GET /ai/index/search` (vektor + full-text, RRF). Tipe yang diindeks: `INDEXED_TYPES`.
+  `ai_chunks.collection` = `knowledge` (vault Obsidian & berkasnya) | `workspace` (lainnya) + `metadata` (jenis, status
+  berlaku/draf/dicabut/templat, publik, …); `search(…, { only, collections, excludeStatuses, publicOnly })`. Pemotongan
+  lewat **`chunkSource(sourceType, text)`** — satu aturan untuk indeks **dan** My Notebook (berkas/sumber notebook/catatan
+  vault = `chunkStructured` per judul/BAB/Pasal; record = `chunkText`). Mengubah aturan pemotongan ⇒ "Indeks ulang".
+- **Chatbot LifeOS & basis pengetahuan** (detail: `docs/ARCHITECTURE.md` §3.6, rencana `docs/AI-AGENT.md`): `POST /ai/chat`
+  (`src/ai/chat/`: cari koleksi knowledge 8 + workspace 6 → catatan tertaut ikut (graf `knowledge_links`) → prompt
+  `buildAssistantPrompt` (+ profil kerja, tanggal, ringkasan `<data_aplikasi>` dari browser) → sitasi `[n]` → riwayat
+  `ai_conversations`/`ai_messages`; logika murni + test `ai-chat-context.ts`), `GET/DELETE /ai/chat/conversations…`,
+  `GET/PUT /ai/profile` (`users.ai_profile`, juga ikut chat My Notebook). **Vault Obsidian** (`src/knowledge/`,
+  `KnowledgeVaultService`): env `KNOWLEDGE_VAULTS_DIR` (kosong = nonaktif), vault user = subfolder `users.knowledge_vault`,
+  pemantau `fs.watch` + pindai berkala → `knowledge_notes` (catatan `.md` / berkas `file` → asset konteks
+  `knowledge_vault`, disembunyikan dari `GET /uploads`) + `knowledge_links` → indeks `sourceType = "obsidian"`; folder
+  `00-Inbox` = draf (LifeOS hanya menulis di sini lewat `POST /knowledge/inbox`), `90-Templat` = tidak diindeks. Logika
+  murni + test `vault-parser.ts`. Endpoint `/knowledge/status|folders|vault|vault/create|scan|notes|notes/:id|inbox`.
 - **Database**: tabel & kolom snake_case (`@@map/@map`), timestamptz(3), FK `users` cascade. 21 tabel domain
   (agenda_types, schedules, routines, todos, routine_completions, free_notes, ai_notes, note_lists, areas, projects,
   activities, tasks, resources, para_archives, para_archive_logs, archive_classifications, archive_retention_schedules,
@@ -273,7 +289,8 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `20261014130000_notebooks` (My Notebook) + `20261014140000_notebook_message_attachments` (gambar di pesan chat) +
   `20261015120000_asset_versions` (versi berkas ONLYOFFICE) + `20261016120000_office_ai` (sakelar AI editor) +
   `20261016130000_asset_draft_link` (konsep ↔ dokumen final) + `20261018120000_sub_area_without_date` (Sub Area tanpa
-  tanggal & lampiran). Migrasi baru → lihat docs/SETUP.md §10
+  tanggal & lampiran) + `20261024120000_knowledge_base` (koleksi/metadata `ai_chunks`, `users.ai_profile` &
+  `knowledge_vault`, `ai_conversations`, `ai_messages`, `knowledge_notes`, `knowledge_links`). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
@@ -379,6 +396,14 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `isConfigured` dari `user.aiProvider`; bila backend memakai provider cadangan, `useAi` menampilkan toast (fitur tidak
   perlu menangani). Pesan belum diatur: `AI_NOT_CONFIGURED`; kuota habis = `ApiError` status 429.
   Pengaturan: `features/settings/ai-settings-tab.tsx` + hook `src/data/use-ai-settings.ts` (tab URL tetap `/settings/api`).
+- **Chatbot melayang** (`features/assistant/floating-chatbot.tsx`): memakai `POST /ai/chat` lewat `useAiChat()`
+  (`data/use-ai-chat.ts`), bukan `useAi()`; percakapan baru / riwayat (popover) / hapus; ringkasan data aplikasi tetap
+  dikirim sebagai `snapshot` (`buildLifeosContext`); chip sitasi → `citationTarget` (`features/knowledge/knowledge-utils.ts`
+  + test: catatan vault → `openKnowledgeNote(id)` = dialog global `KnowledgeNoteHost` di AppShell, berkas → `previewFile`,
+  record → `recordSourcePath`); "Simpan ke Inbox" (`answerForInbox`: `[n]` → `[[judul]]`). **Tools → Basis Pengetahuan**
+  (`features/tools/knowledge/knowledge-settings.tsx`, hook `data/use-knowledge.ts`): profil kerja, vault (pakai folder /
+  buat dari templat / pindai / lepas, catatan bermasalah, tautan tak ditemukan), daftar catatan (`filterKnowledgeNotes`),
+  cara memakai + peringatan kuota gratis Gemini (juga di kartu indeks Pengaturan → AI).
 - **Editor dengan simpan eksplisit** (mis. Notes AI): cegah perubahan hilang dengan `useBlocker` (React Router; abaikan
   navigasi yang disengaja lewat ref `leavingRef`) + listener `beforeunload` selama ada perubahan/proses berjalan, dan
   dialog Simpan / Buang / Batal. Editor tanpa proses berat (Catatan) cukup **simpan otomatis** lewat `setItems` — antrian
@@ -716,8 +741,8 @@ Fondasi aplikasi sudah lengkap (backend, frontend semua modul, data layer, datab
 VPS, CI, dokumentasi). Berikutnya:
 1. ~~AI multi-provider di backend~~ ✅ 2026-10-11. Lanjutan thread AI: perbaikan per fitur AI (chatbot, pencarian,
    Notes AI, ringkasan resource) di atas fondasi baru.
-2. RAG: ~~tahap 1 ekstraksi + indeks pgvector~~ ✅ 2026-10-11 → **tahap 2** chatbot `POST /ai/chat` di backend memakai
-   `AiIndexService.search` + riwayat chat **permanen** di PostgreSQL (keputusan user) → tahap 3 Redis (cache embedding
+2. RAG: ~~tahap 1 ekstraksi + indeks pgvector~~ ✅ 2026-10-11 → ~~**tahap 2** chatbot `POST /ai/chat` di backend +
+   riwayat permanen~~ ✅ 2026-10-24 (bersama basis pengetahuan Obsidian, `docs/AI-AGENT.md` §17) → tahap 3 Redis (cache embedding
    pertanyaan, batas pemakaian harian, throttler). **My Notebook** (2026-10-14) sudah menerapkan chat RAG bersitasi +
    riwayat permanen per notebook; chatbot global tinggal memakai pola yang sama (`notebook-context.ts`) atas semua data.
    Lanjutan My Notebook: berbagi notebook, sumber item bersama, Studio lain (FAQ, panduan belajar, briefing, timeline,
@@ -765,7 +790,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Layout lanjutan: popover notifikasi panjang bisa digulir (footer tidak tertimpa), judul Mode Fokus sesuai sesi | ✅ 2026-10-16 — lint, typecheck, unit test, build, UI diuji di browser (layar 768 & 460 px) |
 | Perbaikan Overview (proyek berjalan, tugas mendesak + terlambat, to-do & rutinitas hari ini bisa dicentang, status & Gabung agenda, label Indonesia, notifikasi tugas terlambat & baru dibagikan) | ✅ 2026-10-15 — unit test (`overview-logic.test.ts`: 9), lint, typecheck, build, UI diuji di browser (desktop + HP; centang rutinitas/todo/task, tambah agenda, popover notifikasi) |
 | Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); **tahap 3 ✅ 2026-10-16** (revisi user: AI satu pintu = tab AI bawaan ONLYOFFICE memakai provider & key Pengaturan → AI lewat proxy backend; templat diunggah di Tools; impor berkas saat Buat Dokumen; unit + smoke lulus, UI diuji termasuk Summarization dengan Gemini sungguhan) + **lanjutan ✅** (Tools per role, font diunggah admin + pemantau, tautan konsep ↔ dokumen final) + **tahap 4 produksi ✅ 2026-10-16** (compose profile `office`, Caddy `/office/`, smoke penuh lewat stack produksi lokal); berikutnya agen SRIKANDI & agen pembuat dokumen di Tools (teknologi dibahas user) |
-| Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🔎 riset tahap 1 (2026-10-17) & tahap 2 (2026-10-18) selesai — rencana terkini `docs/AI-AGENT.md` §9–§16 (kajian RAG, Obsidian, Hermes, 3 pekerjaan, konektor sesi; revisi 2026-10-24: data SIMAN & MyIntress dari OnTrack Data Hub via MCP/API); **menunggu keputusan user AG-10…AG-21**; belum ada perubahan kode/infra |
+| Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🚧 riset (2026-10-17/18, revisi OnTrack 2026-10-24; `docs/AI-AGENT.md` §9–§16, keputusan AG-18…AG-20 ✅, AG-21 ditunda) + **tahap 1 fondasi pengetahuan ✅ & tahap 2 konektor Obsidian ✅ 2026-10-24** (`POST /ai/chat` RAG + riwayat + sitasi, koleksi/metadata indeks, pemotongan per BAB/Pasal, profil kerja, vault Obsidian + graf tautan + Inbox, Tools → Basis Pengetahuan; unit backend +22 & frontend +7, smoke +20, skrip API vault 15/15, chat Gemini sungguhan, UI desktop & HP). Berikutnya tahap 3 (token akses + MCP LifeOS) |
 | Productivity lanjutan: modal Project/Area lega, kartu ringkas, File Control opt-in, tag bebas Resource Global & lampiran | ✅ 2026-10-12–15 — unit test, lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Audit celah Productivity (8 temuan + 2 temuan saat uji): arsip yang sudah diberkaskan dikunci dari tab Resources, sumber My Notebook dilindungi di dialog hapus, item Area berlampiran & berdeskripsi, ubah lampiran, agenda berulang digabung per seri, form Area di-`key`, tag terhapus tidak kembali, filter & Kelola Tag, tag Musnah/Statis terkunci, tanggal bawaan lokal | ✅ 2026-10-18 — unit test (frontend 190+), lint, typecheck, build, UI diuji di browser dengan data `UJI-AUDIT` (dibersihkan) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
@@ -1254,6 +1279,22 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   diserahkan ke Claude). User meminta lanjut **tahap 1 (fondasi pengetahuan) & tahap 2 (konektor Obsidian)** → AG-10
   (urutan) & AG-11 (Obsidian sumber pengetahuan, LifeOS membaca + `00-Inbox`) dianggap disetujui; sinkron vault (AG-12)
   baru relevan di server — di dev backend membaca folder vault lokal.
+- 2026-10-24 — **AI Agent tahap 1 & 2 selesai** (`docs/AI-AGENT.md` §17). Desain: chat RAG di backend (bukan konteks
+  browser) agar bot WhatsApp/agen nanti memakai jalur yang sama; ringkasan agenda/to-do dari browser tetap dikirim sebagai
+  data aplikasi (tautan `app:`). Basis pengetahuan = koleksi `knowledge` di `ai_chunks` yang sama (bukan tabel vektor
+  baru) dengan metadata status → aturan dicabut/draf/templat cukup filter SQL. Vault Obsidian dibaca dari disk server
+  (`KNOWLEDGE_VAULTS_DIR`, dev `infra/knowledge-vaults/`), bukan plugin Obsidian (butuh aplikasi desktop menyala); PDF di
+  vault disalin sebagai asset konteks `knowledge_vault` agar memakai ekstraksi & indeks yang ada. GraphRAG ringan =
+  catatan tertaut (`[[…]]`, properti `dasar_hukum`) ikut konteks. Pemotongan sadar struktur dipakai indeks **dan** My
+  Notebook lewat satu fungsi (`chunkSource`). Paket baru backend: `yaml` (pure JS). Ditemukan saat uji: pindai manual
+  mengembalikan hasil pemindaian yang sedang berjalan (sebelum berkas baru ditulis) → `scanNow` menunggu lalu memindai
+  lagi; folder uji smoke menumpuk → satu folder `smoke-vault` dipakai ulang; Markdown menggabung baris tunggal → tampilan
+  catatan mempertahankan ganti baris seperti Obsidian. Belum: embedding selain Gemini, reranking, uji pengetahuan, memori
+  usulan AI.
+- 2026-10-24 — **CI merah setelah push** (laporan user): (1) `format:check` frontend gagal di `main` dan semua PR Dependabot
+  — `notebook-utils.test.ts` belum diformat Prettier → diformat; (2) Dependabot docker-compose error sejak service
+  ONLYOFFICE dev memakai `image: lifeos-onlyoffice:10.0` (dicari di Docker Hub) → tag lewat variabel
+  `${LIFEOS_ONLYOFFICE_TAG:-10.0}` (nama image tetap sama) + `ignore: lifeos-*` di dependabot.yml.
 
 ## 13. Konvensi Kode
 
@@ -1346,6 +1387,11 @@ frontend `types/api.ts`; tambah kasus di `ai.spec.ts` & smoke test.
 (`backend/src/ai/index/index-text.ts`) dan label sumber di `frontend/src/features/settings/ai-index-card.tsx`; field
 payload otomatis ikut (kecuali key berakhiran `Id`, lihat `KEEP_KEYS`). Lalu "Indeks ulang" di Pengaturan → AI.
 Mengganti model/dimensi embedding = migrasi kolom `vector(N)` + indeks HNSW baru + bangun ulang semua indeks.
+
+**Menambah sumber ke basis pengetahuan / chat AI**: sumber baru dengan koleksi sendiri → `SourceDocument.collection`
++ `metadata` di `AiIndexService` (`loadSource` & `loadAllSources`), jenis pemotongan di `chunkSource`, label sumber di
+`ai-index-card.tsx` & `citationTarget` (`knowledge-utils.ts`) agar sitasi bisa dibuka. Aturan menjawab / bagian prompt →
+`buildAssistantPrompt` (+ test). Status yang tidak boleh dipakai menjawab → `EXCLUDED_STATUSES`.
 
 **Menambah dependensi npm**: pilih paket dengan prebuilt arm64/pure JS; paket berat → import dinamis agar chunk
 utama tetap < 500 kB (cek output `npm run build`).
@@ -1510,6 +1556,17 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Toast sonner dengan `action` tertutup sendiri setelah beberapa detik — saat uji lewat `javascript_tool`, klik tombol
   aksinya segera setelah toast muncul.
 
+- **Dependabot docker-compose gagal** ("The updater encountered one or more errors") bila compose memuat image buatan
+  sendiri dengan tag versi biasa (mis. `lifeos-onlyoffice:10.0`): Dependabot mencarinya di Docker Hub. Image lokal wajib
+  memakai tag variabel (`lifeos-x:${VAR:-10.0}`) + aturan `ignore: lifeos-*` di `.github/dependabot.yml`.
+- CI menjalankan `npm run format:check` (Prettier) di frontend: berkas yang lolos lint & test tetap bisa membuat CI merah
+  → jalankan `npx prettier --check src` (frontend) sebelum commit. PR Dependabot yang gagal karena `main` → setelah
+  `main` diperbaiki, komentari `@dependabot rebase` di PR-nya.
+- `sed -i 's|…|…\\n…|'` di Git Bash mengubah `\n` pada teks pengganti menjadi **baris baru sungguhan** (string JS di test
+  jadi rusak: "Tests no tests") → untuk teks berisi `\n` pakai tool Edit. `npx prettier --write docker-compose.prod.yml`
+  ikut memecah baris `command` Redis (isi sama, diff tidak perlu) → jangan memformat compose dengan Prettier.
+- Uji UI: `PopoverContent` Radix juga ber-`role="dialog"` → `[role=dialog][data-state=open]` bisa menangkap popover;
+  bedakan lewat isi/tombolnya.
 - Bash tool: heredoc panjang berisi tanda kutip tunggal (mis. "Anda's", `'EOF'` + teks ber-apostrof) bisa gagal
   "unexpected EOF while looking for matching `''" → tulis isi ke scratchpad dengan tool Write lalu `cat … >> berkas`.
 - Komponen `ScrollArea` (shadcn/Radix) hanya menggulir bila **tingginya pasti** (`h-*`, atau flex item di kontainer

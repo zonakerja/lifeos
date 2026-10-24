@@ -92,6 +92,10 @@ model User {
   aiIndexEnabled Boolean     @default(true) @map("ai_index_enabled")
   // AI di editor ONLYOFFICE (tab AI memakai provider & key LifeOS); default mati agar isi dokumen tidak terkirim tanpa disadari
   officeAi       Boolean     @default(false) @map("office_ai")
+  // Profil kerja & instruksi tetap yang selalu ikut di chat AI (jabatan, unit, istilah, gaya, aturan menjawab)
+  aiProfile      String?     @map("ai_profile")
+  // Nama folder vault Obsidian milik user di dalam KNOWLEDGE_VAULTS_DIR (basis pengetahuan)
+  knowledgeVault String?     @map("knowledge_vault")
   createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -129,6 +133,8 @@ model User {
   commentsOnOwned  RecordComment[]   @relation("CommentsOnOwned")
   commentsAuthored RecordComment[]   @relation("CommentsAuthored")
   notebooks        Notebook[]
+  aiConversations  AiConversation[]
+  knowledgeNotes   KnowledgeNote[]
 
   @@map("users")
 }
@@ -289,6 +295,10 @@ model AiChunk {
   title       String
   content     String
   contentHash String                      @map("content_hash")
+  // "knowledge" = basis pengetahuan (vault Obsidian & berkasnya), "workspace" = data kerja harian
+  collection  String                      @default("workspace")
+  // Properti sumber (mis. jenis, status berlaku/draf/dicabut, publik, topik, path catatan)
+  metadata    Json?
   // Model embedding yang dipakai (ganti model ⇒ indeks ulang)
   model       String
   embedding   Unsupported("vector(768)")?
@@ -298,7 +308,87 @@ model AiChunk {
 
   @@unique([userId, sourceType, sourceId, chunkIndex])
   @@index([userId, sourceType, sourceId])
+  @@index([userId, collection])
   @@map("ai_chunks")
+}
+
+// ---------------------------------------------------------------- Chat AI (asisten LifeOS) & basis pengetahuan
+
+/// Percakapan chatbot LifeOS (riwayat permanen, satu user).
+model AiConversation {
+  id        String      @id @default(cuid())
+  userId    String      @map("user_id")
+  title     String
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  AiMessage[]
+
+  @@index([userId, updatedAt])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             String         @id @default(cuid())
+  conversationId String         @map("conversation_id")
+  /// user | assistant
+  role           String
+  content        String
+  /// Sitasi jawaban: [{ n, sourceType, sourceId, collection, title, excerpt, linked? }]
+  citations      Json?
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("ai_messages")
+}
+
+/// Isi vault Obsidian user yang sudah dibaca server: catatan Markdown (`note`) atau berkas lampiran (`file` → asset).
+model KnowledgeNote {
+  id          String          @id @default(cuid())
+  userId      String          @map("user_id")
+  /// Path relatif di dalam vault, pemisah "/"
+  path        String
+  /// note | file
+  kind        String
+  title       String
+  /// Isi Markdown tanpa frontmatter (khusus note)
+  content     String?
+  /// Properti YAML (frontmatter) catatan
+  frontmatter Json?
+  /// SHA-256 isi berkas (berubah ⇒ dibaca ulang)
+  hash        String
+  /// Berkas lampiran yang disalin ke storage (PDF/DOCX/…) agar diekstrak & diindeks
+  assetId     String?         @map("asset_id")
+  fileMtime   DateTime        @map("file_mtime") @db.Timestamptz(3)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linksOut    KnowledgeLink[] @relation("LinkFrom")
+  linksIn     KnowledgeLink[] @relation("LinkTo")
+
+  @@unique([userId, path])
+  @@index([assetId])
+  @@map("knowledge_notes")
+}
+
+/// Tautan antar-catatan (`[[...]]`, `![[...]]`, atau properti seperti `dasar_hukum`).
+model KnowledgeLink {
+  id     String         @id @default(cuid())
+  userId String         @map("user_id")
+  fromId String         @map("from_id")
+  /// Teks target seperti ditulis (tanpa alias/heading)
+  target String
+  /// Catatan tujuan bila ditemukan
+  toId   String?        @map("to_id")
+  /// link | embed | property
+  kind   String
+  from   KnowledgeNote  @relation("LinkFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to     KnowledgeNote? @relation("LinkTo", fields: [toId], references: [id], onDelete: SetNull)
+
+  @@index([userId, toId])
+  @@index([fromId])
+  @@map("knowledge_links")
 }
 
 // ---------------------------------------------------------------- Aset & berkas

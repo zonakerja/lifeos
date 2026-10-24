@@ -1,4 +1,4 @@
-import { AlertTriangle, DatabaseZap, FileSearch, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, DatabaseZap, FileSearch, RefreshCw, Search, ShieldAlert } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import type { AiSettings } from "@/types/api";
 /** Label sumber hasil pencarian (record type backend atau "asset" = isi berkas). */
 const SOURCE_LABELS: Record<string, string> = {
   asset: "Berkas",
+  obsidian: "Pengetahuan (Obsidian)",
   schedule: "Agenda",
   routine: "Rutinitas",
   todo: "To-do",
@@ -83,10 +84,10 @@ export function AiIndexCard({ settings }: { settings: AiSettings }) {
             <DatabaseZap className="size-4" /> Indeks pengetahuan (RAG)
           </label>
           <p className="text-xs text-muted-foreground">
-            Catatan, agenda, task, project, resource, arsip, dan isi berkas (PDF, DOCX, XLSX; gambar & PDF hasil scan
-            dibaca Gemini) dipotong dan di-embed dengan <b>Google Gemini</b> ({status?.model ?? "gemini-embedding-2"})
-            memakai API key Gemini Anda, agar AI bisa mencari di seluruh data Anda. Matikan bila data tidak boleh
-            dikirim ke Google — indeks langsung dihapus.
+            Catatan, agenda, task, project, resource, arsip, catatan vault Obsidian (Tools → Basis Pengetahuan), dan isi
+            berkas (PDF, DOCX, XLSX; gambar & PDF hasil scan dibaca Gemini) dipotong dan di-embed dengan{" "}
+            <b>Google Gemini</b> ({status?.model ?? "gemini-embedding-2"}) memakai API key Gemini Anda, agar AI bisa
+            mencari di seluruh data Anda. Matikan bila data tidak boleh dikirim ke Google — indeks langsung dihapus.
           </p>
         </div>
         <Switch
@@ -99,6 +100,16 @@ export function AiIndexCard({ settings }: { settings: AiSettings }) {
 
       {settings.indexEnabled && status && (
         <>
+          {status.embeddingAvailable && (
+            <div className="flex items-start gap-2 rounded-xl bg-warning/10 p-3 text-xs text-warning">
+              <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+              <p>
+                Untuk data kantor, pakai API key Gemini <b>berbayar</b> (billing Google Cloud aktif di project key ini).
+                Pada kuota <b>gratis</b>, Google boleh memakai isi yang dikirim untuk meningkatkan produknya dan
+                reviewer manusia dapat membacanya.
+              </p>
+            </div>
+          )}
           {!status.embeddingAvailable && (
             <div className="flex items-start gap-2 rounded-xl bg-warning/10 p-3 text-xs text-warning">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />

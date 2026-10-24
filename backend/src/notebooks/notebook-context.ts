@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chunkText, MAX_SOURCE_CHARS, reciprocalRankFusion } from "../ai/index/index-text";
+import { chunkSource, reciprocalRankFusion } from "../ai/index/index-text";
 
 /**
  * Logika murni My Notebook (tanpa database/AI): memilih konteks dari sumber notebook, menyusun prompt, dan membaca
@@ -61,10 +61,10 @@ export const chunkKey = (ref: SourceRef, chunkIndex: number) => `${ref.sourceTyp
 
 export const totalChars = (parts: SourcePart[]) => parts.reduce((sum, p) => sum + p.text.length, 0);
 
-/** Potongan sumber dengan aturan yang sama dengan indeks AI (`chunkText`), sehingga hasil pencarian vektor cocok. */
+/** Potongan sumber dengan aturan yang sama dengan indeks AI (`chunkSource`), sehingga hasil pencarian vektor cocok. */
 export function partChunks(parts: SourcePart[]): ContextChunk[] {
   return parts.flatMap((part) =>
-    chunkText(part.text.slice(0, MAX_SOURCE_CHARS)).map((content, chunkIndex) => ({
+    chunkSource(part.ref.sourceType, part.text).map((content, chunkIndex) => ({
       notebookSourceId: part.notebookSourceId,
       sourceTitle: part.sourceTitle,
       ref: part.ref,
@@ -178,6 +178,8 @@ export function buildChatPrompt(input: {
   fileCount?: number;
   /** Teks dokumen yang dilampirkan pengguna (hasil ekstraksi server) */
   attachedTexts?: { name: string; text: string }[];
+  /** Profil kerja & instruksi tetap pengguna (Tools → Basis Pengetahuan) */
+  profile?: string | null;
 }) {
   const files = input.fileCount ?? 0;
   const texts = input.attachedTexts ?? [];
@@ -190,6 +192,9 @@ export function buildChatPrompt(input: {
   return [
     `Anda adalah asisten riset untuk notebook "${input.notebookTitle}". Jawab pertanyaan pengguna HANYA berdasarkan`,
     "kutipan sumber bernomor di bawah ini.",
+    input.profile?.trim()
+      ? `\n<profil_kerja_pengguna>\n${input.profile.trim().slice(0, 6_000)}\n</profil_kerja_pengguna>\n(Pakai profil untuk menyesuaikan istilah & gaya jawaban, bukan sebagai sumber fakta.)`
+      : "",
     "",
     "Aturan:",
     "1. Setiap pernyataan faktual diberi sitasi nomor kutipan dalam kurung siku tepat setelahnya, mis. [2] atau [1][3].",

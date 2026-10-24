@@ -9,6 +9,7 @@ import { validateEnv } from "./config/env.validation";
 import { loggerConfig } from "./config/logger.config";
 import { ExtractionModule } from "./extraction/extraction.module";
 import { HealthModule } from "./health/health.module";
+import { KnowledgeModule } from "./knowledge/knowledge.module";
 import { NotebooksModule } from "./notebooks/notebooks.module";
 import { OfficeModule } from "./office/office.module";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -38,6 +39,7 @@ import { UsersModule } from "./users/users.module";
     ExtractionModule,
     UploadsModule,
     AiModule,
+    KnowledgeModule,
     NotebooksModule,
     OfficeModule,
   ],

@@ -1303,6 +1303,56 @@ try {
     await j("DELETE", `/uploads/${finalPdf.d.id}`, null, at);
   }
 
+  // ---------------------------------------------------------------- Basis pengetahuan & chat AI (tanpa provider AI)
+  r = await j("GET", "/ai/profile", null, at);
+  ok("ai profile empty", r.s === 200 && r.d.profile === null, r);
+  r = await j("PUT", "/ai/profile", { profile: "  Analis BMN smoke.  " }, at);
+  ok("ai profile save (trimmed)", r.s === 200 && r.d.profile === "Analis BMN smoke.", r);
+  r = await j("PUT", "/ai/profile", { profile: "x".repeat(6001) }, at);
+  ok("ai profile too long 400", r.s === 400, r);
+  r = await j("GET", "/ai/profile", null, pt);
+  ok("ai profile isolated per user", r.s === 200 && r.d.profile === null, r);
+  r = await j("GET", "/ai/chat/conversations", null, at);
+  ok("ai chat conversations empty", r.s === 200 && Array.isArray(r.d) && r.d.length === 0, r);
+  r = await j("POST", "/ai/chat", { message: "Halo" }, at);
+  ok("ai chat without provider → 400", r.s === 400, r);
+  r = await j("GET", "/ai/chat/conversations", null, at);
+  ok("ai chat failed call saves nothing", r.s === 200 && r.d.length === 0, r);
+  r = await j("POST", "/ai/chat", { message: "" }, at);
+  ok("ai chat empty message 400", r.s === 400, r);
+  r = await j("GET", "/ai/chat/conversations/tidak-ada/messages", null, at);
+  ok("ai chat foreign/unknown conversation 404", r.s === 404, r);
+  r = await j("GET", "/knowledge/status", null, at);
+  ok("knowledge status (no vault yet)", r.s === 200 && r.d.folder === null && r.d.notes === 0, r);
+  if (r.d?.configured) {
+    r = await j("PUT", "/knowledge/vault", { folder: "../rahasia" }, at);
+    ok("knowledge unsafe folder 400", r.s === 400, r);
+    r = await j("PUT", "/knowledge/vault", { folder: "folder-tidak-ada-smoke" }, at);
+    ok("knowledge missing folder 400", r.s === 400, r);
+    r = await j("POST", "/knowledge/inbox", { title: "x", content: "y" }, at);
+    ok("knowledge inbox without vault 400", r.s === 400, r);
+    // Satu folder uji tetap (dipakai ulang tiap smoke) agar folder tidak menumpuk di server
+    const vaultFolder = "smoke-vault";
+    r = await j("POST", "/knowledge/vault/create", { folder: vaultFolder }, at);
+    if (r.s === 409) r = await j("PUT", "/knowledge/vault", { folder: vaultFolder }, at);
+    ok("knowledge create/use vault from template", (r.s === 201 || r.s === 200) && r.d.folder === vaultFolder, r);
+    r = await j("PUT", "/knowledge/vault", { folder: vaultFolder }, pt);
+    ok("knowledge vault folder of another user 409", r.s === 409, r);
+    r = await j("POST", "/knowledge/scan", null, at);
+    ok("knowledge scan template vault", r.s === 200 && r.d.notes >= 8 && r.d.problems.length === 0, r.d);
+    r = await j("GET", "/knowledge/notes", null, at);
+    const start = r.d?.find?.((n) => n.path === "Mulai di sini.md");
+    ok("knowledge notes list", r.s === 200 && !!start && start.jenis === "panduan", r);
+    r = await j("GET", `/knowledge/notes/${start?.id}`, null, pt);
+    ok("knowledge note isolated 404", r.s === 404, r);
+    r = await j("POST", "/knowledge/inbox", { title: "Usulan smoke", content: "Isi usulan", question: "Tanya?" }, at);
+    ok("knowledge inbox note written", r.s === 201 && r.d.path.startsWith("00-Inbox/"), r);
+    r = await j("PUT", "/knowledge/vault", { folder: null }, at);
+    ok("knowledge release vault clears notes", r.s === 200 && r.d.folder === null && r.d.notes === 0, r);
+  } else {
+    console.log("SKIP knowledge vault (KNOWLEDGE_VAULTS_DIR tidak diatur)");
+  }
+
   r = await j("POST", "/auth/change-password", { currentPassword: "salah", newPassword: "1234" }, pt);
   ok("change pw wrong 400", r.s === 400, r);
   r = await j("POST", "/auth/logout", null, null, "x".repeat(30));
