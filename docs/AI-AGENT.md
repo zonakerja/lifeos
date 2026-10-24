@@ -502,7 +502,7 @@ Arah teknis awal:
 | **2. Konektor Obsidian** | Volume vault + pemantau + indeks `obsidian` + `knowledge_links` + halaman Pengetahuan + `00-Inbox` | Menulis di Obsidian → beberapa detik kemudian bisa ditanyakan di LifeOS |
 | **3. Token akses + MCP LifeOS** | Token pribadi bercakupan, MCP server (`knowledge.search`, `request.*`, `document.*`, `task.*`), log aktivitas | Hermes / Claude Desktop bisa memakai LifeOS |
 | **4. Pengajuan + mesin templat + Antrian Verifikasi** ✅ 2026-10-24 (§19) | Modul Pengajuan (PSP / penghapusan / pemanfaatan), ekstraksi field, cek kelengkapan, placeholder templat → ONLYOFFICE, telaah & konsep jawaban surat | Use case 2 & 3 bisa dikerjakan lewat UI LifeOS (unggah manual) sebelum WhatsApp |
-| **5. Hermes** | Compose profile `agent`: `hermes-private` (memori, Telegram/WhatsApp Anda) + `hermes-public` (WhatsApp Cloud API, terkunci) | Use case 1 lewat WhatsApp; pengajuan masuk otomatis |
+| **5. Bot WhatsApp + Hermes pribadi** ✅ bot 2026-10-24 (§20; Hermes publik diganti bot bawaan LifeOS) — sebelumnya: **5. Hermes** | Compose profile `agent`: `hermes-private` (memori, Telegram/WhatsApp Anda) + `hermes-public` (WhatsApp Cloud API, terkunci) | Use case 1 lewat WhatsApp; pengajuan masuk otomatis |
 | **5b. Konektor OnTrack** (revisi 2026-10-24, §16) | Klien REST API OnTrack (API key) di backend + OnTrack sebagai server MCP kedua untuk Hermes; data SIMAN & MyIntress untuk pengajuan, telaah, dan chatbot | Agen bisa mencocokkan NUP/kode barang & data keuangan tanpa robot di LifeOS |
 | **6. Robot & konektor sesi** | Service Playwright + profil persisten + browser jarak jauh; **hanya e-Kinerja (bulanan) → SRIKANDI** (SIMAN pindah ke OnTrack) | Detail dibahas setelah tahap 4–5 |
 
@@ -771,3 +771,59 @@ dipecah menjadi beberapa paragraf.
 BMN agar kelengkapan & telaah bersitasi; templat SK (PSP, panitia penghapusan, pemanfaatan) perlu penanda `${…}` /
 paragraf `[…]` seperti templat Surat Dinas. **Berikutnya**: tahap 5 (Hermes + WhatsApp — pengajuan masuk otomatis,
 `satker_code` untuk pengguna terverifikasi per satker, AG-20) dan tahap 5b (OnTrack).
+
+## 20. Hasil 2026-10-24: tahap 5 (bot WhatsApp satker) + dokumen to-do pemilik
+
+**Keputusan desain (revisi §12.1)**: bot untuk satker dibangun **di dalam LifeOS**, bukan instans "Hermes publik".
+Alasan: AG-20 mensyaratkan satker pengirim ditentukan server dari nomor terdaftar. Di Hermes, nomor pengirim hanya
+sampai ke MCP lewat argumen yang ditulis model — bisa dimanipulasi lewat pesan (prompt injection). Dengan webhook
+Cloud API langsung ke LifeOS, nomor dijamin tanda tangan Meta dan satkernya dibaca dari tabel kontak; sekaligus tidak
+ada memori agen yang bisa diracuni penanya (studi memory poisoning §11) dan tidak perlu container/RAM tambahan.
+**Hermes tetap dipakai sebagai asisten pribadi** Anda (Telegram/WhatsApp pribadi) lewat MCP (tahap 3); langkah
+pemasangan ada di [TODO-USER.md](TODO-USER.md) A7/B7.
+
+Yang dibangun (detail teknis [ARCHITECTURE.md §3.9](ARCHITECTURE.md), operasional [DEPLOYMENT.md §12](DEPLOYMENT.md)):
+- **Pengajuan → Satker & Kontak** (kemudian dibuat umum menjadi **Grup & Kontak**, §20.1): satker (kode, nama) dan nomor WhatsApp pengguna satker (jabatan, satker,
+  Terverifikasi, Aktif). Hanya kontak aktif & terverifikasi yang dilayani; nomor lain dibalas "belum terdaftar".
+- **Pengajuan → Percakapan WA**: status bot (aktif / mode simulasi + alamat webhook), daftar percakapan (yang perlu
+  dijawab di atas), isi percakapan dengan status tiap pesan, balasan petugas (+ simpan sebagai FAQ ke Inbox vault),
+  **Tandai selesai**, dan **Simulator** untuk mencoba tanpa Meta.
+- Perilaku bot: pertanyaan dijawab dari catatan **`publik: true` & `status: berlaku`** (menyebut dasar hukum &
+  tanggal pembaruan; ragu / tanpa sumber → diteruskan ke petugas; di luar topik ditolak), `#status` = pengajuan
+  satker sendiri, berkas = pengajuan baru di Antrian Verifikasi (berkas susulan ≤ 30 menit digabung), perubahan status
+  oleh Anda → kabar ke pemohon (dalam jendela 24 jam WhatsApp).
+- MCP: tool `list_whatsapp_followups` (izin `requests:read`) agar Hermes pribadi bisa mengingatkan pertanyaan yang
+  belum dijawab. Hermes tidak diberi alat untuk mengirim WhatsApp.
+- **Dokumen [TODO-USER.md](TODO-USER.md)**: semua pekerjaan pemilik langkah demi langkah (API key & pembagian tugas
+  AI, Obsidian, isi basis pengetahuan, templat, satker & simulator, Hermes, VPS, domain, backup, Syncthing, WhatsApp
+  Cloud API). **Diperbarui setiap ada pekerjaan baru untuk pemilik.**
+
+Diuji: unit backend (whatsapp-logic 10) & frontend (3), smoke (+26: webhook nonaktif, satker/kontak + isolasi,
+nomor tak terdaftar sekali per 24 jam, berkas → pengajuan + berkas susulan, `#status` hanya satker sendiri, kabar status,
+pertanyaan diteruskan & balasan manual), UI desktop & HP dengan **Gemini sungguhan** (jawaban bersumber catatan uji
+publik, penolakan pertanyaan di luar topik + upaya "abaikan aturanmu", balasan manual tersimpan sebagai FAQ di Inbox).
+Webhook Meta sungguhan belum diuji (menunggu VPS, domain, dan akun Meta — TODO-USER B1–B6).
+
+**Berikutnya**: tahap 5b konektor OnTrack (menunggu API OnTrack), pesan templat WhatsApp (kabar status di luar 24 jam),
+dan tahap 6 robot e-Kinerja/SRIKANDI.
+
+### 20.1 Revisi 2026-10-24: grup kontak umum (bukan khusus satker)
+
+Permintaan user: fitur Pengajuan & bot dibuat umum — hari ini melayani satker, kelak bisa masyarakat umum / unit
+pelayanan. Intinya: **grup yang di-assign ke kontak menentukan data yang boleh diakses**.
+
+- **Satker → Grup kontak** (`contact_groups`): kode, nama, **jenis** (satker, instansi/mitra, masyarakat umum,
+  internal, lainnya), dan **hak akses**: *boleh mengirim berkas pengajuan* dan *melihat status pengajuan seluruh grup*
+  (mati = tiap orang hanya melihat pengajuannya sendiri — cocok untuk masyarakat umum). Kontak tanpa grup = hanya
+  pengetahuan publik + pengajuannya sendiri.
+- **Pengetahuan khusus grup**: properti catatan Obsidian `grup: [KODE]` → catatan itu dipakai menjawab anggota grup
+  tersebut saja (selain catatan `publik: true`). Diuji: anggota grup mendapat jawaban dari catatan khusus grup; kontak
+  tanpa grup diteruskan ke petugas.
+- **Profil layanan bot** (Grup & Kontak → *Profil layanan bot*): nama layanan & topik yang dilayani (bawaan BMN) —
+  dipakai di prompt dan teks balasan; pertanyaan di luar topik ditolak.
+- **Pengajuan**: kolom `satker`/`satker_code` menjadi `applicant` (pemohon) / `group_code` (data lama dipertahankan
+  lewat RENAME COLUMN); label "Satker pemohon" → "Pemohon"; prompt analisis/telaah tidak lagi mengasumsikan satker/BMN
+  (peran pemroses dibaca dari profil kerja).
+- Diuji ulang: unit backend (+6) & frontend, smoke (grup berbagi melihat pengajuan rekan satu grup tetapi tidak grup lain;
+  grup masyarakat hanya melihat miliknya & tidak bisa mengirim berkas; profil layanan; grup jenis tak dikenal ditolak),
+  UI desktop + Gemini sungguhan.

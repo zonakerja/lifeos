@@ -27,6 +27,8 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 — admin@li
 
 ## Dokumentasi
 
+- [docs/TODO-USER.md](docs/TODO-USER.md) — **to-do pemilik** langkah demi langkah (API key AI, Obsidian, templat, VPS,
+  domain, WhatsApp Cloud API, Hermes).
 - [docs/SETUP.md](docs/SETUP.md) — lingkungan development, perintah, alur kerja database, pengujian.
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — deployment VPS, pembaruan, backup & restore, operasional.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — fondasi: arsitektur, tech stack & versi, kebijakan dependensi, database, frontend, keamanan, konvensi.

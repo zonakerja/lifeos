@@ -14,6 +14,8 @@ import {
   HardDrive,
   Inbox,
   ListTodo,
+  MessageCircle,
+  Contact,
   CheckCheck,
   Hourglass,
   Layers,
@@ -133,12 +135,14 @@ export const MODULES: ModuleDef[] = [
     key: "requests",
     label: "Pengajuan",
     description:
-      "Pengajuan & surat satker (PSP, penghapusan, pemanfaatan BMN): analisis kelengkapan, telaah, konsep jawaban, dan dokumen dari templat — semua diverifikasi Anda.",
+      "Pengajuan & surat dari satker, instansi, atau masyarakat — lewat aplikasi, agen, atau bot WhatsApp: analisis kelengkapan, telaah, konsep jawaban, dan dokumen dari templat — semua diverifikasi Anda.",
     path: "/requests",
     icon: Inbox,
     tabs: [
       { id: "queue", label: "Antrian Verifikasi", icon: ListTodo },
       { id: "done", label: "Selesai", icon: CheckCheck },
+      { id: "whatsapp", label: "Percakapan WA", icon: MessageCircle },
+      { id: "contacts", label: "Grup & Kontak", icon: Contact },
     ],
   },
   {

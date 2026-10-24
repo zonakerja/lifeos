@@ -17,10 +17,13 @@ import type { RequestKind, RequestSummary } from "@/types/api";
 import { CreateRequestDialog } from "./create-request-dialog";
 import { RequestDetailDialog } from "./request-detail-dialog";
 import { filterRequests, KIND_LABELS, KIND_OPTIONS, STATUS_LABELS, STATUS_TONE, TAB_STATUSES } from "./request-utils";
+import { ContactsTab } from "./whatsapp/contacts-tab";
+import { ConversationsTab } from "./whatsapp/conversations-tab";
 
 /**
- * Pengajuan satker & Antrian Verifikasi (docs/AI-AGENT.md tahap 4): pengajuan dicatat manual atau oleh agen (MCP),
- * dianalisis & dikonsep AI, lalu diputuskan pengguna. `?request=<id>` membuka detail, `?request=new` formulir baru.
+ * Pengajuan & Antrian Verifikasi (docs/AI-AGENT.md tahap 4–5): pengajuan dicatat manual, oleh agen (MCP), atau
+ * lewat bot WhatsApp, dianalisis & dikonsep AI, lalu diputuskan pengguna. `?request=<id>` membuka detail,
+ * `?request=new` formulir baru; tab Percakapan WA (`?wa=<nomor>`) & Grup & Kontak untuk bot WhatsApp.
  */
 export function Component() {
   const [requestParam, setRequestParam] = useSearchParam("request");
@@ -46,10 +49,16 @@ export function Component() {
     >
       {(tab) => (
         <>
-          <RequestList
-            tab={tab === "done" ? "done" : "queue"}
-            onOpen={(id) => setRequestParam(id, { replace: false })}
-          />
+          {tab === "whatsapp" ? (
+            <ConversationsTab />
+          ) : tab === "contacts" ? (
+            <ContactsTab />
+          ) : (
+            <RequestList
+              tab={tab === "done" ? "done" : "queue"}
+              onOpen={(id) => setRequestParam(id, { replace: false })}
+            />
+          )}
           <CreateRequestDialog
             open={requestParam === "new"}
             onOpenChange={(open) => !open && setRequestParam(null)}
@@ -81,7 +90,7 @@ function RequestList({ tab, onOpen }: { tab: "queue" | "done"; onOpen: (id: stri
             setQuery(v);
             setPage(1);
           }}
-          placeholder="Cari judul, satker, nomor surat…"
+          placeholder="Cari judul, pemohon, nomor surat…"
           className="md:w-80"
         />
         <Select
@@ -155,7 +164,7 @@ function RequestRow({ request: r, onOpen }: { request: RequestSummary; onOpen: (
         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
           {[
             KIND_LABELS[r.kind],
-            r.satker,
+            r.applicant,
             r.letterNumber,
             r.letterDate && formatShortDate(parseLocalYMD(r.letterDate)),
             r.subject,

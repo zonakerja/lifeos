@@ -46,12 +46,16 @@ export interface GeneratedDocument {
   createdAt: string;
 }
 
+/** Dipanggil setelah user mengubah status pengajuan (mis. bot WhatsApp mengabari pemohon). */
+export type RequestStatusListener = (request: Request, status: RequestStatus, note?: string) => Promise<void>;
+
 const asList = <T>(value: unknown) => (Array.isArray(value) ? (value as T[]) : []);
 const LIST_SELECT = {
   id: true,
   kind: true,
   title: true,
-  satker: true,
+  applicant: true,
+  groupCode: true,
   letterNumber: true,
   letterDate: true,
   subject: true,
@@ -64,13 +68,14 @@ const LIST_SELECT = {
 } as const;
 
 /**
- * Pengajuan satker & Antrian Verifikasi (tahap 4 docs/AI-AGENT.md): pengajuan dibuat manual / oleh agen (MCP), dianalisis
+ * Pengajuan & Antrian Verifikasi (tahap 4 docs/AI-AGENT.md): pengajuan dibuat manual / oleh agen (MCP), dianalisis
  * AI (ringkasan, ekstraksi data, kelengkapan terhadap persyaratan di basis pengetahuan), ditelaah + dikonsep jawabannya,
  * lalu dokumen dibuat dari templat instansi. Semua keluaran agen berstatus konsep sampai diverifikasi pengguna.
  */
 @Injectable()
 export class RequestsService {
   private readonly logger = new Logger(RequestsService.name);
+  private readonly statusListeners: RequestStatusListener[] = [];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -79,6 +84,10 @@ export class RequestsService {
     private readonly uploads: UploadsService,
     private readonly storage: ObjectStorageService,
   ) {}
+
+  onStatusChange(listener: RequestStatusListener) {
+    this.statusListeners.push(listener);
+  }
 
   list(userId: string, status?: string) {
     return this.prisma.request.findMany({
@@ -94,20 +103,26 @@ export class RequestsService {
     return { ...request, files: await this.fileStatuses(request) };
   }
 
-  async create(user: AuthUser, dto: CreateRequestDto, source: "manual" | "mcp" | "whatsapp" = "manual") {
+  async create(
+    user: AuthUser,
+    dto: CreateRequestDto,
+    source: "manual" | "mcp" | "whatsapp" = "manual",
+    extra: { waContactId?: string } = {},
+  ) {
     const attachments = await this.attachmentsFor(user.id, dto.uploadIds ?? []);
     const request = await this.prisma.request.create({
       data: {
         userId: user.id,
         kind: dto.kind,
         title: dto.title.trim(),
-        satker: dto.satker?.trim() || null,
-        satkerCode: dto.satkerCode?.trim() || null,
+        applicant: dto.applicant?.trim() || null,
+        groupCode: dto.groupCode?.trim() || null,
         letterNumber: dto.letterNumber?.trim() || null,
         letterDate: dto.letterDate || null,
         subject: dto.subject?.trim() || null,
         message: dto.message?.trim() || null,
         source,
+        waContactId: extra.waContactId ?? null,
         attachments: attachments as unknown as Prisma.InputJsonValue,
         history: withHistory([], "baru", source === "manual" ? "user" : "agen") as unknown as Prisma.InputJsonValue,
       },
@@ -121,8 +136,8 @@ export class RequestsService {
     for (const key of [
       "kind",
       "title",
-      "satker",
-      "satkerCode",
+      "applicant",
+      "groupCode",
       "letterNumber",
       "subject",
       "message",
@@ -154,7 +169,29 @@ export class RequestsService {
         dto.statusNote?.trim() || undefined,
       ) as unknown as Prisma.InputJsonValue;
     }
-    await this.prisma.request.update({ where: { id }, data });
+    const updated = await this.prisma.request.update({ where: { id }, data });
+    if (dto.status !== undefined && dto.status !== current.status) {
+      for (const listener of this.statusListeners) {
+        await listener(updated, dto.status as RequestStatus, dto.statusNote?.trim() || undefined).catch((error) =>
+          this.logger.warn(`Kabar status pengajuan ${id} gagal: ${error instanceof Error ? error.message : error}`),
+        );
+      }
+    }
+    return this.get(user.id, id);
+  }
+
+  /** Tambah berkas pemohon ke pengajuan yang sudah ada (berkas susulan dari WhatsApp). */
+  async appendAttachments(user: AuthUser, id: string, uploadIds: string[]) {
+    const current = await this.own(user.id, id);
+    const existing = asList<Attachment>(current.attachments);
+    const added = await this.attachmentsFor(
+      user.id,
+      uploadIds.filter((u) => !existing.some((a) => a.uploadId === u)),
+    );
+    await this.prisma.request.update({
+      where: { id },
+      data: { attachments: [...existing, ...added] as unknown as Prisma.InputJsonValue },
+    });
     return this.get(user.id, id);
   }
 
@@ -348,7 +385,7 @@ export class RequestsService {
     return {
       kind: request.kind as RequestKind,
       title: request.title,
-      satker: request.satker,
+      applicant: request.applicant,
       letterNumber: request.letterNumber,
       letterDate: request.letterDate,
       subject: request.subject,

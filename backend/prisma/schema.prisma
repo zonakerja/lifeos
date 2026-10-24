@@ -139,6 +139,11 @@ model User {
   knowledgeNotes   KnowledgeNote[]
   apiTokens        ApiToken[]
   requests         Request[]
+  contactGroups    ContactGroup[]
+  waContacts       WaContact[]
+  waMessages       WaMessage[]
+  /// Profil layanan bot WhatsApp: { serviceName, topic }
+  waBot            Json?              @map("wa_bot")
   agentActivity    AgentActivityLog[]
 
   @@map("users")
@@ -1109,17 +1114,19 @@ model AgentActivityLog {
   @@map("agent_activity_logs")
 }
 
-// ---------------------------------------------------------------- Pengajuan satker & Antrian Verifikasi
+// ---------------------------------------------------------------- Pengajuan & Antrian Verifikasi
 
-/// Pengajuan / surat masuk dari satker (PSP, penghapusan, pemanfaatan, permintaan arahan, …) yang diproses bersama agen.
+/// Pengajuan / surat masuk dari pemohon (satker, instansi, masyarakat, …) yang diproses bersama agen.
 model Request {
   id              String   @id @default(cuid())
   userId          String   @map("user_id")
   /// psp | penghapusan | pemanfaatan | surat | lainnya
   kind            String
   title           String
-  satker          String?
-  satkerCode      String?  @map("satker_code")
+  /// Nama pemohon (satker / instansi / perorangan)
+  applicant       String?
+  /// Kode grup kontak pemohon (menentukan siapa yang boleh melihat status pengajuan ini)
+  groupCode       String?  @map("group_code")
   letterNumber    String?  @map("letter_number")
   /// Tanggal surat YYYY-MM-DD
   letterDate      String?  @map("letter_date")
@@ -1130,6 +1137,8 @@ model Request {
   status          String   @default("baru")
   /// manual | whatsapp | mcp
   source          String   @default("manual")
+  /// Kontak WhatsApp pengirim (pengajuan dari bot WhatsApp; status dikabarkan ke nomor ini)
+  waContactId     String?  @map("wa_contact_id")
   /// Berkas dari pemohon: [{ uploadId, name, mimeType }]
   attachments     Json     @default("[]")
   /// Hasil analisis AI: { summary, fields, checklist[], missing[], suggestion, sources[], analyzedAt }
@@ -1149,5 +1158,84 @@ model Request {
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status, updatedAt])
+  @@index([waContactId])
   @@map("requests")
+}
+
+// ---------------------------------------------------------------- Bot WhatsApp (tahap 5)
+
+/// Grup kontak (satker, instansi, masyarakat umum, unit layanan, …). Grup yang di-assign ke kontak menentukan data yang
+/// boleh diaksesnya lewat bot (AG-20): pengetahuan publik + catatan berproperti `grup` = kode ini, pengajuan grup, dsb.
+model ContactGroup {
+  id            String      @id @default(cuid())
+  userId        String      @map("user_id")
+  /// Kode unik per user (mis. kode satker SIMAN); dipakai menyaring data grup
+  code          String
+  name          String
+  /// satker | instansi | masyarakat | internal | lainnya
+  kind          String      @default("lainnya")
+  notes         String?
+  /// Anggota boleh mengirim berkas pengajuan lewat bot
+  allowRequests Boolean     @default(true) @map("allow_requests")
+  /// Anggota boleh melihat status pengajuan seluruh grup (mati = hanya pengajuan miliknya sendiri)
+  shareRequests Boolean     @default(false) @map("share_requests")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contacts      WaContact[]
+
+  @@unique([userId, code])
+  @@map("contact_groups")
+}
+
+/// Nomor WhatsApp yang boleh memakai bot. Grup pengirim diambil dari sini (server), tidak pernah dari isi pesan.
+model WaContact {
+  id            String        @id @default(cuid())
+  userId        String        @map("user_id")
+  groupId       String?       @map("group_id")
+  /// Nomor internasional tanpa + (mis. 6281234567890)
+  phone         String
+  name          String
+  position      String?
+  /// Terverifikasi = boleh bertanya & mengajukan; belum = hanya dicatat
+  verified      Boolean       @default(false)
+  active        Boolean       @default(true)
+  notes         String?
+  lastInboundAt DateTime?     @map("last_inbound_at") @db.Timestamptz(3)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group         ContactGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, phone])
+  @@map("wa_contacts")
+}
+
+/// Pesan masuk/keluar bot WhatsApp (audit percakapan; juga hasil simulator).
+model WaMessage {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  contactId   String?  @map("contact_id")
+  phone       String
+  /// in | out
+  direction   String
+  text        String   @default("")
+  /// Berkas: [{ uploadId?, mediaId?, name, mimeType }]
+  attachments Json     @default("[]")
+  /// ID pesan WhatsApp (dedupe webhook)
+  waMessageId String?  @unique @map("wa_message_id")
+  /// Masuk: received | answered | needs_reply | ignored. Keluar: sent | simulated | failed
+  status      String
+  /// question | request | status | unregistered | off_topic | rate_limited | manual | notice
+  intent      String?
+  requestId   String?  @map("request_id")
+  citations   Json?
+  error       String?
+  simulated   Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, phone, createdAt])
+  @@index([userId, status])
+  @@map("wa_messages")
 }

@@ -430,3 +430,33 @@ Agen AI (Hermes, Claude Desktop, n8n) terhubung ke `https://<APP_DOMAIN>/api/v1/
 `/api` sudah diteruskan ke backend). Bila agen berjalan di server yang sama dalam jaringan Docker, boleh memakai
 `http://backend:4000/api/v1/mcp`. Cabut token dari halaman yang sama bila agen tidak dipakai lagi; jejak pemanggilan ada
 di kartu **Aktivitas agen**.
+
+## 12. Bot WhatsApp (WhatsApp Cloud API resmi, opsional)
+
+Bot layanan informasi & penerimaan pengajuan untuk grup kontak (satker, instansi, masyarakat, …) (docs/AI-AGENT.md §20). Langkah mendaftar di Meta dengan bahasa
+sederhana: [TODO-USER.md](TODO-USER.md) B6.
+
+1. Siapkan dari Meta: **Phone number ID**, **token permanen System User** (izin `whatsapp_business_messaging`,
+   `whatsapp_business_management`), **App Secret**, dan buat **verify token** acak (`openssl rand -hex 16`).
+2. Isi `.env` lalu `dc up -d`:
+
+   ```bash
+   WHATSAPP_PHONE_NUMBER_ID=...
+   WHATSAPP_ACCESS_TOKEN=...
+   WHATSAPP_APP_SECRET=...
+   WHATSAPP_VERIFY_TOKEN=...
+   WHATSAPP_OWNER_EMAIL=<akun LifeOS pemilik bot>
+   # WHATSAPP_GRAPH_VERSION=v23.0   (naikkan bila Meta menghentikan versi lama)
+   ```
+
+3. Di Meta → WhatsApp → Configuration → Webhook: Callback URL `https://<APP_DOMAIN>/api/v1/whatsapp/webhook`, verify
+   token = `WHATSAPP_VERIFY_TOKEN`, subscribe field `messages`. Tidak perlu konfigurasi Caddy (jalur `/api`).
+4. Cek: **Pengajuan → Percakapan WA** menampilkan "Bot WhatsApp aktif"; kirim pesan dari nomor kontak terverifikasi.
+
+Catatan operasional:
+- Webhook menolak permintaan tanpa tanda tangan `X-Hub-Signature-256` yang valid (403); bila lima variabel belum
+  lengkap, endpoint mengembalikan 404 dan bot hanya bisa dicoba lewat Simulator.
+- Pesan masuk diproses antrian BullMQ `whatsapp-inbound` (Redis); jawaban memakai provider AI & kuota pemilik bot.
+- Pesan bebas hanya terkirim ≤ 24 jam sejak pesan terakhir kontak; di luar itu dicatat `failed` (butuh pesan templat).
+- Ganti token: buat token System User baru → ganti `WHATSAPP_ACCESS_TOKEN` → `dc up -d` → cabut token lama di Meta.
+- Riwayat percakapan & kontak tersimpan di PostgreSQL (ikut backup harian).

@@ -13,7 +13,7 @@ import {
 } from "./requests.dto";
 import { RequestsService } from "./requests.service";
 
-/** Pengajuan satker & Antrian Verifikasi (data milik user sendiri). */
+/** Pengajuan & Antrian Verifikasi (data milik user sendiri). */
 @ApiTags("requests")
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)

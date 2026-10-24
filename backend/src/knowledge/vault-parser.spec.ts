@@ -91,6 +91,15 @@ describe("status & metadata", () => {
     });
   });
 
+  it("metadata grup: kode grup kontak yang boleh membaca catatan (huruf besar, daftar atau teks berkoma)", () => {
+    expect(knowledgeMetadata("40-FAQ/y.md", { status: "berlaku", grup: ["smk.01", " KSOP-2 "] }).grup).toEqual([
+      "SMK.01",
+      "KSOP-2",
+    ]);
+    expect(knowledgeMetadata("40-FAQ/y.md", { grup: "umum, satker-a" }).grup).toEqual(["UMUM", "SATKER-A"]);
+    expect(knowledgeMetadata("40-FAQ/y.md", { status: "berlaku" }).grup).toBeUndefined();
+  });
+
   it("masalah catatan: tanpa properti / jenis / status — Inbox & templat dikecualikan", () => {
     expect(noteProblems("20-Topik/a.md", null)).toEqual(["Tanpa properti (frontmatter)"]);
     expect(noteProblems("20-Topik/a.md", { jenis: "topik" })).toEqual(["Properti `status` kosong / tidak dikenal"]);

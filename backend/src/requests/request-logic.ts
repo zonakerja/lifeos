@@ -72,7 +72,7 @@ export function clampAttachments(files: { name: string; text: string }[], budget
 export interface RequestContext {
   kind: RequestKind;
   title: string;
-  satker?: string | null;
+  applicant?: string | null;
   letterNumber?: string | null;
   letterDate?: string | null;
   subject?: string | null;
@@ -84,7 +84,7 @@ const describeRequest = (r: RequestContext) =>
   [
     `Jenis: ${KIND_LABELS[r.kind]}`,
     `Judul: ${r.title}`,
-    r.satker ? `Satker: ${r.satker}` : "",
+    r.applicant ? `Pemohon: ${r.applicant}` : "",
     r.letterNumber ? `Nomor surat: ${r.letterNumber}` : "",
     r.letterDate ? `Tanggal surat: ${r.letterDate}` : "",
     r.subject ? `Perihal: ${r.subject}` : "",
@@ -115,18 +115,18 @@ export function buildAnalysisPrompt(input: {
   profile?: string | null;
 }) {
   return [
-    "Anda membantu pejabat pengelola BMN memeriksa pengajuan dari satuan kerja (satker).",
+    "Anda membantu pemroses (lihat <profil_pemroses>) memeriksa pengajuan dari pemohon (satker, instansi, atau masyarakat).",
     input.profile?.trim() ? `<profil_pemroses>\n${input.profile.trim().slice(0, 4_000)}\n</profil_pemroses>` : "",
     "",
     "Tugas: baca data pengajuan & berkasnya, lalu keluarkan HANYA JSON valid (tanpa blok kode) berbentuk:",
-    '{"ringkasan":"…","field":{"satker":"…","nomor_surat":"…","tanggal_surat":"YYYY-MM-DD","perihal":"…",' +
+    '{"ringkasan":"…","field":{"pemohon":"…","nomor_surat":"…","tanggal_surat":"YYYY-MM-DD","perihal":"…",' +
       '"daftar_bmn":[{"kode_barang":"…","nup":"…","nama":"…","nilai":"…"}],"lainnya":{"…":"…"}},' +
       '"kelengkapan":[{"dokumen":"…","status":"ada|tidak_ada|perlu_dicek","catatan":"…"}],' +
       '"kekurangan":["…"],"saran":"…"}',
     "- ringkasan: 2–4 kalimat isi pengajuan.",
     '- field: hanya isi yang benar-benar ada di berkas/pesan; kosongkan ("") bila tidak ada. daftar_bmn hanya bila ada.',
     "- kelengkapan: periksa terhadap <persyaratan> (basis pengetahuan). Bila persyaratan tidak tersedia, pakai pengetahuan",
-    "  umum pengelolaan BMN dan tandai status perlu_dicek. Sebut nomor kutipan persyaratan di catatan, mis. [1].",
+    "  umum bidang terkait dan tandai status perlu_dicek. Sebut nomor kutipan persyaratan di catatan, mis. [1].",
     "- kekurangan: dokumen/data yang belum ada atau tidak sesuai. saran: tindak lanjut singkat (mis. minta kelengkapan).",
     ...COMMON_RULES.map((r) => `- ${r}`),
     "",
@@ -147,7 +147,7 @@ export function buildReviewPrompt(input: {
   userName: string;
 }) {
   return [
-    `Anda menyusun telaah dan konsep jawaban surat untuk ${input.userName} (pejabat pengelola BMN) atas pengajuan/surat`,
+    `Anda menyusun telaah dan konsep jawaban surat untuk ${input.userName} (lihat <profil_pemroses>) atas pengajuan/surat`,
     "dari satuan kerja. Hasil Anda akan DIVERIFIKASI & DISUNTING pengguna sebelum dikirim.",
     input.profile?.trim() ? `<profil_pemroses>\n${input.profile.trim().slice(0, 4_000)}\n</profil_pemroses>` : "",
     "",
@@ -274,8 +274,8 @@ export function parseFill(text: string, template: TemplateAnalysis): Record<stri
 
 /** Field hasil analisis yang boleh mengisi data pengajuan yang masih kosong. */
 export function fillMissingMeta(request: RequestContext, fields: Record<string, unknown>) {
-  const patch: Partial<Pick<RequestContext, "satker" | "letterNumber" | "letterDate" | "subject">> = {};
-  if (!request.satker && str(fields.satker)) patch.satker = str(fields.satker);
+  const patch: Partial<Pick<RequestContext, "applicant" | "letterNumber" | "letterDate" | "subject">> = {};
+  if (!request.applicant && str(fields.pemohon)) patch.applicant = str(fields.pemohon);
   if (!request.letterNumber && str(fields.nomor_surat)) patch.letterNumber = str(fields.nomor_surat);
   if (!request.letterDate && /^\d{4}-\d{2}-\d{2}$/.test(str(fields.tanggal_surat)))
     patch.letterDate = str(fields.tanggal_surat);

@@ -41,8 +41,8 @@ export function CreateRequestDialog({
         <DialogHeader>
           <DialogTitle>Pengajuan Baru</DialogTitle>
           <DialogDescription>
-            Catat surat/pengajuan satker beserta berkasnya. Setelah tersimpan, AI bisa memeriksa kelengkapan, menelaah,
-            dan menyusun konsep jawaban untuk Anda verifikasi.
+            Catat surat/pengajuan (dari satker, instansi, atau masyarakat) beserta berkasnya. Setelah tersimpan, AI bisa
+            memeriksa kelengkapan, menelaah, dan menyusun konsep jawaban untuk Anda verifikasi.
           </DialogDescription>
         </DialogHeader>
         <CreateRequestForm key={session} onCancel={() => onOpenChange(false)} onCreated={onCreated} />
@@ -56,7 +56,7 @@ function CreateRequestForm({ onCancel, onCreated }: { onCancel: () => void; onCr
   const [kind, setKind] = useState<RequestKind>("psp");
   const [form, setForm] = useState({
     title: "",
-    satker: "",
+    applicant: "",
     letterNumber: "",
     letterDate: "",
     subject: "",
@@ -78,7 +78,7 @@ function CreateRequestForm({ onCancel, onCreated }: { onCancel: () => void; onCr
       const request = await create.mutateAsync({
         kind,
         title: form.title.trim(),
-        satker: form.satker.trim() || undefined,
+        applicant: form.applicant.trim() || undefined,
         letterNumber: form.letterNumber.trim() || undefined,
         letterDate: form.letterDate || undefined,
         subject: form.subject.trim() || undefined,
@@ -114,8 +114,13 @@ function CreateRequestForm({ onCancel, onCreated }: { onCancel: () => void; onCr
           </Select>
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="req-satker">Satker pemohon</Label>
-          <Input id="req-satker" value={form.satker} onChange={set("satker")} placeholder="mis. KSOP Kelas I …" />
+          <Label htmlFor="req-applicant">Pemohon</Label>
+          <Input
+            id="req-applicant"
+            value={form.applicant}
+            onChange={set("applicant")}
+            placeholder="Satker / instansi / nama pemohon"
+          />
         </div>
         <div className="grid gap-1.5 sm:col-span-2">
           <Label htmlFor="req-title">Judul *</Label>

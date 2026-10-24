@@ -2,7 +2,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
-import { type Express, json, text } from "express";
+import { type Express, json, raw, text } from "express";
 import helmet from "helmet";
 import { Logger } from "nestjs-pino";
 import { AppModule } from "./app.module";
@@ -19,6 +19,8 @@ async function bootstrap() {
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
   // Proxy tab AI ONLYOFFICE: plugin mengirim JSON tanpa Content-Type (text/plain) dan bisa memuat gambar base64
   app.use("/api/v1/office/ai/proxy", text({ type: () => true, limit: "30mb" }));
+  // Webhook WhatsApp: isi mentah (Buffer) agar tanda tangan Meta bisa diverifikasi sebelum JSON dibaca
+  app.use("/api/v1/whatsapp/webhook", raw({ type: () => true, limit: "2mb" }));
   // Batas body JSON dinaikkan untuk logo (data URL) & payload record besar
   app.use(json({ limit: "5mb" }));
   const corsOrigins = corsOrigin.split(",").map((origin) => origin.trim());

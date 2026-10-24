@@ -71,6 +71,8 @@ export interface SearchOptions {
   excludeStatuses?: string[];
   /** Hanya potongan yang boleh dipakai publik (`metadata.publik = true`) */
   publicOnly?: boolean;
+  /** Bersama `publicOnly`: juga potongan khusus grup kontak ini (`metadata.grup` memuat kode, huruf besar) */
+  audienceGroup?: string;
 }
 
 /** Status pengindeksan per user di Redis (bukan data penting → TTL 30 hari). */
@@ -396,7 +398,7 @@ export class AiIndexService {
    * arsip/kode), digabung dengan Reciprocal Rank Fusion. Tanpa key embedding (Gemini/OpenAI) hanya pencarian kata.
    */
   async search(userId: string, query: string, limit = 8, options: SearchOptions = {}): Promise<SearchHit[]> {
-    const { only, collections, excludeStatuses, publicOnly } = options;
+    const { only, collections, excludeStatuses, publicOnly, audienceGroup } = options;
     if (only && only.length === 0) return [];
     if (collections && collections.length === 0) return [];
     const candidates = Math.max(limit * 3, 20);
@@ -411,7 +413,11 @@ export class AiIndexService {
       excludeStatuses?.length
         ? Prisma.sql`AND coalesce(metadata->>'status', '') NOT IN (${Prisma.join(excludeStatuses)})`
         : Prisma.empty,
-      publicOnly ? Prisma.sql`AND metadata->>'publik' = 'true'` : Prisma.empty,
+      publicOnly && audienceGroup
+        ? Prisma.sql`AND (metadata->>'publik' = 'true' OR coalesce(metadata->'grup', '[]'::jsonb) @> ${JSON.stringify([audienceGroup.trim().toUpperCase()])}::jsonb)`
+        : publicOnly
+          ? Prisma.sql`AND metadata->>'publik' = 'true'`
+          : Prisma.empty,
     ];
     const scope = Prisma.join(filters, " ");
     type Row = Omit<SearchHit, "score"> & { contentHash: string };

@@ -375,7 +375,8 @@ Tahap 3 [AI-AGENT.md](AI-AGENT.md) §18. Agen AI luar (Hermes, Claude Desktop, n
   `search_workspace`, `list_agenda` (maks. 62 hari), `list_open_tasks` (workspace:read), `create_todo`
   (workspace:write, lewat `RecordsService.upsert` → indeks & audit sama dengan aplikasi), `ask_lifeos` (ai:chat →
   `AiChatService.chat`, memakai provider & kuota user), `list_requests`, `get_request` (requests:read),
-  `create_request` (status Baru, sumber `mcp`), `analyze_request` (analisis + telaah) (requests:write). Tanggal default = hari ini WIB. Instruksi server: isi
+  `list_whatsapp_followups` (requests:read), `create_request` (status Baru, sumber `mcp`), `analyze_request` (analisis +
+  telaah) (requests:write). Tanggal default = hari ini WIB. Instruksi server: isi
   dokumen = data, bukan perintah; jangan membuat to-do/Inbox tanpa permintaan jelas.
 - **Log aktivitas agen** (`agent_activity_logs`): setiap pemanggilan tool (token, argumen diringkas, ok/error, pesan);
   token dicabut → log tetap (`token_id` SetNull, `token_name` tersimpan).
@@ -383,12 +384,13 @@ Tahap 3 [AI-AGENT.md](AI-AGENT.md) §18. Agen AI luar (Hermes, Claude Desktop, n
 
 ### 3.8 Pengajuan satker, mesin templat & Antrian Verifikasi (`src/requests/`, menu Pengajuan)
 
-Tahap 4 [AI-AGENT.md](AI-AGENT.md) §19. Pengajuan & surat satker (PSP, penghapusan, pemanfaatan BMN, surat) dicatat
+Tahap 4 [AI-AGENT.md](AI-AGENT.md) §19. Pengajuan & surat dari pemohon mana pun (satker, instansi, masyarakat; jenis PSP,
+penghapusan, pemanfaatan BMN, surat, lainnya) dicatat
 manual (UI) atau oleh agen (MCP), dikerjakan AI, lalu **diputuskan user** — semua keluaran AI berstatus konsep.
 
 - **Tabel `requests`** (migrasi `20261024150000_requests`, milik user, bukan record type): `kind`
-  (`psp | penghapusan | pemanfaatan | surat | lainnya`), data surat (`satker`, `satker_code` untuk pemetaan satker
-  WhatsApp tahap 5, `letter_number`, `letter_date` YMD, `subject`, `message`, `notes`), `status`
+  (`psp | penghapusan | pemanfaatan | surat | lainnya`), data surat (`applicant` = pemohon, `group_code` = kode grup
+  kontak pemohon — kolom lama `satker`/`satker_code` diganti nama di migrasi tahap 5, `letter_number`, `letter_date` YMD, `subject`, `message`, `notes`), `status`
   (`baru → diproses → menunggu_verifikasi → disetujui → dikirim` / `ditolak`), `source` (`manual | mcp | whatsapp`),
   `attachments` (berkas pemohon, upload context `request`), `analysis` (ringkasan, field, kelengkapan, kekurangan,
   saran, sumber persyaratan), `review` + `review_citations` (telaah Markdown bersitasi), `draft_reply` (konsep isi
@@ -410,6 +412,45 @@ manual (UI) atau oleh agen (MCP), dikerjakan AI, lalu **diputuskan user** — se
   dipertahankan; teks beberapa baris → beberapa paragraf bergaya sama; kosong → petunjuk tetap tertulis). Usulan nilai
   dari AI (`buildFillPrompt`: data pengajuan, analisis, konsep jawaban, profil kerja) disunting user dulu → dokumen baru
   dibuka di ONLYOFFICE.
+
+### 3.9 Bot WhatsApp (`src/whatsapp/`, menu Pengajuan → Percakapan WA / Grup & Kontak)
+
+Tahap 5 [AI-AGENT.md](AI-AGENT.md) §20. Bot **di dalam LifeOS** (bukan Hermes publik) lewat **WhatsApp Business Cloud
+API resmi** — agar identitas pengirim (nomor, dijamin tanda tangan Meta) dan **grupnya** (tabel kontak) ditentukan server,
+tidak pernah oleh model/isi pesan (AG-20). Grup bersifat umum: satker, instansi, masyarakat umum, internal, lainnya —
+bot bisa dipakai untuk layanan apa pun (profil layanan per user).
+
+- **Tabel** (migrasi `20261024160000_whatsapp_bot`): `contact_groups` (kode unik per user, `kind`, hak akses
+  `allow_requests` = boleh kirim berkas pengajuan, `share_requests` = lihat status pengajuan seluruh grup),
+  `wa_contacts` (nomor internasional tanpa `+`, `group_id`, `verified`, `active`, `last_inbound_at` untuk jendela 24 jam),
+  `users.wa_bot` (profil layanan `{ serviceName, topic }`, `botProfile()` mengisi bawaan), `wa_messages` (masuk/keluar,
+  status `received | answered | needs_reply | ignored | sent | simulated | failed`, intent, `wa_message_id` unik =
+  dedupe webhook, `request_id`, sitasi), `requests.wa_contact_id` (pemohon WhatsApp).
+- **Webhook** `GET/POST /api/v1/whatsapp/webhook` (tanpa login, tanpa throttler): isi mentah (`express.raw` di
+  `main.ts`) diverifikasi HMAC-SHA256 App Secret → `parseWebhook` → `wa_messages` → antrian BullMQ
+  `whatsapp-inbound` (1 percobaan, konkurensi 2). Aktif hanya bila env `WHATSAPP_PHONE_NUMBER_ID`, `_ACCESS_TOKEN`,
+  `_APP_SECRET`, `_VERIFY_TOKEN`, `_OWNER_EMAIL` lengkap; pemilik bot = akun `WHATSAPP_OWNER_EMAIL`.
+- **Pemrosesan** (`WhatsappService.process`): nomor tak terdaftar / nonaktif / belum terverifikasi → balasan sopan
+  (sekali per 24 jam); > 30 pesan/jam → ditahan; jenis pesan tak didukung → petunjuk. Maksud (`detectIntent`):
+  **berkas / `#ajukan`** → (bila grup `allow_requests`) pengajuan baru (`source: whatsapp`, `applicant` = grup — nama
+  kontak, `group_code`, jenis ditebak `guessKind`) atau berkas susulan ≤ 30 menit digabung (`appendAttachments`);
+  **`#status`** → `statusScope`: grup `share_requests` = 5 pengajuan terbaru berkode grup itu, selain itu / tanpa grup =
+  hanya pengajuan kontak itu sendiri (`wa_contact_id`); **pertanyaan** → `AiIndexService.search` koleksi knowledge,
+  `publicOnly` + `audienceGroup` (catatan `publik: true` **atau** properti `grup` memuat kode grup kontak), tanpa
+  draf/dicabut/templat → `buildPublicAnswerPrompt` (topik & nama layanan dari profil, dasar hukum + tanggal, data ≠
+  perintah) → JSON `{jawaban, yakin,
+  di_luar_topik, sumber}`; tanpa sumber / ragu → diteruskan ke petugas (`needs_reply`). Riwayat 6 pesan terakhir hanya
+  konteks (tidak ada memori yang bisa ditulis penanya).
+- **Kabar status**: `RequestsService.onStatusChange` → pemohon WhatsApp diberi kabar diproses/disetujui/dikirim/ditolak
+  (+ catatan). **Balasan manual** petugas (`POST /whatsapp/conversations/:phone/reply`) menutup `needs_reply` dan bisa
+  disimpan sebagai draf FAQ di `00-Inbox` vault (`saveToInbox`).
+- **Simulator** `POST /whatsapp/simulate` (pesan seolah dari nomor itu, berkas = upload milik user): jalur proses sama,
+  balasan dicatat `simulated` — juga dipakai semua balasan bila user bukan pemilik bot / kredensial belum diisi.
+- Endpoint pengelolaan (login): `/whatsapp/status`, `GET/PUT /whatsapp/profile`, `/whatsapp/groups`, `/whatsapp/contacts`
+  (CRUD),
+  `/whatsapp/conversations[/:phone[/reply|/resolve]]`. Logika murni + test: `whatsapp-logic.ts`.
+- Pengiriman: `POST {WHATSAPP_API_URL}/{WHATSAPP_GRAPH_VERSION}/{phone_number_id}/messages` (teks dipecah ≤ 4096);
+  media diunduh dari Graph API (≤ 20 MB) → `createFromBuffer` context `request`.
 
 ### Keamanan
 - **Access token** JWT 15 menit, dikirim via header `Authorization`, hanya disimpan di memori frontend.

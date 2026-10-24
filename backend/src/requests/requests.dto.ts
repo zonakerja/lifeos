@@ -30,13 +30,13 @@ export class CreateRequestDto {
   @IsOptional()
   @IsString()
   @MaxLength(200)
-  satker?: string;
+  applicant?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   @MaxLength(40)
-  satkerCode?: string;
+  groupCode?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -87,14 +87,14 @@ export class UpdateRequestDto {
   @ValidateIf((_, v) => v !== null)
   @IsString()
   @MaxLength(200)
-  satker?: string | null;
+  applicant?: string | null;
 
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   @ValidateIf((_, v) => v !== null)
   @IsString()
   @MaxLength(40)
-  satkerCode?: string | null;
+  groupCode?: string | null;
 
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()

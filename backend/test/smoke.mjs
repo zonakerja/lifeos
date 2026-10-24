@@ -1436,7 +1436,7 @@ try {
   ok("mcp revoked token 401", r.s === 401, r);
   if (mcpTodo?.id) await j("DELETE", `/records/todo/${mcpTodo.id}`, null, at);
 
-  // ---- Pengajuan satker & Antrian Verifikasi (tahap 4 docs/AI-AGENT.md)
+  // ---- Pengajuan & Antrian Verifikasi (tahap 4 docs/AI-AGENT.md)
   {
     const { default: Zip } = await import("pizzip");
     const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
@@ -1475,7 +1475,7 @@ try {
       {
         kind: "psp",
         title: "PSP laptop Smoke",
-        satker: "Satker Smoke",
+        applicant: "Satker Smoke",
         letterDate: "2026-10-20",
         uploadIds: [letter.d.id],
       },
@@ -1594,6 +1594,243 @@ try {
     ok("request delete removes its files", goneLetter.s === 404 && goneDoc.s === 404, [goneLetter.s, goneDoc.s]);
     await j("DELETE", `/uploads/${reqTpl.d.id}`, null, at);
     await j("DELETE", `/uploads/${stranger.d.id}`, null, pt);
+  }
+
+  // ---- Bot WhatsApp (tahap 5 docs/AI-AGENT.md): grup, kontak, profil, simulator, pengajuan, status, kabar
+  {
+    const waitFor = async (fn, ms = 20_000) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        const value = await fn();
+        if (value) return value;
+        await new Promise((res) => setTimeout(res, 500));
+      }
+      return null;
+    };
+    const thread = async (phone, token = at) => (await j("GET", `/whatsapp/conversations/${phone}`, null, token)).d;
+    const replyAfter = (phone, count) =>
+      waitFor(async () => {
+        const rows = await thread(phone);
+        const outs = Array.isArray(rows) ? rows.filter((m) => m.direction === "out") : [];
+        return outs.length >= count ? outs : null;
+      });
+
+    r = await fetch(`${B}/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=x&hub.challenge=1`);
+    if (r.status === 404) {
+      ok("wa webhook off without Meta credentials (404)", true);
+      const post = await fetch(`${B}/whatsapp/webhook`, { method: "POST", body: "{}" });
+      ok("wa webhook POST off (404)", post.status === 404, post.status);
+    } else {
+      ok("wa webhook rejects wrong verify token (403)", r.status === 403, r.status);
+      const post = await fetch(`${B}/whatsapp/webhook`, {
+        method: "POST",
+        headers: { "x-hub-signature-256": "sha256=00" },
+        body: "{}",
+      });
+      ok("wa webhook rejects bad signature (403)", post.status === 403, post.status);
+    }
+    r = await j("GET", "/whatsapp/status", null, at);
+    ok("wa status (simulator mode for non-owner)", r.s === 200 && r.d.isOwner === false && r.d.contacts === 0, r);
+
+    r = await j("GET", "/whatsapp/profile", null, at);
+    ok("wa bot profile default", r.s === 200 && r.d.serviceName === "Layanan Informasi" && /BMN/.test(r.d.topic), r);
+    r = await j("PUT", "/whatsapp/profile", { serviceName: "Layanan Smoke" }, at);
+    ok(
+      "wa bot profile update (topic kept)",
+      r.s === 200 && r.d.serviceName === "Layanan Smoke" && /BMN/.test(r.d.topic),
+      r,
+    );
+    r = await j(
+      "POST",
+      "/whatsapp/groups",
+      { code: "SMK.01", name: "KSOP Smoke", kind: "satker", shareRequests: true },
+      at,
+    );
+    const groupId = r.d?.id;
+    ok(
+      "wa group create (kind satker, share requests)",
+      r.s === 201 && r.d.code === "SMK.01" && r.d.shareRequests === true && r.d.allowRequests === true,
+      r,
+    );
+    r = await j("POST", "/whatsapp/groups", { code: "SMK.01", name: "Ganda" }, at);
+    ok("wa group duplicate code 409", r.s === 409, r);
+    r = await j("POST", "/whatsapp/groups", { code: "salah kode!", name: "x" }, at);
+    ok("wa group invalid code 400", r.s === 400, r);
+    r = await j("POST", "/whatsapp/groups", { code: "X1", name: "x", kind: "asing" }, at);
+    ok("wa group invalid kind 400", r.s === 400, r);
+    r = await j("POST", "/whatsapp/contacts", { phone: "abc", name: "x" }, at);
+    ok("wa contact invalid phone 400", r.s === 400, r);
+    r = await j(
+      "POST",
+      "/whatsapp/contacts",
+      { phone: "0812-9000-0001", name: "Budi Smoke", position: "Operator BMN", groupId, verified: true },
+      at,
+    );
+    const contactId = r.d?.id;
+    ok(
+      "wa contact create (phone normalized)",
+      r.s === 201 && r.d.phone === "6281290000001" && r.d.group?.code === "SMK.01",
+      r,
+    );
+    r = await j("GET", "/whatsapp/contacts", null, pt);
+    ok("wa contacts isolated per user", r.s === 200 && r.d.length === 0, r);
+    r = await j("PATCH", `/whatsapp/contacts/${contactId}`, { name: "x" }, pt);
+    ok("wa contact of other user 404", r.s === 404, r);
+    r = await j("POST", "/whatsapp/groups", { code: "SMK.02", name: "Satker Lain", kind: "satker" }, at);
+    const otherGroup = r.d?.code;
+
+    // Nomor tak terdaftar → balasan "belum terdaftar" (sekali per 24 jam)
+    r = await j("POST", "/whatsapp/simulate", { phone: "081290000999", text: "Halo" }, at);
+    ok("wa simulate accepted", r.s === 201 && r.d.simulated === true, r);
+    let outs = await replyAfter("6281290000999", 1);
+    ok(
+      "wa unregistered number gets polite refusal",
+      outs?.[0]?.intent === "unregistered" && outs[0].status === "simulated",
+      outs,
+    );
+    await j("POST", "/whatsapp/simulate", { phone: "081290000999", text: "Halo lagi" }, at);
+    await new Promise((res) => setTimeout(res, 2500));
+    ok(
+      "wa refusal not repeated within 24h",
+      (await thread("6281290000999")).filter((m) => m.direction === "out").length === 1,
+    );
+    r = await j("POST", "/whatsapp/simulate", { phone: "081290000001" }, at);
+    ok("wa simulate empty 400", r.s === 400, r);
+
+    // Pengajuan berkas: grup diambil dari kontak; berkas susulan digabung
+    const waFile = new FormData();
+    waFile.append("file", new Blob(["Permohonan PSP 2 unit printer"], { type: "text/plain" }), "psp-printer.txt");
+    waFile.append("context", "request");
+    const waUpload = await j("POST", "/uploads", waFile, at);
+    r = await j(
+      "POST",
+      "/whatsapp/simulate",
+      { phone: "081290000001", text: "PSP printer", uploadIds: [waUpload.d.id] },
+      at,
+    );
+    outs = await replyAfter("6281290000001", 1);
+    const intakeMsg = (await thread("6281290000001")).find((m) => m.direction === "in" && m.requestId);
+    ok(
+      "wa file → request acknowledged",
+      outs?.[0]?.intent === "request" && /terima dengan nomor/.test(outs[0].text),
+      outs,
+    );
+    r = await j("GET", `/requests/${intakeMsg?.requestId}`, null, at);
+    const waRequestId = r.d?.id;
+    ok(
+      "wa request from contact (source whatsapp, group from contact, kind guessed)",
+      r.s === 200 &&
+        r.d.source === "whatsapp" &&
+        r.d.groupCode === "SMK.01" &&
+        /KSOP Smoke — Budi Smoke/.test(r.d.applicant) &&
+        r.d.kind === "psp" &&
+        r.d.attachments.length === 1,
+      r,
+    );
+    const waFile2 = new FormData();
+    waFile2.append("file", new Blob(["KIB printer"], { type: "text/plain" }), "kib.txt");
+    waFile2.append("context", "request");
+    const waUpload2 = await j("POST", "/uploads", waFile2, at);
+    await j("POST", "/whatsapp/simulate", { phone: "081290000001", uploadIds: [waUpload2.d.id] }, at);
+    outs = await replyAfter("6281290000001", 2);
+    r = await j("GET", `/requests/${waRequestId}`, null, at);
+    ok(
+      "wa follow-up file appended to same request",
+      r.d?.attachments?.length === 2 && /ditambahkan/.test(outs?.[1]?.text ?? ""),
+      [r.d?.attachments, outs],
+    );
+
+    // Pengajuan grup lain tidak terlihat lewat #status (AG-20); grup berbagi → semua pengajuan grup
+    await j("POST", "/requests", { kind: "psp", title: "Milik satker lain", groupCode: otherGroup }, at);
+    await j("POST", "/requests", { kind: "psp", title: "Rekan satu grup", groupCode: "SMK.01" }, at);
+    await j("POST", "/whatsapp/simulate", { phone: "081290000001", text: "#status" }, at);
+    outs = await replyAfter("6281290000001", 3);
+    ok(
+      "wa #status lists whole group (share) but never other groups",
+      /KSOP Smoke/.test(outs?.[2]?.text ?? "") &&
+        /PSP printer/.test(outs[2].text) &&
+        /Rekan satu grup/.test(outs[2].text) &&
+        !/satker lain/.test(outs[2].text),
+      outs?.[2],
+    );
+
+    // Perubahan status oleh user → kabar ke pemohon
+    await j("PATCH", `/requests/${waRequestId}`, { status: "ditolak", statusNote: "KIB belum ditandatangani" }, at);
+    outs = await replyAfter("6281290000001", 4);
+    ok(
+      "wa status notice to requester",
+      outs?.[3]?.intent === "notice" && /KIB belum ditandatangani/.test(outs[3].text),
+      outs?.[3],
+    );
+
+    // Pertanyaan tanpa AI/basis pengetahuan → diteruskan ke petugas, dibalas manual
+    await j("POST", "/whatsapp/simulate", { phone: "081290000001", text: "Berapa lama proses PSP?" }, at);
+    outs = await replyAfter("6281290000001", 5);
+    ok("wa question without knowledge → forwarded", /diteruskan ke petugas/.test(outs?.[4]?.text ?? ""), outs?.[4]);
+    r = await j("GET", "/whatsapp/conversations", null, at);
+    ok(
+      "wa conversations list with needs-reply count",
+      r.s === 200 &&
+        r.d.find((c) => c.phone === "6281290000001")?.needsReply === 1 &&
+        r.d.some((c) => c.contact === null),
+      r,
+    );
+    r = await j("POST", "/whatsapp/conversations/6281290000001/reply", { text: "Proses PSP ± 14 hari kerja." }, at);
+    ok("wa manual reply (simulated) resolves follow-up", r.s === 201 && r.d[0]?.status === "simulated", r);
+    r = await j("GET", "/whatsapp/status", null, at);
+    ok("wa status counts", r.d?.contacts === 1 && r.d.verified === 1 && r.d.needsReply === 0, r);
+    r = await j("GET", "/whatsapp/conversations/6281290000001", null, pt);
+    ok("wa conversation isolated per user", r.s === 200 && r.d.length === 0, r);
+
+    // Grup masyarakat umum: tidak berbagi pengajuan & pengiriman berkas ditutup
+    r = await j(
+      "POST",
+      "/whatsapp/groups",
+      { code: "UMUM", name: "Masyarakat Umum", kind: "masyarakat", allowRequests: false },
+      at,
+    );
+    const publicGroupId = r.d?.id;
+    r = await j(
+      "POST",
+      "/whatsapp/contacts",
+      { phone: "081290000002", name: "Warga Smoke", groupId: publicGroupId, verified: true },
+      at,
+    );
+    const publicContactId = r.d?.id;
+    await j("POST", "/requests", { kind: "surat", title: "Milik warga lain", groupCode: "UMUM" }, at);
+    await j("POST", "/whatsapp/simulate", { phone: "081290000002", text: "#status" }, at);
+    outs = await replyAfter("6281290000002", 1);
+    ok(
+      "wa #status in non-sharing group shows only own requests",
+      /Belum ada pengajuan dari Anda/.test(outs?.[0]?.text ?? "") && !/warga lain/.test(outs?.[0]?.text ?? ""),
+      outs?.[0],
+    );
+    const wargaFile = new FormData();
+    wargaFile.append("file", new Blob(["izin"], { type: "text/plain" }), "izin.txt");
+    wargaFile.append("context", "request");
+    const wargaUpload = await j("POST", "/uploads", wargaFile, at);
+    await j(
+      "POST",
+      "/whatsapp/simulate",
+      { phone: "081290000002", text: "permohonan", uploadIds: [wargaUpload.d.id] },
+      at,
+    );
+    outs = await replyAfter("6281290000002", 2);
+    ok(
+      "wa group without request permission refuses files (bot name from profile)",
+      /Pengiriman berkas pengajuan belum dibuka/.test(outs?.[1]?.text ?? "") && /Layanan Smoke/.test(outs[1].text),
+      outs?.[1],
+    );
+    await j("DELETE", `/uploads/${wargaUpload.d.id}`, null, at);
+    await j("DELETE", `/whatsapp/contacts/${publicContactId}`, null, at);
+    await j("DELETE", `/whatsapp/groups/${publicGroupId}`, null, at);
+
+    await j("DELETE", `/requests/${waRequestId}`, null, at);
+    r = await j("DELETE", `/whatsapp/groups/${groupId}`, null, at);
+    ok("wa group delete (contact kept, group cleared)", r.s === 200, r);
+    r = await j("GET", "/whatsapp/contacts", null, at);
+    ok("wa contact group set null", r.d?.[0]?.group === null, r);
+    await j("DELETE", `/whatsapp/contacts/${contactId}`, null, at);
   }
 
   r = await j("POST", "/auth/change-password", { currentPassword: "salah", newPassword: "1234" }, pt);

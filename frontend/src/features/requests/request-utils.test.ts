@@ -6,7 +6,8 @@ const item = (id: string, patch: Partial<RequestSummary>): RequestSummary => ({
   id,
   kind: "psp",
   title: id,
-  satker: null,
+  applicant: null,
+  groupCode: null,
   letterNumber: null,
   letterDate: null,
   subject: null,
@@ -21,7 +22,7 @@ const item = (id: string, patch: Partial<RequestSummary>): RequestSummary => ({
 
 describe("filterRequests", () => {
   const items = [
-    item("a", { status: "baru", updatedAt: "2026-10-03T00:00:00Z", satker: "KSOP Tanjung Perak" }),
+    item("a", { status: "baru", updatedAt: "2026-10-03T00:00:00Z", applicant: "KSOP Tanjung Perak" }),
     item("b", { status: "menunggu_verifikasi", updatedAt: "2026-10-01T00:00:00Z", kind: "penghapusan" }),
     item("c", { status: "disetujui", updatedAt: "2026-10-05T00:00:00Z" }),
     item("d", { status: "diproses", updatedAt: "2026-10-04T00:00:00Z" }),

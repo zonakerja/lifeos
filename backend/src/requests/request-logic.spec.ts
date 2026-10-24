@@ -13,7 +13,7 @@ import {
   withHistory,
 } from "./request-logic";
 
-const request = { kind: "psp" as const, title: "PSP laptop Satker X", satker: "Satker X", subject: null };
+const request = { kind: "psp" as const, title: "PSP laptop Satker X", applicant: "Satker X", subject: null };
 const template = {
   tags: ["nomor_naskah", "hal", "jabatan_tujuan", "ttd_pengirim", "nama_pengirim"],
   slots: [{ name: "__petunjuk_1", instruction: "Paragraf pembuka" }],
@@ -99,7 +99,7 @@ describe("pembaca jawaban AI", () => {
     const a = parseAnalysis(
       JSON.stringify({
         ringkasan: "PSP 3 laptop",
-        field: { satker: "Satker X", nomor_surat: "S-1/2026", tanggal_surat: "2026-10-20", perihal: "PSP" },
+        field: { pemohon: "Satker X", nomor_surat: "S-1/2026", tanggal_surat: "2026-10-20", perihal: "PSP" },
         kelengkapan: [
           { dokumen: "Surat permohonan", status: "ada" },
           { dokumen: "KIB", status: "aneh" },

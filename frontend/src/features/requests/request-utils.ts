@@ -5,7 +5,7 @@ export const KIND_LABELS: Record<RequestKind, string> = {
   psp: "PSP BMN",
   penghapusan: "Penghapusan BMN",
   pemanfaatan: "Pemanfaatan BMN",
-  surat: "Surat satker",
+  surat: "Surat / permintaan",
   lainnya: "Lainnya",
 };
 export const KIND_OPTIONS = Object.entries(KIND_LABELS) as [RequestKind, string][];
@@ -61,7 +61,7 @@ const normalize = (value: string) =>
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
 
-/** Saring daftar pengajuan per tab, jenis, dan kata kunci (judul, satker, nomor, perihal; per kata, tanpa aksen). */
+/** Saring daftar pengajuan per tab, jenis, dan kata kunci (judul, pemohon, kode grup, nomor, perihal; per kata, tanpa aksen). */
 export function filterRequests(
   items: RequestSummary[],
   { tab, kind, query }: { tab: "queue" | "done"; kind: RequestKind | "all"; query: string },
@@ -72,7 +72,9 @@ export function filterRequests(
     .filter((r) => kind === "all" || r.kind === kind)
     .filter((r) => {
       if (!words.length) return true;
-      const hay = normalize([r.title, r.satker, r.letterNumber, r.subject, KIND_LABELS[r.kind]].join(" "));
+      const hay = normalize(
+        [r.title, r.applicant, r.groupCode, r.letterNumber, r.subject, KIND_LABELS[r.kind]].join(" "),
+      );
       return words.every((w) => hay.includes(w));
     })
     .sort((a, b) =>

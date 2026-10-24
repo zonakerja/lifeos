@@ -1,6 +1,7 @@
 import { plainToInstance, Transform } from "class-transformer";
 import {
   IsBoolean,
+  IsEmail,
   IsIn,
   IsInt,
   IsOptional,
@@ -158,6 +159,48 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   KNOWLEDGE_VAULTS_DIR?: string;
+
+  /**
+   * Bot WhatsApp (tahap 5 docs/AI-AGENT.md) lewat WhatsApp Business **Cloud API resmi** Meta. Kosong = bot hanya
+   * bisa dicoba lewat Simulator (Pengajuan → Percakapan WA). Semua lima nilai wajib diisi agar webhook aktif.
+   */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @Matches(/^\d{5,30}$/, { message: "WHATSAPP_PHONE_NUMBER_ID berupa angka (Meta → WhatsApp → API Setup)." })
+  WHATSAPP_PHONE_NUMBER_ID?: string;
+
+  /** Token akses permanen System User Meta (izin whatsapp_business_messaging). */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @IsString()
+  @MinLength(20)
+  WHATSAPP_ACCESS_TOKEN?: string;
+
+  /** App Secret aplikasi Meta — memverifikasi tanda tangan webhook (X-Hub-Signature-256). */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @IsString()
+  @MinLength(16)
+  WHATSAPP_APP_SECRET?: string;
+
+  /** Teks acak buatan sendiri yang juga diisi di Meta saat mendaftarkan webhook (verifikasi awal). */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @IsString()
+  @MinLength(16)
+  WHATSAPP_VERIFY_TOKEN?: string;
+
+  /** Akun LifeOS pemilik bot: basis pengetahuan, grup & kontak, AI, dan Antrian Pengajuannya yang dipakai. */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @IsEmail()
+  WHATSAPP_OWNER_EMAIL?: string;
+
+  @Matches(/^v\d+\.\d+$/, { message: "WHATSAPP_GRAPH_VERSION seperti v23.0" })
+  WHATSAPP_GRAPH_VERSION = "v23.0";
+
+  @Matches(/^https?:\/\/\S+$/)
+  WHATSAPP_API_URL = "https://graph.facebook.com";
 
   /** true bila API berada di belakang reverse proxy (nginx) agar IP klien asli terbaca (rate limit). */
   @Transform(({ value }) => value === true || ["true", "1"].includes(String(value).toLowerCase()))

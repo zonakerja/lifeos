@@ -22,7 +22,8 @@ otomatis untuk chatbot, agen dokumen, dan bot WhatsApp — tanpa perlu memberi i
 ## Aturan singkat
 1. Satu catatan = satu hal (satu peraturan, satu pasal, satu FAQ, satu kasus).
 2. Isi **properti** di kepala catatan (pakai templat di `90-Templat`): `jenis`, `status` (berlaku / draf / dicabut),
-   `publik` (boleh dijawab ke satker lewat WhatsApp), `diperbarui`.
+   `publik` (boleh dijawab ke semua pengguna bot WhatsApp), `grup` (opsional, mis. `grup: [KODE-GRUP]` — hanya untuk
+   anggota grup kontak itu), `diperbarui`.
 3. Hubungkan catatan dengan `[[Nama Catatan]]` — LifeOS memakai tautan ini untuk mengambil catatan terkait saat menjawab.
 4. Peraturan yang dicabut: ubah `status: dicabut` (jangan dihapus) — AI tidak lagi memakainya untuk menjawab.
 5. PDF peraturan boleh disimpan di vault (mis. di `10-Peraturan`); LifeOS mengekstrak & mengindeks isinya.

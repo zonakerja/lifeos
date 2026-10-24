@@ -40,6 +40,7 @@ export const TOOL_LABELS: Record<string, string> = {
   get_request: "Buka pengajuan",
   create_request: "Catat pengajuan",
   analyze_request: "Analisis pengajuan",
+  list_whatsapp_followups: "Pertanyaan WA perlu dijawab",
 };
 
 /** Ringkasan argumen untuk tabel log: "query: sewa · limit: 3". */

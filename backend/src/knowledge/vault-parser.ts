@@ -168,6 +168,8 @@ export interface KnowledgeMetadata {
   jenis?: string;
   status?: KnowledgeStatus;
   publik?: boolean;
+  /** Kode grup kontak yang boleh memakai catatan ini lewat bot (huruf besar), selain catatan publik */
+  grup?: string[];
   topik?: string[];
   tags?: string[];
   diperbarui?: string;
@@ -181,6 +183,10 @@ export function knowledgeMetadata(path: string, frontmatter: Record<string, unkn
   const status = noteStatus(path, frontmatter);
   if (status) meta.status = status;
   if (typeof frontmatter?.publik === "boolean") meta.publik = frontmatter.publik;
+  const grup = asList(frontmatter?.grup)
+    .map((code) => code.trim().toUpperCase())
+    .filter(Boolean);
+  if (grup.length) meta.grup = grup;
   const topik = asList(frontmatter?.topik);
   if (topik.length) meta.topik = topik;
   if (tags.length) meta.tags = tags;

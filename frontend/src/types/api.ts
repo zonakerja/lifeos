@@ -651,7 +651,7 @@ export interface NotebookUsage {
   assetId: string | null;
 }
 
-// ---------------------------------------------------------------- Pengajuan satker & Antrian Verifikasi
+// ---------------------------------------------------------------- Pengajuan & Antrian Verifikasi
 
 export type RequestKind = "psp" | "penghapusan" | "pemanfaatan" | "surat" | "lainnya";
 export type RequestStatus = "baru" | "diproses" | "menunggu_verifikasi" | "disetujui" | "dikirim" | "ditolak";
@@ -697,7 +697,10 @@ export interface RequestSummary {
   id: string;
   kind: RequestKind;
   title: string;
-  satker: string | null;
+  /** Nama pemohon (satker / instansi / perorangan) */
+  applicant: string | null;
+  /** Kode grup kontak pemohon */
+  groupCode: string | null;
   letterNumber: string | null;
   letterDate: string | null;
   subject: string | null;
@@ -710,7 +713,6 @@ export interface RequestSummary {
 }
 
 export interface RequestDetail extends RequestSummary {
-  satkerCode: string | null;
   message: string | null;
   notes: string | null;
   analysis: RequestAnalysis | null;
@@ -724,7 +726,8 @@ export interface RequestDetail extends RequestSummary {
 export interface RequestInput {
   kind: RequestKind;
   title: string;
-  satker?: string;
+  applicant?: string;
+  groupCode?: string;
   letterNumber?: string;
   letterDate?: string;
   subject?: string;
@@ -748,4 +751,96 @@ export interface RequestTemplateFields {
   templateName: string;
   tags: { name: string; srikandi: boolean }[];
   slots: { name: string; instruction: string }[];
+}
+
+// ---------------------------------------------------------------- Bot WhatsApp
+
+export interface WhatsappStatus {
+  /** Kredensial Meta lengkap di server */
+  configured: boolean;
+  ownerFound: boolean;
+  /** Bot sungguhan memakai akun ini (selain itu hanya simulator) */
+  isOwner: boolean;
+  webhookPath: string;
+  graphVersion: string;
+  contacts: number;
+  verified: number;
+  needsReply: number;
+}
+
+export type GroupKind = "satker" | "instansi" | "masyarakat" | "internal" | "lainnya";
+
+/** Grup kontak: menentukan data yang boleh diakses anggotanya lewat bot. */
+export interface ContactGroup {
+  id: string;
+  code: string;
+  name: string;
+  kind: GroupKind;
+  notes: string | null;
+  /** Anggota boleh mengirim berkas pengajuan */
+  allowRequests: boolean;
+  /** Anggota boleh melihat status pengajuan seluruh grup */
+  shareRequests: boolean;
+  _count: { contacts: number };
+}
+
+export interface ContactGroupInput {
+  code: string;
+  name: string;
+  kind?: GroupKind;
+  notes?: string;
+  allowRequests?: boolean;
+  shareRequests?: boolean;
+}
+
+export interface WaBotProfile {
+  serviceName: string;
+  topic: string;
+}
+
+export interface WaContact {
+  id: string;
+  phone: string;
+  name: string;
+  position: string | null;
+  groupId: string | null;
+  group: Pick<ContactGroup, "id" | "code" | "name" | "kind" | "allowRequests" | "shareRequests"> | null;
+  verified: boolean;
+  active: boolean;
+  notes: string | null;
+  lastInboundAt: string | null;
+}
+
+export interface WaContactInput {
+  phone: string;
+  name: string;
+  position?: string;
+  groupId?: string | null;
+  verified?: boolean;
+  active?: boolean;
+  notes?: string;
+}
+
+export type WaMessageStatus = "received" | "answered" | "needs_reply" | "ignored" | "sent" | "simulated" | "failed";
+
+export interface WaMessage {
+  id: string;
+  phone: string;
+  direction: "in" | "out";
+  text: string;
+  attachments: { uploadId?: string; mediaId?: string; name: string; mimeType: string }[];
+  status: WaMessageStatus;
+  intent: string | null;
+  requestId: string | null;
+  citations: { n: number; title: string; sourceType: string; sourceId: string }[] | null;
+  error: string | null;
+  simulated: boolean;
+  createdAt: string;
+}
+
+export interface WaConversation {
+  phone: string;
+  contact: WaContact | null;
+  lastMessage: { text: string; direction: "in" | "out"; createdAt: string; status: WaMessageStatus };
+  needsReply: number;
 }

@@ -366,7 +366,8 @@ function Section({
 function LetterSection({ request: r, onSave }: { request: RequestDetail; onSave: (input: RequestUpdate) => void }) {
   const [editing, setEditing] = useState(false);
   const rows: [string, ReactNode][] = [
-    ["Satker", r.satker],
+    ["Pemohon", r.applicant],
+    ["Kode grup", r.groupCode],
     ["Nomor surat", r.letterNumber],
     ["Tanggal surat", r.letterDate && formatShortDate(parseLocalYMD(r.letterDate))],
     ["Perihal", r.subject],
@@ -426,7 +427,7 @@ function LetterForm({
 }) {
   const [form, setForm] = useState(() => ({
     title: r.title,
-    satker: r.satker ?? "",
+    applicant: r.applicant ?? "",
     letterNumber: r.letterNumber ?? "",
     letterDate: r.letterDate ?? "",
     subject: r.subject ?? "",
@@ -442,8 +443,8 @@ function LetterForm({
         <Input id="edit-title" value={form.title} onChange={set("title")} />
       </div>
       <div className="grid gap-1">
-        <Label htmlFor="edit-satker">Satker</Label>
-        <Input id="edit-satker" value={form.satker} onChange={set("satker")} />
+        <Label htmlFor="edit-applicant">Pemohon</Label>
+        <Input id="edit-applicant" value={form.applicant} onChange={set("applicant")} />
       </div>
       <div className="grid gap-1">
         <Label htmlFor="edit-number">Nomor surat</Label>
@@ -475,7 +476,7 @@ function LetterForm({
           onClick={() =>
             onSave({
               title: form.title,
-              satker: form.satker,
+              applicant: form.applicant,
               letterNumber: form.letterNumber,
               letterDate: form.letterDate,
               subject: form.subject,

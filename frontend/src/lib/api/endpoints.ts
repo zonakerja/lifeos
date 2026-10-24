@@ -3,6 +3,14 @@ import { useAuthStore } from "@/stores/auth-store";
 import type {
   AddNotebookSourceInput,
   RequestDetail,
+  ContactGroup,
+  ContactGroupInput,
+  WaBotProfile,
+  WaContact,
+  WaContactInput,
+  WaConversation,
+  WaMessage,
+  WhatsappStatus,
   RequestDocument,
   RequestInput,
   RequestStatus,
@@ -378,4 +386,29 @@ export const requestsApi = {
     }),
   removeDocument: (id: string, uploadId: string) =>
     request<RequestDetail>(`/requests/${id}/documents/${uploadId}`, { method: "DELETE" }),
+};
+
+export const whatsappApi = {
+  status: () => request<WhatsappStatus>("/whatsapp/status"),
+  profile: () => request<WaBotProfile>("/whatsapp/profile"),
+  updateProfile: (input: Partial<WaBotProfile>) =>
+    request<WaBotProfile>("/whatsapp/profile", { method: "PUT", body: input }),
+  groups: () => request<ContactGroup[]>("/whatsapp/groups"),
+  createGroup: (input: ContactGroupInput) => request<ContactGroup>("/whatsapp/groups", { method: "POST", body: input }),
+  updateGroup: (id: string, input: Partial<ContactGroupInput>) =>
+    request<ContactGroup>(`/whatsapp/groups/${id}`, { method: "PATCH", body: input }),
+  removeGroup: (id: string) => request<{ success: boolean }>(`/whatsapp/groups/${id}`, { method: "DELETE" }),
+  contacts: () => request<WaContact[]>("/whatsapp/contacts"),
+  createContact: (input: WaContactInput) => request<WaContact>("/whatsapp/contacts", { method: "POST", body: input }),
+  updateContact: (id: string, input: Partial<WaContactInput>) =>
+    request<WaContact>(`/whatsapp/contacts/${id}`, { method: "PATCH", body: input }),
+  removeContact: (id: string) => request<{ success: boolean }>(`/whatsapp/contacts/${id}`, { method: "DELETE" }),
+  conversations: () => request<WaConversation[]>("/whatsapp/conversations"),
+  messages: (phone: string) => request<WaMessage[]>(`/whatsapp/conversations/${phone}`),
+  reply: (phone: string, input: { text: string; saveToInbox?: { title: string; question?: string } }) =>
+    request<WaMessage[]>(`/whatsapp/conversations/${phone}/reply`, { method: "POST", body: input }),
+  resolve: (phone: string) =>
+    request<{ resolved: number }>(`/whatsapp/conversations/${phone}/resolve`, { method: "POST" }),
+  simulate: (input: { phone: string; text?: string; uploadIds?: string[] }) =>
+    request<WaMessage>("/whatsapp/simulate", { method: "POST", body: input }),
 };

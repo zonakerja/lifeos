@@ -26,7 +26,7 @@ export const SCOPE_LABELS: Record<ApiScope, string> = {
   "workspace:read": "Baca data kerja (cari data, agenda, to-do & task)",
   "workspace:write": "Buat to-do",
   "ai:chat": "Tanya asisten LifeOS (memakai provider & kuota AI Anda)",
-  "requests:read": "Baca pengajuan satker & Antrian Verifikasi",
+  "requests:read": "Baca pengajuan & Antrian Verifikasi",
   "requests:write": "Catat pengajuan baru & jalankan analisis/telaah AI (persetujuan tetap oleh Anda)",
 };
 
