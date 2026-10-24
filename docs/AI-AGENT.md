@@ -1,6 +1,6 @@
 # AI Agent — Riset & Rencana Integrasi
 
-Status: **tahap 1 (fondasi pengetahuan) & tahap 2 (konektor Obsidian) selesai 2026-10-24 — hasil di §17**; rencana terkini §9–§16 (revisi 2026-10-24 §16: data SIMAN & MyIntress dari OnTrack, bukan robot LifeOS) (kajian RAG, Obsidian, Hermes vs OpenClaw,
+Status: **tahap 1, 2 & 3 (token akses + MCP) selesai 2026-10-24 — hasil di §17–§18**; rencana terkini §9–§16 (revisi 2026-10-24 §16: data SIMAN & MyIntress dari OnTrack, bukan robot LifeOS) (kajian RAG, Obsidian, Hermes vs OpenClaw,
 tiga pekerjaan yang didelegasikan, konektor SRIKANDI/SIMAN/e-Kinerja, tahapan & to-do revisi). §1–§8 = riset awal
 2026-10-17 (tetap berlaku sebagai latar; urutan tahap & to-do di §5–§7 digantikan §14–§15). Belum ada kode/infra yang
 diubah. Dokumen ini
@@ -709,3 +709,34 @@ chatbot, sitasi, Simpan ke Inbox, riwayat percakapan).
 → buka folder `infra/knowledge-vaults/Pengetahuan-BMN` di Obsidian (*Open folder as vault*) → mulai menulis;
 (2) isi Profil kerja; (3) Pengaturan → AI → **Indeks ulang** sekali (aturan pemotongan baru); (4) aktifkan billing
 Gemini untuk data kantor. Berikutnya: tahap 3 (token akses + MCP LifeOS).
+
+---
+
+## 18. Hasil 2026-10-24 (lanjutan): pembagian tugas AI + tahap 3 (token akses + MCP)
+
+User menerima semua rekomendasi (key yang dimiliki: **Gemini & OpenAI**) lalu lanjut tahap 3.
+
+**Pembagian tugas AI** (Pengaturan → AI → *Pembagian tugas AI*, kolom `users.ai_routing`):
+- **Chat & telaah** (asisten LifeOS, My Notebook chat & ringkasan), **Fitur AI lain** (ringkasan resource, Notes AI,
+  ikon, tulisan tangan, AI di ONLYOFFICE), **OCR** (gambar & PDF scan; urutan pilihan → Gemini → OpenAI → Claude, kuota
+  habis → provider berikutnya), **Embedding** (Gemini `gemini-embedding-2` atau OpenAI `text-embedding-3-small`, keduanya
+  768 dimensi → tanpa migrasi kolom; pencarian hanya membandingkan vektor model yang sama; ganti provider = indeks
+  dibangun ulang otomatis). Kosong = ikuti provider aktif / urutan bawaan. Cadangan otomatis tetap berlaku.
+- Saran untuk user (Gemini + OpenAI): provider aktif & Chat → **OpenAI** (kualitas tulisan & penalaran), Fitur AI lain →
+  Gemini Flash (hemat), OCR → otomatis (Gemini), Embedding → Gemini (sudah ada indeksnya) atau OpenAI bila data kantor
+  tidak boleh lewat Gemini gratis. Audio Notes AI selalu Gemini.
+- Tautan dua arah Pengaturan → AI (indeks = mesin untuk semua data) ↔ Tools → Basis Pengetahuan (isi yang dikurasi).
+
+**Tahap 3** ✅ (detail [ARCHITECTURE.md §3.7](ARCHITECTURE.md)):
+- Pengaturan → **Integrasi**: buat token (nama, izin, masa berlaku 30/90/365 hari/tanpa batas) → token tampil sekali +
+  contoh konfigurasi **Hermes** (`config.yaml` `mcp_servers`) dan **Claude Desktop/JSON**; daftar token (prefix, izin,
+  kedaluwarsa, terakhir dipakai, cabut); **Aktivitas agen** (50 pemanggilan terakhir).
+- MCP server `POST /api/v1/mcp` dengan 8 tools tersaring izin (lihat §3.7 ARCHITECTURE). Di produksi alamatnya
+  `https://<domain>/api/v1/mcp` (lewat Caddy, tanpa konfigurasi tambahan).
+- Diuji: unit (+4 routing, +4 token), skrip klien MCP resmi SDK (16 skenario: tools per izin, search/agenda/to-do,
+  rentang terlalu panjang ditolak, tool di luar izin tidak ada, tanpa token / JWT biasa / token dicabut → 401, log),
+  smoke (+19 JSON-RPC mentah: izin, isolasi token & to-do antar-user, log, cabut), UI (buat token, contoh konfigurasi,
+  MCP lewat proxy dev, cabut). Embedding OpenAI belum diuji dengan key sungguhan (akun dev hanya punya key Gemini).
+
+**Berikutnya**: tahap 4 (modul Pengajuan + mesin templat + Antrian Verifikasi + konsep jawaban surat) atau tahap 5
+(Hermes + WhatsApp, butuh VPS & domain). OnTrack akan menjadi server MCP kedua untuk agen (§16).

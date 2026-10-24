@@ -8,5 +8,6 @@ import { KnowledgeVaultService } from "./knowledge-vault.service";
   imports: [AiModule, UploadsModule],
   controllers: [KnowledgeController],
   providers: [KnowledgeVaultService],
+  exports: [KnowledgeVaultService],
 })
 export class KnowledgeModule {}

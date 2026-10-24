@@ -29,6 +29,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { AiIndexCard } from "@/features/settings/ai-index-card";
+import { AiRoutingCard } from "@/features/settings/ai-routing-card";
 import {
   useAiSettings,
   useRemoveAiProvider,
@@ -96,6 +97,8 @@ export function AiSettingsTab() {
             active={provider.id === data.activeProvider}
           />
         ))}
+
+        <AiRoutingCard settings={data} />
 
         <AiIndexCard settings={data} />
 

@@ -3,6 +3,7 @@ import { Type } from "class-transformer";
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   Max,
   Min,
@@ -12,6 +13,7 @@ import {
   MaxLength,
   MinLength,
   ValidateIf,
+  ValidateNested,
 } from "class-validator";
 import { AiProvider } from "../../generated/prisma/client";
 
@@ -32,7 +34,40 @@ export class SaveAiProviderDto {
   model?: string | null;
 }
 
+/** Pembagian tugas AI; null = kembali ke bawaan (provider aktif / urutan bawaan). Field yang tidak dikirim = tetap. */
+export class AiRoutingDto {
+  @ApiPropertyOptional({ enum: AiProvider, nullable: true, description: "Chat asisten LifeOS & My Notebook" })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsEnum(AiProvider, { message: "Provider AI tidak dikenal." })
+  chat?: AiProvider | null;
+
+  @ApiPropertyOptional({ enum: AiProvider, nullable: true, description: "Fitur AI lain (ringkasan, Notes AI, editor)" })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsEnum(AiProvider, { message: "Provider AI tidak dikenal." })
+  general?: AiProvider | null;
+
+  @ApiPropertyOptional({ enum: AiProvider, nullable: true, description: "Baca gambar & PDF hasil scan (OCR)" })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsEnum(AiProvider, { message: "Provider AI tidak dikenal." })
+  ocr?: AiProvider | null;
+
+  @ApiPropertyOptional({ enum: ["gemini", "openai"], nullable: true, description: "Embedding indeks pengetahuan" })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsIn(["gemini", "openai"], { message: "Embedding hanya Gemini atau OpenAI." })
+  embedding?: "gemini" | "openai" | null;
+}
+
 export class UpdateAiSettingsDto {
+  @ApiPropertyOptional({ type: AiRoutingDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AiRoutingDto)
+  routing?: AiRoutingDto;
+
   @ApiPropertyOptional({ enum: AiProvider, nullable: true, description: "null = matikan AI" })
   @IsOptional()
   @IsEnum(AiProvider, { message: "Provider AI tidak dikenal." })

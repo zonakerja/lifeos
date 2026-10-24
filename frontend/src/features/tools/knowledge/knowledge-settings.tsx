@@ -8,11 +8,13 @@ import {
   Network,
   RefreshCw,
   Save,
+  Settings2,
   ShieldAlert,
   Unplug,
   UserRoundCog,
 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { PaginationControl } from "@/components/common/pagination-control";
@@ -454,10 +456,16 @@ function GuideCard() {
       </ol>
       <p className="mt-3 flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
         <ShieldAlert className="mt-0.5 size-4 shrink-0" />
-        Isi pengetahuan & data kerja dikirim ke penyedia AI (embedding Gemini & provider aktif). Untuk data kantor pakai
-        API key berbayar (billing Google Cloud aktif): pada kuota gratis Gemini, Google boleh memakai data untuk
-        meningkatkan produk dan reviewer manusia dapat membacanya.
+        Isi pengetahuan & data kerja dikirim ke penyedia AI (embedding Gemini/OpenAI & provider chat). Untuk data kantor
+        bila memakai Gemini, pakai API key berbayar (billing Google Cloud aktif): pada kuota gratis Gemini, Google boleh
+        memakai data untuk meningkatkan produk dan reviewer manusia dapat membacanya.
       </p>
+      <Link
+        to="/settings/api"
+        className="mt-2 flex w-fit items-center gap-1 text-xs font-medium text-info underline-offset-2 hover:underline"
+      >
+        <Settings2 className="size-3.5" /> Mesin indeks, provider embedding & pembagian tugas AI: Pengaturan → AI
+      </Link>
     </SectionCard>
   );
 }

@@ -98,7 +98,7 @@ export class AiChatService {
       history,
       question: message,
     });
-    const result = await this.ai.generate(userId, prompt);
+    const result = await this.ai.generate(userId, prompt, [], "chat");
     const citations = chatCitations(result.text, sources);
 
     const conversation =

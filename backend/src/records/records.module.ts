@@ -9,5 +9,6 @@ import { RecordsService } from "./records.service";
   imports: [AiModule, SharingModule],
   controllers: [RecordsController, ArchiveAuditController],
   providers: [RecordsService],
+  exports: [RecordsService],
 })
 export class RecordsModule {}

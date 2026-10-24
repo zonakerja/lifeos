@@ -248,7 +248,10 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   stateless, Claude Messages streaming + `effort`/`fallbacks`, OpenAI Responses `store:false`). Kredensial di
   `ai_credentials` (terenkripsi, API hanya mengembalikan `keyHint`), provider aktif di `users.ai_provider`, sakelar
   **cadangan otomatis** `users.ai_fallback` (`ai-routing.ts`: lampiran tak didukung / kuota / tak terjangkau → provider
-  lain yang punya key; respons `fallback`). Error
+  lain yang punya key; respons `fallback`). **Pembagian tugas** `users.ai_routing` (jsonb; `ai-routing.ts` + test):
+  provider per tugas `chat` (asisten & My Notebook) / `general` (bawaan `generate`) / `ocr` (pilihan → Gemini → OpenAI
+  → Claude) / `embedding` (Gemini | OpenAI, `index/embedding.ts`, 768 dimensi; pencarian hanya vektor model sama; ganti
+  ⇒ indeks dibangun ulang); `generate(userId, prompt, files, task)`. Error
   provider → 429 (kuota) / 422 (lainnya) — **jangan** 401 atau ≥ 502 (lihat §15). Semua role boleh memakai AI.
 - **Indeks pengetahuan / RAG** (`src/ai/index/`, detail: `docs/ARCHITECTURE.md` §3.2): tabel `ai_chunks` (pgvector 768,
   `gemini-embedding-2` dengan key Gemini pemilik data; tanpa key → tanpa embedding, pencarian kata saja), antrian BullMQ
@@ -268,6 +271,12 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `knowledge_vault`, disembunyikan dari `GET /uploads`) + `knowledge_links` → indeks `sourceType = "obsidian"`; folder
   `00-Inbox` = draf (LifeOS hanya menulis di sini lewat `POST /knowledge/inbox`), `90-Templat` = tidak diindeks. Logika
   murni + test `vault-parser.ts`. Endpoint `/knowledge/status|folders|vault|vault/create|scan|notes|notes/:id|inbox`.
+- **Integrasi agen / MCP** (`src/integrations/`, detail `docs/ARCHITECTURE.md` §3.7): token akses pribadi `api_tokens`
+  (`lifeos_pat_…`, hash SHA-256, cakupan `knowledge:read|knowledge:write|workspace:read|workspace:write|ai:chat`,
+  kedaluwarsa; `/integrations/tokens|scopes|activity`) + **MCP server** `POST /api/v1/mcp` (Streamable HTTP stateless,
+  Bearer token — JWT login ditolak; tools disaring izin: search/read knowledge, inbox, search workspace, agenda, task
+  terbuka, buat to-do lewat `RecordsService`, tanya asisten) + log `agent_activity_logs`. Logika murni + test
+  `api-token-logic.ts`. Tool baru → `LifeosMcpService.createServer` (bungkus `run()` agar tercatat) + cakupan + smoke.
 - **Database**: tabel & kolom snake_case (`@@map/@map`), timestamptz(3), FK `users` cascade. 21 tabel domain
   (agenda_types, schedules, routines, todos, routine_completions, free_notes, ai_notes, note_lists, areas, projects,
   activities, tasks, resources, para_archives, para_archive_logs, archive_classifications, archive_retention_schedules,
@@ -290,7 +299,8 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `20261015120000_asset_versions` (versi berkas ONLYOFFICE) + `20261016120000_office_ai` (sakelar AI editor) +
   `20261016130000_asset_draft_link` (konsep ↔ dokumen final) + `20261018120000_sub_area_without_date` (Sub Area tanpa
   tanggal & lampiran) + `20261024120000_knowledge_base` (koleksi/metadata `ai_chunks`, `users.ai_profile` &
-  `knowledge_vault`, `ai_conversations`, `ai_messages`, `knowledge_notes`, `knowledge_links`). Migrasi baru → lihat docs/SETUP.md §10
+  `knowledge_vault`, `ai_conversations`, `ai_messages`, `knowledge_notes`, `knowledge_links`) +
+  `20261024130000_ai_routing` (`users.ai_routing`) + `20261024140000_api_tokens_mcp` (`api_tokens`, `agent_activity_logs`). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
@@ -403,7 +413,10 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   record → `recordSourcePath`); "Simpan ke Inbox" (`answerForInbox`: `[n]` → `[[judul]]`). **Tools → Basis Pengetahuan**
   (`features/tools/knowledge/knowledge-settings.tsx`, hook `data/use-knowledge.ts`): profil kerja, vault (pakai folder /
   buat dari templat / pindai / lepas, catatan bermasalah, tautan tak ditemukan), daftar catatan (`filterKnowledgeNotes`),
-  cara memakai + peringatan kuota gratis Gemini (juga di kartu indeks Pengaturan → AI).
+  cara memakai + peringatan kuota gratis Gemini (juga di kartu indeks Pengaturan → AI). Pengaturan → AI juga punya
+  kartu **Pembagian tugas AI** (`ai-routing-card.tsx`) & tautan dua arah Indeks ↔ Basis Pengetahuan. **Pengaturan →
+  Integrasi** (`integrations-tab.tsx`, hook `data/use-integrations.ts`, helper `integrations-utils.ts` + test): token
+  akses agen (dialog buat → token tampil sekali + contoh konfigurasi Hermes/JSON, cabut) + Aktivitas agen.
 - **Editor dengan simpan eksplisit** (mis. Notes AI): cegah perubahan hilang dengan `useBlocker` (React Router; abaikan
   navigasi yang disengaja lewat ref `leavingRef`) + listener `beforeunload` selama ada perubahan/proses berjalan, dan
   dialog Simpan / Buang / Batal. Editor tanpa proses berat (Catatan) cukup **simpan otomatis** lewat `setItems` — antrian
@@ -767,7 +780,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Deployment VPS (compose prod, Caddy HTTPS, batas memori, backup luar server terenkripsi + pemantauan) — diuji end-to-end lokal, termasuk pemulihan dari luar server | ✅ |
 | Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot npm/docker/docker-compose/actions) | ✅ |
 | Tech stack terbaru yang stabil (versi: `docs/ARCHITECTURE.md` §2.1) | ✅ |
-| `npm audit` | ✅ via overrides; sisa yang dipantau (belum ada patch / tidak masuk produksi): backend `deepmerge-ts` (tunggu Prisma) & `sprintf-js` (via `mammoth`), frontend `braces` (via CLI `shadcn`, risiko diterima) — `docs/UPGRADE-PLAN.md` §3 |
+| `npm audit` | ⚠️ advisory baru 2026-10-19–22 di backend: `body-parser` & `multer` (via NestJS/Express), `fast-uri` (via ajv) — perlu patch/override (thread pemeliharaan). ✅ via overrides; sisa yang dipantau (belum ada patch / tidak masuk produksi): backend `deepmerge-ts` (tunggu Prisma) & `sprintf-js` (via `mammoth`), frontend `braces` (via CLI `shadcn`, risiko diterima) — `docs/UPGRADE-PLAN.md` §3 |
 | Panduan setup awal / menyalakan / mematikan + aturan port (`docs/SETUP.md` §1–§6) | ✅ ditulis & diverifikasi 2026-10-11 dengan menjalankan §3 langkah 0–6 di laptop user (Node 24.21.0 arm64; login, unit test, smoke test lulus; `strictPort` terbukti menolak instance kedua) — laptop sudah ter-setup |
 | AI multi-provider di backend (Gemini/Claude/OpenAI, key terenkripsi, model bisa diganti user) | ✅ 2026-10-11 — unit + smoke + UI diuji; panggilan ke provider sungguhan menunggu API key user |
 | RAG tahap 1: ekstraksi PDF/DOCX/XLSX/OCR + indeks pgvector (Gemini embedding) + pencarian gabungan | ✅ 2026-10-11 — unit + smoke (record → indeks → cari → hapus) + embedding Gemini sungguhan di akun admin dev |
@@ -790,7 +803,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Layout lanjutan: popover notifikasi panjang bisa digulir (footer tidak tertimpa), judul Mode Fokus sesuai sesi | ✅ 2026-10-16 — lint, typecheck, unit test, build, UI diuji di browser (layar 768 & 460 px) |
 | Perbaikan Overview (proyek berjalan, tugas mendesak + terlambat, to-do & rutinitas hari ini bisa dicentang, status & Gabung agenda, label Indonesia, notifikasi tugas terlambat & baru dibagikan) | ✅ 2026-10-15 — unit test (`overview-logic.test.ts`: 9), lint, typecheck, build, UI diuji di browser (desktop + HP; centang rutinitas/todo/task, tambah agenda, popover notifikasi) |
 | Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); **tahap 3 ✅ 2026-10-16** (revisi user: AI satu pintu = tab AI bawaan ONLYOFFICE memakai provider & key Pengaturan → AI lewat proxy backend; templat diunggah di Tools; impor berkas saat Buat Dokumen; unit + smoke lulus, UI diuji termasuk Summarization dengan Gemini sungguhan) + **lanjutan ✅** (Tools per role, font diunggah admin + pemantau, tautan konsep ↔ dokumen final) + **tahap 4 produksi ✅ 2026-10-16** (compose profile `office`, Caddy `/office/`, smoke penuh lewat stack produksi lokal); berikutnya agen SRIKANDI & agen pembuat dokumen di Tools (teknologi dibahas user) |
-| Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🚧 riset (2026-10-17/18, revisi OnTrack 2026-10-24; `docs/AI-AGENT.md` §9–§16, keputusan AG-18…AG-20 ✅, AG-21 ditunda) + **tahap 1 fondasi pengetahuan ✅ & tahap 2 konektor Obsidian ✅ 2026-10-24** (`POST /ai/chat` RAG + riwayat + sitasi, koleksi/metadata indeks, pemotongan per BAB/Pasal, profil kerja, vault Obsidian + graf tautan + Inbox, Tools → Basis Pengetahuan; unit backend +22 & frontend +7, smoke +20, skrip API vault 15/15, chat Gemini sungguhan, UI desktop & HP). Berikutnya tahap 3 (token akses + MCP LifeOS) |
+| Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🚧 riset (2026-10-17/18, revisi OnTrack 2026-10-24; `docs/AI-AGENT.md` §9–§16, keputusan AG-18…AG-20 ✅, AG-21 ditunda) + **tahap 1 fondasi pengetahuan ✅ & tahap 2 konektor Obsidian ✅ 2026-10-24** (`POST /ai/chat` RAG + riwayat + sitasi, koleksi/metadata indeks, pemotongan per BAB/Pasal, profil kerja, vault Obsidian + graf tautan + Inbox, Tools → Basis Pengetahuan; unit backend +22 & frontend +7, smoke +20, skrip API vault 15/15, chat Gemini sungguhan, UI desktop & HP). **Pembagian tugas AI + embedding OpenAI + OCR multi-provider ✅** dan **tahap 3 token akses + MCP server ✅ 2026-10-24** (unit +8, klien MCP SDK 16/16, smoke +19, UI; embedding OpenAI belum diuji dengan key sungguhan). Berikutnya tahap 4 (Pengajuan + mesin templat) / tahap 5 (Hermes + WhatsApp) |
 | Productivity lanjutan: modal Project/Area lega, kartu ringkas, File Control opt-in, tag bebas Resource Global & lampiran | ✅ 2026-10-12–15 — unit test, lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Audit celah Productivity (8 temuan + 2 temuan saat uji): arsip yang sudah diberkaskan dikunci dari tab Resources, sumber My Notebook dilindungi di dialog hapus, item Area berlampiran & berdeskripsi, ubah lampiran, agenda berulang digabung per seri, form Area di-`key`, tag terhapus tidak kembali, filter & Kelola Tag, tag Musnah/Statis terkunci, tanggal bawaan lokal | ✅ 2026-10-18 — unit test (frontend 190+), lint, typecheck, build, UI diuji di browser dengan data `UJI-AUDIT` (dibersihkan) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
@@ -1291,6 +1304,16 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   lagi; folder uji smoke menumpuk → satu folder `smoke-vault` dipakai ulang; Markdown menggabung baris tunggal → tampilan
   catatan mempertahankan ganti baris seperti Obsidian. Belum: embedding selain Gemini, reranking, uji pengetahuan, memori
   usulan AI.
+- 2026-10-24 — **Pembagian tugas AI + tahap 3** (user menerima semua rekomendasi; key yang dimiliki: Gemini & OpenAI).
+  Desain: satu kolom jsonb `users.ai_routing` (bukan tabel) karena hanya 4 pilihan; embedding OpenAI dipotong ke 768
+  dimensi (`dimensions`) agar kolom vektor & indeks HNSW tetap — model dicatat per potongan dan pencarian difilter per
+  model. OCR mencoba provider lain saat kuota/tak terjangkau; kode alasan lama `needs_gemini_key` dipertahankan (sudah
+  tersimpan di data). MCP: token akses pribadi (bukan JWT login) agar bisa dicabut & dibatasi; MCP stateless (server per
+  permintaan) karena tidak butuh sesi dan lebih sederhana di belakang Caddy; tools disaring per cakupan (agen tidak
+  melihat tool di luar izin); semua aksi lewat service aplikasi sehingga isolasi/berbagi/audit tetap berlaku. Paket baru:
+  `@modelcontextprotocol/sdk` 1.32.1 (dipilih atas 1.32.2 yang baru rilis sehari) + `zod` 4. Ditemukan saat audit: advisory
+  baru `body-parser`, `multer` (via NestJS/Express) & `fast-uri` (via ajv) diumumkan 19–22 Okt — ditangani terpisah
+  (pemeliharaan dependensi), bukan di thread ini.
 - 2026-10-24 — **CI merah setelah push** (laporan user): (1) `format:check` frontend gagal di `main` dan semua PR Dependabot
   — `notebook-utils.test.ts` belum diformat Prettier → diformat; (2) Dependabot docker-compose error sejak service
   ONLYOFFICE dev memakai `image: lifeos-onlyoffice:10.0` (dicari di Docker Hub) → tag lewat variabel
@@ -1392,6 +1415,12 @@ Mengganti model/dimensi embedding = migrasi kolom `vector(N)` + indeks HNSW baru
 + `metadata` di `AiIndexService` (`loadSource` & `loadAllSources`), jenis pemotongan di `chunkSource`, label sumber di
 `ai-index-card.tsx` & `citationTarget` (`knowledge-utils.ts`) agar sitasi bisa dibuka. Aturan menjawab / bagian prompt →
 `buildAssistantPrompt` (+ test). Status yang tidak boleh dipakai menjawab → `EXCLUDED_STATUSES`.
+
+**Menambah tool MCP** (agen AI): tool baru di `LifeosMcpService.createServer` (`src/integrations/lifeos-mcp.service.ts`)
+di dalam blok cakupan yang sesuai (`can("…")`), handler dibungkus `run(nama, …)` agar tercatat di log aktivitas, input
+dengan zod (batasi panjang/rentang), aksi lewat service aplikasi (jangan query langsung yang melewati isolasi/berbagi).
+Cakupan baru → `API_SCOPES` + `SCOPE_LABELS` (backend) & `SCOPE_SHORT` (frontend `integrations-tab.tsx`); label log di
+`TOOL_LABELS`. Tambah skenario smoke (JSON-RPC `tools/call`).
 
 **Menambah dependensi npm**: pilih paket dengan prebuilt arm64/pure JS; paket berat → import dinamis agar chunk
 utama tetap < 500 kB (cek output `npm run build`).
@@ -1556,6 +1585,11 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Toast sonner dengan `action` tertutup sendiri setelah beberapa detik — saat uji lewat `javascript_tool`, klik tombol
   aksinya segera setelah toast muncul.
 
+- MCP SDK di proyek CommonJS: impor lewat subpath ber-`.js` (`@modelcontextprotocol/sdk/server/mcp.js`,
+  `…/server/streamableHttp.js`) — paket memetakan `require` ke `dist/cjs`. Mode stateless butuh `sessionIdGenerator:
+  undefined` + server & transport baru per permintaan; tutup keduanya saat `res` `close`. Klien MCP wajib mengirim
+  `Accept: application/json, text/event-stream`. Uji cepat: `@modelcontextprotocol/sdk/client` (`Client` +
+  `StreamableHTTPClientTransport` dengan header Authorization).
 - **Dependabot docker-compose gagal** ("The updater encountered one or more errors") bila compose memuat image buatan
   sendiri dengan tag versi biasa (mis. `lifeos-onlyoffice:10.0`): Dependabot mencarinya di Docker Hub. Image lokal wajib
   memakai tag variabel (`lifeos-x:${VAR:-10.0}`) + aturan `ignore: lifeos-*` di `.github/dependabot.yml`.

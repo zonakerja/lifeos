@@ -92,6 +92,8 @@ model User {
   aiIndexEnabled Boolean     @default(true) @map("ai_index_enabled")
   // AI di editor ONLYOFFICE (tab AI memakai provider & key LifeOS); default mati agar isi dokumen tidak terkirim tanpa disadari
   officeAi       Boolean     @default(false) @map("office_ai")
+  // Pembagian tugas AI: { chat, general, ocr: provider; embedding: gemini|openai } — kosong = ikuti provider aktif
+  aiRouting      Json?       @map("ai_routing")
   // Profil kerja & instruksi tetap yang selalu ikut di chat AI (jabatan, unit, istilah, gaya, aturan menjawab)
   aiProfile      String?     @map("ai_profile")
   // Nama folder vault Obsidian milik user di dalam KNOWLEDGE_VAULTS_DIR (basis pengetahuan)
@@ -128,13 +130,15 @@ model User {
 
   // </generated:user-relations>
   archiveAuditLogs ArchiveAuditLog[]
-  sharesOwned      Share[]           @relation("SharesOwned")
-  sharesReceived   Share[]           @relation("SharesReceived")
-  commentsOnOwned  RecordComment[]   @relation("CommentsOnOwned")
-  commentsAuthored RecordComment[]   @relation("CommentsAuthored")
+  sharesOwned      Share[]            @relation("SharesOwned")
+  sharesReceived   Share[]            @relation("SharesReceived")
+  commentsOnOwned  RecordComment[]    @relation("CommentsOnOwned")
+  commentsAuthored RecordComment[]    @relation("CommentsAuthored")
   notebooks        Notebook[]
   aiConversations  AiConversation[]
   knowledgeNotes   KnowledgeNote[]
+  apiTokens        ApiToken[]
+  agentActivity    AgentActivityLog[]
 
   @@map("users")
 }
@@ -1059,3 +1063,47 @@ model ArchiveMoveLog {
 }
 
 // </generated:domain-models>
+
+// ---------------------------------------------------------------- Integrasi agen (token akses pribadi + MCP)
+
+/// Token akses pribadi untuk program luar (agen AI via MCP). Hanya hash yang disimpan; token utuh tampil sekali.
+model ApiToken {
+  id         String             @id @default(cuid())
+  userId     String             @map("user_id")
+  name       String
+  /// SHA-256 token utuh
+  tokenHash  String             @unique @map("token_hash")
+  /// Awal token untuk dikenali user (mis. "lifeos_pat_ab12")
+  prefix     String
+  /// Cakupan izin: knowledge:read | knowledge:write | workspace:read | workspace:write | ai:chat
+  scopes     Json
+  expiresAt  DateTime?          @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt DateTime?          @map("last_used_at") @db.Timestamptz(3)
+  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity   AgentActivityLog[]
+
+  @@index([userId])
+  @@map("api_tokens")
+}
+
+/// Jejak setiap pemanggilan tool oleh agen (MCP) atas nama user.
+model AgentActivityLog {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenId   String?   @map("token_id")
+  /// Nama token saat dipanggil (tetap terbaca walau token dicabut)
+  tokenName String    @map("token_name")
+  tool      String
+  /// Ringkasan argumen (teks panjang dipotong)
+  input     Json?
+  /// ok | error
+  status    String
+  message   String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     ApiToken? @relation(fields: [tokenId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@map("agent_activity_logs")
+}

@@ -13,6 +13,6 @@ import { AiIndexService } from "./index/ai-index.service";
   imports: [forwardRef(() => ExtractionModule)],
   controllers: [AiController, AiChatController],
   providers: [AiService, AiIndexQueueService, AiIndexService, AiIndexWorkerService, AiChatService],
-  exports: [AiService, AiIndexQueueService, AiIndexService],
+  exports: [AiService, AiIndexQueueService, AiIndexService, AiChatService],
 })
 export class AiModule {}

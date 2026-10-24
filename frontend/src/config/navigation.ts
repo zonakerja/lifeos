@@ -19,6 +19,7 @@ import {
   ListChecks,
   NotebookPen,
   Package,
+  Plug,
   Settings,
   Settings2,
   Share2,
@@ -141,7 +142,7 @@ export const MODULES: ModuleDef[] = [
   {
     key: "settings",
     label: "Pengaturan",
-    description: "Branding aplikasi, pengguna, berbagi, dan API key AI.",
+    description: "Branding aplikasi, pengguna, berbagi, API key AI, dan integrasi agen AI.",
     path: "/settings",
     icon: Settings,
     sidebarSubmenu: true,
@@ -151,6 +152,7 @@ export const MODULES: ModuleDef[] = [
       { id: "users", label: "Manajemen User", icon: Users, roles: ["super_admin", "admin"] },
       { id: "sharing", label: "Berbagi", icon: Share2 },
       { id: "api", label: "AI", icon: Sparkles },
+      { id: "integrations", label: "Integrasi", icon: Plug },
     ],
   },
   {

@@ -2,6 +2,10 @@ import { apiUrl, request } from "@/lib/api/client";
 import { useAuthStore } from "@/stores/auth-store";
 import type {
   AddNotebookSourceInput,
+  AgentActivity,
+  ApiScope,
+  ApiTokenInfo,
+  CreatedApiToken,
   AiChatMessage,
   AiChatResult,
   AiConversation,
@@ -31,6 +35,7 @@ import type {
   AiIndexStatus,
   AiSearchHit,
   AiProviderId,
+  AiRouting,
   AiSettings,
   ApiRecord,
   AppSettings,
@@ -238,8 +243,12 @@ export const officeApi = {
 
 export const aiApi = {
   settings: () => request<AiSettings>("/ai/settings"),
-  update: (input: { activeProvider?: AiProviderId | null; fallbackEnabled?: boolean; indexEnabled?: boolean }) =>
-    request<AiSettings>("/ai/settings", { method: "PATCH", body: input }),
+  update: (input: {
+    activeProvider?: AiProviderId | null;
+    fallbackEnabled?: boolean;
+    indexEnabled?: boolean;
+    routing?: AiRouting;
+  }) => request<AiSettings>("/ai/settings", { method: "PATCH", body: input }),
   /** `apiKey` kosong = pertahankan key tersimpan; `model` null = model default provider. */
   saveProvider: (provider: AiProviderId, input: { apiKey?: string; model?: string | null }) =>
     request<AiSettings>(`/ai/settings/${provider}`, { method: "PUT", body: input }),
@@ -270,6 +279,16 @@ export const aiChatApi = {
   profile: () => request<{ profile: string | null }>("/ai/profile"),
   saveProfile: (profile: string | null) =>
     request<{ profile: string | null }>("/ai/profile", { method: "PUT", body: { profile } }),
+};
+
+/** Pengaturan → Integrasi: token akses pribadi untuk agen AI (MCP) + log aktivitas agen. */
+export const integrationsApi = {
+  scopes: () => request<{ id: ApiScope; label: string }[]>("/integrations/scopes"),
+  tokens: () => request<ApiTokenInfo[]>("/integrations/tokens"),
+  createToken: (input: { name: string; scopes: ApiScope[]; expiresInDays: number | null }) =>
+    request<CreatedApiToken>("/integrations/tokens", { method: "POST", body: input }),
+  revokeToken: (id: string) => request<{ success: boolean }>(`/integrations/tokens/${id}`, { method: "DELETE" }),
+  activity: (take = 50) => request<AgentActivity[]>("/integrations/activity", { query: { take } }),
 };
 
 /** Basis pengetahuan: vault Obsidian milik user (Tools → Basis Pengetahuan). */

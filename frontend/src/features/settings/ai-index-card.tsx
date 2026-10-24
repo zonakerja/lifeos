@@ -1,5 +1,6 @@
-import { AlertTriangle, DatabaseZap, FileSearch, RefreshCw, Search, ShieldAlert } from "lucide-react";
+import { AlertTriangle, DatabaseZap, FileSearch, Library, RefreshCw, Search, ShieldAlert } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,7 +74,8 @@ export function AiIndexCard({ settings }: { settings: AiSettings }) {
     if (query.trim()) search.mutate(query.trim());
   };
 
-  const gemini = settings.providers.find((p) => p.id === "gemini");
+  const embeddingLabel =
+    settings.providers.find((p) => p.id === status?.embeddingProvider)?.label ?? "Gemini / OpenAI (belum ada key)";
   const busy = !!status?.pendingJobs;
 
   return (
@@ -84,11 +86,18 @@ export function AiIndexCard({ settings }: { settings: AiSettings }) {
             <DatabaseZap className="size-4" /> Indeks pengetahuan (RAG)
           </label>
           <p className="text-xs text-muted-foreground">
-            Catatan, agenda, task, project, resource, arsip, catatan vault Obsidian (Tools → Basis Pengetahuan), dan isi
-            berkas (PDF, DOCX, XLSX; gambar & PDF hasil scan dibaca Gemini) dipotong dan di-embed dengan{" "}
-            <b>Google Gemini</b> ({status?.model ?? "gemini-embedding-2"}) memakai API key Gemini Anda, agar AI bisa
-            mencari di seluruh data Anda. Matikan bila data tidak boleh dikirim ke Google — indeks langsung dihapus.
+            <b>Mesin pencari</b> untuk semua fitur AI: catatan, agenda, task, project, resource, arsip, isi berkas (PDF,
+            DOCX, XLSX; gambar & PDF scan dibaca lewat OCR) <b>dan</b> isi Basis Pengetahuan (vault Obsidian) dipotong
+            lalu di-embed dengan <b>{embeddingLabel}</b>
+            {status?.model ? ` (${status.model})` : ""} memakai API key Anda, agar AI bisa mencari berdasarkan makna.
+            Matikan bila data tidak boleh dikirim ke penyedia AI — indeks langsung dihapus.
           </p>
+          <Link
+            to="/tools/knowledge"
+            className="flex w-fit items-center gap-1 text-xs font-medium text-info underline-offset-2 hover:underline"
+          >
+            <Library className="size-3.5" /> Isi pengetahuan yang Anda kurasi diatur di Tools → Basis Pengetahuan
+          </Link>
         </div>
         <Switch
           id="ai-index"
@@ -100,7 +109,7 @@ export function AiIndexCard({ settings }: { settings: AiSettings }) {
 
       {settings.indexEnabled && status && (
         <>
-          {status.embeddingAvailable && (
+          {status.embeddingProvider === "gemini" && (
             <div className="flex items-start gap-2 rounded-xl bg-warning/10 p-3 text-xs text-warning">
               <ShieldAlert className="mt-0.5 size-4 shrink-0" />
               <p>
@@ -114,9 +123,9 @@ export function AiIndexCard({ settings }: { settings: AiSettings }) {
             <div className="flex items-start gap-2 rounded-xl bg-warning/10 p-3 text-xs text-warning">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <p>
-                Tanpa API key <b>{gemini?.label ?? "Google Gemini"}</b>, indeks hanya mendukung pencarian kata persis
-                (data tidak dikirim ke mana pun). Simpan key Gemini di atas agar AI juga bisa mencari berdasarkan makna
-                — embedding dilengkapi otomatis.
+                Tanpa API key <b>Google Gemini</b> atau <b>OpenAI</b>, indeks hanya mendukung pencarian kata persis
+                (data tidak dikirim ke mana pun). Simpan salah satu key di atas agar AI juga bisa mencari berdasarkan
+                makna — embedding dilengkapi otomatis.
               </p>
             </div>
           )}

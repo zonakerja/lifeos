@@ -7,11 +7,22 @@ import {
   UnprocessableEntityException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { AiCredential, AiProvider } from "../generated/prisma/client";
+import { AiCredential, AiProvider, Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AiCrypto, keyHint } from "./ai-crypto";
 import { AI_PROVIDER_IDS, AI_PROVIDERS, type AttachmentKind, attachmentKind } from "./ai-providers";
-import { isFallbackError, providerCandidates } from "./ai-routing";
+import {
+  type AiRouting,
+  type AiTask,
+  type EmbeddingProvider,
+  embeddingProvider,
+  isFallbackError,
+  ocrCandidates,
+  parseRouting,
+  providerCandidates,
+  taskProvider,
+} from "./ai-routing";
+import { EMBEDDING_MODELS } from "./index/embedding";
 import { SaveAiProviderDto, UpdateAiSettingsDto } from "./dto/ai.dto";
 import { AiIndexQueueService } from "./index/ai-index-queue.service";
 import { type AiAttachment, type AiClient, AiProviderError } from "./providers/ai-client";
@@ -43,6 +54,13 @@ export interface AiFile {
   buffer: Buffer;
 }
 
+/** Key & model embedding yang dipakai indeks pengetahuan user. */
+export interface EmbeddingCredential {
+  provider: EmbeddingProvider;
+  apiKey: string;
+  model: string;
+}
+
 /** Alasan jawaban diberikan oleh provider selain provider aktif. */
 export type AiFallbackReason = "attachment" | "quota" | "unavailable" | "credential";
 
@@ -65,14 +83,24 @@ export class AiService {
     const [user, credentials] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
-        select: { aiProvider: true, aiFallback: true, aiIndexEnabled: true },
+        select: { aiProvider: true, aiFallback: true, aiIndexEnabled: true, aiRouting: true },
       }),
       this.prisma.aiCredential.findMany({ where: { userId } }),
     ]);
+    const routing = parseRouting(user.aiRouting);
+    const configured = credentials.map((c) => c.provider);
     return {
       activeProvider: user.aiProvider,
       fallbackEnabled: user.aiFallback,
       indexEnabled: user.aiIndexEnabled,
+      routing,
+      /** Provider yang benar-benar dipakai per tugas (pilihan + key yang tersedia) */
+      effective: {
+        chat: taskProvider(routing, "chat", user.aiProvider, configured),
+        general: taskProvider(routing, "general", user.aiProvider, configured),
+        ocr: ocrCandidates(routing, configured, "pdf")[0] ?? null,
+        embedding: embeddingProvider(routing, configured),
+      },
       providers: AI_PROVIDER_IDS.map((id) => {
         const info = AI_PROVIDERS[id];
         const credential = credentials.find((c) => c.provider === id);
@@ -101,13 +129,18 @@ export class AiService {
     });
     // Provider pertama yang dikonfigurasi langsung aktif
     await this.prisma.user.updateMany({ where: { id: userId, aiProvider: null }, data: { aiProvider: provider } });
-    // Embedding indeks pengetahuan memakai key Gemini: key baru → indeks dibangun (ulang)
-    if (provider === AiProvider.gemini && apiKey) await this.indexQueue.enqueueRebuild(userId);
+    // Key baru milik provider embedding yang dipakai → indeks dibangun (ulang) dengan embedding baru
+    if (apiKey && (await this.embeddingCredential(userId))?.provider === (provider as string)) {
+      await this.indexQueue.enqueueRebuild(userId);
+    }
     return this.getSettings(userId);
   }
 
   async removeProvider(userId: string, provider: AiProvider) {
+    const embeddingBefore = (await this.embeddingCredential(userId))?.provider;
     await this.prisma.aiCredential.deleteMany({ where: { userId, provider } });
+    // Key embedding dihapus → indeks dibangun ulang dengan provider embedding berikutnya (atau tanpa embedding)
+    if (embeddingBefore === (provider as string)) await this.indexQueue.enqueueRebuild(userId);
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { aiProvider: true } });
     if (user.aiProvider === provider) {
       // Pindah ke provider lain yang masih punya key, atau matikan AI
@@ -117,23 +150,44 @@ export class AiService {
     return this.getSettings(userId);
   }
 
-  /** Ganti provider aktif, sakelar cadangan otomatis, dan/atau sakelar indeks pengetahuan. */
+  /** Ganti provider aktif, sakelar cadangan otomatis, sakelar indeks pengetahuan, dan/atau pembagian tugas AI. */
   async updateSettings(userId: string, dto: UpdateAiSettingsDto) {
     const provider = dto.activeProvider;
     if (provider && !(await this.findCredential(userId, provider))) {
       throw new BadRequestException(`Simpan API key ${AI_PROVIDERS[provider].label} terlebih dahulu.`);
     }
+    const current = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { aiRouting: true } });
+    let routing: AiRouting | undefined;
+    if (dto.routing) {
+      // null / kosong = kembali ke bawaan; pilihan provider harus sudah punya key
+      routing = { ...parseRouting(current.aiRouting) };
+      for (const [task, value] of Object.entries(dto.routing) as [keyof AiRouting, string | null | undefined][]) {
+        if (value === undefined) continue;
+        if (value === null || value === "") delete routing[task];
+        else {
+          if (!(await this.findCredential(userId, value as AiProvider))) {
+            throw new BadRequestException(`Simpan API key ${AI_PROVIDERS[value as AiProvider].label} terlebih dahulu.`);
+          }
+          (routing as Record<string, string>)[task] = value;
+        }
+      }
+    }
+    const embeddingBefore = routing ? (await this.embeddingCredential(userId))?.provider : undefined;
     await this.prisma.user.update({
       where: { id: userId },
       data: {
         ...(provider !== undefined ? { aiProvider: provider } : {}),
         ...(dto.fallbackEnabled !== undefined ? { aiFallback: dto.fallbackEnabled } : {}),
         ...(dto.indexEnabled !== undefined ? { aiIndexEnabled: dto.indexEnabled } : {}),
+        ...(routing
+          ? { aiRouting: Object.keys(routing).length ? (routing as Prisma.InputJsonValue) : Prisma.DbNull }
+          : {}),
       },
     });
-    // Dimatikan → indeks dihapus; dinyalakan → dibangun dari awal
+    // Dimatikan → indeks dihapus; dinyalakan / provider embedding berganti → dibangun dari awal
     if (dto.indexEnabled === false) await this.indexQueue.enqueuePurge(userId);
-    if (dto.indexEnabled === true) await this.indexQueue.enqueueRebuild(userId);
+    const embeddingChanged = routing && (await this.embeddingCredential(userId))?.provider !== embeddingBefore;
+    if (dto.indexEnabled === true || embeddingChanged) await this.indexQueue.enqueueRebuild(userId);
     return this.getSettings(userId);
   }
 
@@ -169,19 +223,49 @@ export class AiService {
     }
   }
 
+  /** Key & model embedding indeks (Gemini atau OpenAI sesuai pembagian tugas); null = pencarian kata saja. */
+  async embeddingCredential(userId: string): Promise<EmbeddingCredential | null> {
+    const [user, credentials] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId }, select: { aiRouting: true } }),
+      this.prisma.aiCredential.findMany({ where: { userId }, select: { provider: true } }),
+    ]);
+    const provider = embeddingProvider(
+      parseRouting(user?.aiRouting),
+      credentials.map((c) => c.provider),
+    );
+    if (!provider) return null;
+    const credential = await this.getCredentialKey(userId, provider as AiProvider);
+    return credential ? { provider, apiKey: credential.apiKey, model: EMBEDDING_MODELS[provider] } : null;
+  }
+
   /**
-   * Baca teks dari gambar / PDF hasil scan memakai Gemini milik pemilik berkas. Null bila user tidak punya key Gemini
-   * (berkas tetap tersimpan, hanya tidak terindeks). Error provider dilempar sebagai `AiProviderError`.
+   * Baca teks dari gambar / PDF hasil scan memakai provider OCR pemilik berkas (pilihan di Pengaturan → AI, lalu Gemini →
+   * OpenAI → Claude yang punya key). Kuota habis / tidak terjangkau → provider berikutnya. Null bila tidak ada key yang
+   * bisa membaca berkas (berkas tetap tersimpan, hanya tidak terindeks). Error provider dilempar sebagai `AiProviderError`.
    */
   async ocr(userId: string, data: Buffer, mimeType: string, name: string) {
-    const credential = await this.getCredentialKey(userId, AiProvider.gemini);
-    if (!credential) return null;
     const kind = mimeType === "application/pdf" ? "pdf" : "image";
-    return geminiClient({
-      ...credential,
-      prompt: OCR_PROMPT,
-      attachments: [{ kind, mimeType, name, data }],
-    });
+    const [user, credentials] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId }, select: { aiRouting: true } }),
+      this.prisma.aiCredential.findMany({ where: { userId } }),
+    ]);
+    const candidates = ocrCandidates(
+      parseRouting(user?.aiRouting),
+      credentials.map((c) => c.provider),
+      kind,
+    );
+    let firstError: unknown;
+    for (const [index, provider] of candidates.entries()) {
+      try {
+        const credential = credentials.find((c) => c.provider === provider)!;
+        return (await this.call(credential, OCR_PROMPT, [{ kind, mimeType, name, data }])).text;
+      } catch (error) {
+        firstError ??= error;
+        const last = index === candidates.length - 1;
+        if (last || !(error instanceof AiProviderError) || !isFallbackError(error.kind)) throw firstError;
+      }
+    }
+    return null;
   }
 
   // ---------------------------------------------------------------- Generate
@@ -191,12 +275,21 @@ export class AiService {
    * diproses provider lain yang mendukung, dan kuota habis / provider tidak terjangkau dialihkan ke provider berikutnya
    * yang punya key. `fallback` di respons menjelaskan pengalihan agar user tahu siapa yang menjawab.
    */
-  async generate(userId: string, prompt: string, files: AiFile[] = []) {
+  async generate(userId: string, prompt: string, files: AiFile[] = [], task: Exclude<AiTask, "ocr"> = "general") {
     const [user, credentials] = await Promise.all([
-      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { aiProvider: true, aiFallback: true } }),
+      this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { aiProvider: true, aiFallback: true, aiRouting: true },
+      }),
       this.prisma.aiCredential.findMany({ where: { userId } }),
     ]);
-    const active = user.aiProvider;
+    // Provider utama tugas ini (Pengaturan → AI → Pembagian tugas); kosong = provider aktif
+    const active = taskProvider(
+      parseRouting(user.aiRouting),
+      task,
+      user.aiProvider,
+      credentials.map((c) => c.provider),
+    );
     if (!active || !credentials.some((c) => c.provider === active)) {
       throw new BadRequestException("AI belum diatur. Pilih provider dan simpan API key di Pengaturan → AI.");
     }

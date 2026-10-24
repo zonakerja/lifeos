@@ -23,7 +23,7 @@ const UNREADABLE: Record<string, string> = {
   unsupported_type: "jenis berkas ini tidak bisa dibaca",
   too_large: "berkas lebih dari 20 MB",
   empty: "tidak ada teks yang terbaca",
-  needs_gemini_key: "gambar/scan butuh OCR Gemini",
+  needs_gemini_key: "gambar/scan butuh OCR (key Gemini/OpenAI)",
 };
 
 export interface PendingAttachment {

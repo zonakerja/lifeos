@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ModulePage } from "@/components/layout/module-page";
 import { AiSettingsTab } from "@/features/settings/ai-settings-tab";
+import { IntegrationsTab } from "@/features/settings/integrations-tab";
 import { AppTab } from "@/features/settings/app-tab";
 import { SharingTab } from "@/features/settings/sharing-tab";
 import { UsersTab } from "@/features/settings/users-tab";
@@ -10,6 +11,7 @@ const TABS: Record<string, () => ReactNode> = {
   users: () => <UsersTab />,
   sharing: () => <SharingTab />,
   api: () => <AiSettingsTab />,
+  integrations: () => <IntegrationsTab />,
 };
 
 export function Component() {

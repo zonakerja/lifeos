@@ -376,7 +376,13 @@ try {
   r = await j("GET", "/ai/index", null, at);
   ok(
     "ai index status",
-    r.s === 200 && r.d.enabled === true && r.d.model === "gemini-embedding-2" && typeof r.d.chunks === "number",
+    // User baru tanpa key Gemini/OpenAI: tanpa provider & model embedding (pencarian kata saja)
+    r.s === 200 &&
+      r.d.enabled === true &&
+      r.d.embeddingAvailable === false &&
+      r.d.embeddingProvider === null &&
+      r.d.model === null &&
+      typeof r.d.chunks === "number",
     r,
   );
   r = await j("PATCH", "/ai/settings", { indexEnabled: false }, at);
@@ -1352,6 +1358,83 @@ try {
   } else {
     console.log("SKIP knowledge vault (KNOWLEDGE_VAULTS_DIR tidak diatur)");
   }
+
+  // ---------------------------------------------------------------- Integrasi agen: token akses + MCP
+  const mcp = async (token, method, params = {}) => {
+    const res = await fetch(`${B}/mcp`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    return { s: res.status, d: await res.json().catch(() => null) };
+  };
+  r = await j("GET", "/integrations/scopes", null, at);
+  ok("integrations scopes", r.s === 200 && r.d.length === 5, r);
+  r = await j("POST", "/integrations/tokens", { name: "x", scopes: [] }, at);
+  ok("token without scopes 400", r.s === 400, r);
+  r = await j("POST", "/integrations/tokens", { name: "x", scopes: ["admin:all"] }, at);
+  ok("token unknown scope 400", r.s === 400, r);
+  r = await j(
+    "POST",
+    "/integrations/tokens",
+    { name: "Smoke agen", scopes: ["workspace:read", "workspace:write"], expiresInDays: 1 },
+    at,
+  );
+  ok("token create (plain token once)", r.s === 201 && r.d.token?.startsWith("lifeos_pat_") && r.d.expiresAt, r);
+  const pat = r.d.token;
+  const patId = r.d.id;
+  r = await j("GET", "/integrations/tokens", null, at);
+  ok("token list hides plain token", r.s === 200 && r.d.length === 1 && !("token" in r.d[0]), r);
+  r = await j("GET", "/integrations/tokens", null, pt);
+  ok("token list isolated per user", r.s === 200 && r.d.length === 0, r);
+  r = await j("DELETE", `/integrations/tokens/${patId}`, null, pt);
+  ok("revoke other user's token 404", r.s === 404, r);
+  r = await mcp(pat, "tools/list");
+  const toolNames = (r.d?.result?.tools ?? [])
+    .map((t) => t.name)
+    .sort()
+    .join(",");
+  ok(
+    "mcp tools/list filtered by scopes",
+    r.s === 200 && toolNames === "create_todo,list_agenda,list_open_tasks,search_workspace",
+    toolNames,
+  );
+  r = await mcp(pat, "tools/call", { name: "create_todo", arguments: { title: "Smoke MCP todo", date: "2026-10-25" } });
+  const mcpTodo = r.d?.result && !r.d.result.isError ? JSON.parse(r.d.result.content[0].text) : null;
+  ok("mcp create_todo", r.s === 200 && mcpTodo?.created === true, r.d);
+  r = await j("GET", "/records/todo", null, at);
+  ok(
+    "mcp todo stored as owner's record",
+    r.d?.some?.((t) => t.clientId === mcpTodo?.id && t.payload.date === "Sun Oct 25 2026"),
+    r.d?.length,
+  );
+  r = await j("GET", "/records/todo", null, pt);
+  ok("mcp todo not visible to other user", !r.d?.some?.((t) => t.clientId === mcpTodo?.id), r.d?.length);
+  r = await mcp(pat, "tools/call", { name: "search_knowledge", arguments: { query: "x" } });
+  ok("mcp tool outside scope rejected", r.s === 200 && (r.d?.error || r.d?.result?.isError), r.d);
+  r = await mcp(pat, "tools/call", { name: "list_agenda", arguments: { from: "bukan-tanggal" } });
+  ok("mcp invalid date → tool error", r.d?.result?.isError === true, r.d);
+  r = await j("GET", "/integrations/activity", null, at);
+  ok(
+    "agent activity logged",
+    r.s === 200 &&
+      r.d.some((a) => a.tool === "create_todo" && a.status === "ok") &&
+      r.d.some((a) => a.status === "error"),
+    r.d,
+  );
+  r = await mcp("lifeos_pat_" + "x".repeat(43), "tools/list");
+  ok("mcp unknown token 401", r.s === 401, r);
+  r = await mcp(at, "tools/list");
+  ok("mcp login JWT rejected 401", r.s === 401, r);
+  r = await j("DELETE", `/integrations/tokens/${patId}`, null, at);
+  ok("token revoke", r.s === 200, r);
+  r = await mcp(pat, "tools/list");
+  ok("mcp revoked token 401", r.s === 401, r);
+  if (mcpTodo?.id) await j("DELETE", `/records/todo/${mcpTodo.id}`, null, at);
 
   r = await j("POST", "/auth/change-password", { currentPassword: "salah", newPassword: "1234" }, pt);
   ok("change pw wrong 400", r.s === 400, r);

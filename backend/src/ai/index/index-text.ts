@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 import type { RecordType } from "../../records/record-schema";
 
-/** Model embedding (Gemini) dan dimensinya — harus sama dengan kolom `vector(768)` di `ai_chunks`. */
-export const EMBEDDING_MODEL = "gemini-embedding-2";
+/** Dimensi embedding (Gemini & OpenAI, lihat `embedding.ts`) — harus sama dengan kolom `vector(768)` di `ai_chunks`. */
 export const EMBEDDING_DIMENSIONS = 768;
 
 /** `sourceType` untuk isi berkas (asset); sumber lain memakai nama record type. */

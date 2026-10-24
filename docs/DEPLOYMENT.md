@@ -422,3 +422,11 @@ Anda (folder host); salinan juga ada di laptop/HP.
 
 Catatan: isi vault & data kerja dikirim ke penyedia AI (embedding Gemini & provider aktif) — untuk data kantor pakai
 API key berbayar (billing Google Cloud aktif).
+
+## 11. MCP server LifeOS untuk agen AI
+
+Agen AI (Hermes, Claude Desktop, n8n) terhubung ke `https://<APP_DOMAIN>/api/v1/mcp` dengan token akses pribadi dari
+**Pengaturan → Integrasi** (header `Authorization: Bearer lifeos_pat_…`). Tidak perlu konfigurasi Caddy tambahan (jalur
+`/api` sudah diteruskan ke backend). Bila agen berjalan di server yang sama dalam jaringan Docker, boleh memakai
+`http://backend:4000/api/v1/mcp`. Cabut token dari halaman yang sama bila agen tidak dipakai lagi; jejak pemanggilan ada
+di kartu **Aktivitas agen**.

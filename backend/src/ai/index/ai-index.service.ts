@@ -1,31 +1,28 @@
 import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import IORedis from "ioredis";
-import { AiProvider, AssetExtractionStatus, Prisma } from "../../generated/prisma/client";
+import { AssetExtractionStatus, Prisma } from "../../generated/prisma/client";
 import { ExtractionQueueService } from "../../extraction/extraction-queue.service";
 import { isExtractable, normalizeMimeType } from "../../extraction/text-extractors";
 import { PrismaService } from "../../prisma/prisma.service";
 import { DomainRow, rowToPayload } from "../../records/record-mapper";
 import { RECORD_TABLES, type RecordType, type TableSpec } from "../../records/record-schema";
 import { REDIS_CLIENT } from "../../redis/redis.module";
-import { AiService } from "../ai.service";
+import { AiService, type EmbeddingCredential } from "../ai.service";
 import { AiProviderError } from "../providers/ai-client";
 import { AiIndexQueueService } from "./ai-index-queue.service";
-import { embedTexts } from "./gemini-embedding";
+import { embedDocuments, embedQuery } from "./embedding";
 import { KNOWLEDGE_VAULT_CONTEXT } from "../../knowledge/knowledge-constants";
 import { knowledgeMetadata, noteIndexText, TEMPLATE_DIR } from "../../knowledge/vault-parser";
 import {
   ASSET_SOURCE,
   chunkSource,
-  documentEmbeddingText,
-  EMBEDDING_MODEL,
   hashText,
   INDEXED_TYPES,
   isIndexedType,
   KNOWLEDGE_COLLECTION,
   NOTEBOOK_SOURCE,
   OBSIDIAN_SOURCE,
-  queryEmbeddingText,
   reciprocalRankFusion,
   renderRecord,
   toVectorLiteral,
@@ -111,7 +108,7 @@ export class AiIndexService {
       await this.prisma.aiChunk.deleteMany({ where: { userId, sourceType, sourceId } });
       return;
     }
-    await this.indexDocuments(userId, await this.embeddingKey(userId), [doc]);
+    await this.indexDocuments(userId, await this.ai.embeddingCredential(userId), [doc]);
     await this.markSuccess(userId);
   }
 
@@ -119,7 +116,7 @@ export class AiIndexService {
   async rebuild(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { aiIndexEnabled: true } });
     if (!user?.aiIndexEnabled) return this.purge(userId);
-    const apiKey = await this.embeddingKey(userId);
+    const embedding = await this.ai.embeddingCredential(userId);
     await this.requeueUnextractedAssets(userId);
     const docs = await this.loadAllSources(userId);
 
@@ -135,7 +132,7 @@ export class AiIndexService {
     }
 
     for (let i = 0; i < docs.length; i += REBUILD_BATCH) {
-      await this.indexDocuments(userId, apiKey, docs.slice(i, i + REBUILD_BATCH));
+      await this.indexDocuments(userId, embedding, docs.slice(i, i + REBUILD_BATCH));
     }
     await this.markSuccess(userId);
     this.logger.log(`Indeks AI user ${userId} dibangun ulang (${docs.length} sumber).`);
@@ -175,7 +172,7 @@ export class AiIndexService {
    * potongan lama yang belum ber-embedding. Tanpa key: potongan disimpan tanpa embedding (`model = "none"`) sehingga
    * pencarian kata persis tetap jalan dan tidak ada data yang dikirim ke luar.
    */
-  private async indexDocuments(userId: string, apiKey: string | null, docs: SourceDocument[]) {
+  private async indexDocuments(userId: string, embedding: EmbeddingCredential | null, docs: SourceDocument[]) {
     const prepared = docs.map((doc) => {
       const chunks = chunkSource(doc.sourceType, doc.text);
       // Sumber tanpa isi (mis. hanya judul) tetap diindeks satu potongan berisi judul
@@ -195,14 +192,14 @@ export class AiIndexService {
         .sort((a, b) => a.chunkIndex - b.chunkIndex);
       return (
         current.length !== hashes.length ||
-        current.some((e, i) => e.contentHash !== hashes[i] || (apiKey !== null && e.model !== EMBEDDING_MODEL))
+        current.some((e, i) => e.contentHash !== hashes[i] || (embedding !== null && e.model !== embedding.model))
       );
     });
     if (changed.length === 0) return;
 
-    const texts = changed.flatMap(({ doc, contents }) => contents.map((c) => documentEmbeddingText(doc.title, c)));
-    const vectors = apiKey ? await embedTexts(apiKey, texts) : null;
-    const model = vectors ? EMBEDDING_MODEL : KEYWORD_ONLY_MODEL;
+    const texts = changed.flatMap(({ doc, contents }) => contents.map((content) => ({ title: doc.title, content })));
+    const vectors = embedding ? await embedDocuments(embedding.provider, embedding.apiKey, texts) : null;
+    const model = vectors && embedding ? embedding.model : KEYWORD_ONLY_MODEL;
 
     let offset = 0;
     for (const { doc, contents, hashes } of changed) {
@@ -366,14 +363,10 @@ export class AiIndexService {
     return (this.prisma as unknown as Record<string, FindManyDelegate>)[key];
   }
 
-  private async embeddingKey(userId: string) {
-    return (await this.ai.getCredentialKey(userId, AiProvider.gemini))?.apiKey ?? null;
-  }
-
   // ---------------------------------------------------------------- Status & pencarian
 
   async status(userId: string) {
-    const [user, counts, status, pending, hasKey] = await Promise.all([
+    const [user, counts, status, pending, embedding] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { aiIndexEnabled: true } }),
       this.prisma.$queryRaw<{ chunks: bigint; embedded: bigint; sources: bigint; last: Date | null }[]>`
         SELECT count(*) AS chunks, count(embedding) AS embedded, count(DISTINCT (source_type, source_id)) AS sources,
@@ -381,12 +374,13 @@ export class AiIndexService {
         FROM ai_chunks WHERE user_id = ${userId}`,
       this.redis.hgetall(statusKey(userId)),
       this.queue.pendingCount(),
-      this.ai.hasCredential(userId, AiProvider.gemini),
+      this.ai.embeddingCredential(userId),
     ]);
     return {
       enabled: user.aiIndexEnabled,
-      embeddingAvailable: hasKey,
-      model: EMBEDDING_MODEL,
+      embeddingAvailable: !!embedding,
+      embeddingProvider: embedding?.provider ?? null,
+      model: embedding?.model ?? null,
       sources: Number(counts[0]?.sources ?? 0),
       chunks: Number(counts[0]?.chunks ?? 0),
       embeddedChunks: Number(counts[0]?.embedded ?? 0),
@@ -399,7 +393,7 @@ export class AiIndexService {
 
   /**
    * Pencarian gabungan: kemiripan makna (pgvector, cosine) + kata persis (full-text PostgreSQL, penting untuk nomor
-   * arsip/kode), digabung dengan Reciprocal Rank Fusion. Tanpa key Gemini hanya pencarian kata.
+   * arsip/kode), digabung dengan Reciprocal Rank Fusion. Tanpa key embedding (Gemini/OpenAI) hanya pencarian kata.
    */
   async search(userId: string, query: string, limit = 8, options: SearchOptions = {}): Promise<SearchHit[]> {
     const { only, collections, excludeStatuses, publicOnly } = options;
@@ -431,16 +425,16 @@ export class AiIndexService {
       LIMIT ${candidates}`;
 
     let semantic: Row[] = [];
-    const apiKey = await this.embeddingKey(userId);
-    const vector = apiKey ? await this.embedQuery(userId, apiKey, query) : null;
-    if (vector) {
+    const embedding = await this.ai.embeddingCredential(userId);
+    const vector = embedding ? await this.embedQuery(userId, embedding, query) : null;
+    if (vector && embedding) {
       const literal = toVectorLiteral(vector);
-      // `embedding IS NOT NULL` wajib agar indeks HNSW parsial terpakai
+      // `embedding IS NOT NULL` wajib agar indeks HNSW parsial terpakai; hanya vektor dari model yang sama yang sebanding
       semantic = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
         SELECT id, source_type AS "sourceType", source_id AS "sourceId", chunk_index AS "chunkIndex", title, content,
              collection, metadata, content_hash AS "contentHash"
         FROM ai_chunks
-        WHERE user_id = ${userId} AND embedding IS NOT NULL ${scope}
+        WHERE user_id = ${userId} AND embedding IS NOT NULL AND model = ${embedding.model} ${scope}
         ORDER BY embedding <=> ${literal}::vector
         LIMIT ${candidates}`);
     }
@@ -456,10 +450,9 @@ export class AiIndexService {
   }
 
   /** Embedding pertanyaan; gagal (kuota, key ditolak) → null sehingga pencarian tetap jalan dengan kata kunci saja. */
-  private async embedQuery(userId: string, apiKey: string, query: string) {
+  private async embedQuery(userId: string, embedding: EmbeddingCredential, query: string) {
     try {
-      const [vector] = await embedTexts(apiKey, [queryEmbeddingText(query)]);
-      return vector;
+      return await embedQuery(embedding.provider, embedding.apiKey, query);
     } catch (error) {
       if (!(error instanceof AiProviderError)) throw error;
       this.logger.warn(

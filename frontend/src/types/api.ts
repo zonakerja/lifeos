@@ -35,16 +35,36 @@ export interface AiSettings {
   activeProvider: AiProviderId | null;
   /** Cadangan otomatis ke provider lain yang punya key (kuota habis, tidak terjangkau, lampiran tak didukung). */
   fallbackEnabled: boolean;
-  /** Indeks pengetahuan (RAG) dengan embedding Gemini. */
+  /** Indeks pengetahuan (RAG) dengan embedding Gemini/OpenAI. */
   indexEnabled: boolean;
+  /** Pembagian tugas AI yang dipilih user (kosong = bawaan) */
+  routing: AiRouting;
+  /** Provider yang benar-benar dipakai per tugas (pilihan + key yang tersedia) */
+  effective: {
+    chat: AiProviderId | null;
+    general: AiProviderId | null;
+    ocr: AiProviderId | null;
+    embedding: AiEmbeddingProvider | null;
+  };
   providers: AiProviderSettings[];
+}
+
+export type AiEmbeddingProvider = "gemini" | "openai";
+
+export interface AiRouting {
+  chat?: AiProviderId | null;
+  general?: AiProviderId | null;
+  ocr?: AiProviderId | null;
+  embedding?: AiEmbeddingProvider | null;
 }
 
 export interface AiIndexStatus {
   enabled: boolean;
-  /** User punya API key Gemini (dipakai untuk embedding). */
+  /** User punya API key untuk embedding (Gemini atau OpenAI). */
   embeddingAvailable: boolean;
-  model: string;
+  embeddingProvider: AiEmbeddingProvider | null;
+  /** Model embedding yang dipakai; null = pencarian kata saja */
+  model: string | null;
   sources: number;
   chunks: number;
   /** Potongan yang sudah ber-embedding (sisanya hanya bisa dicari dengan kata persis). */
@@ -67,6 +87,36 @@ export interface AiSearchHit {
   collection: string;
   metadata: Record<string, unknown> | null;
   score: number;
+}
+
+// ---------------------------------------------------------------- Integrasi agen (token akses + MCP)
+
+export type ApiScope = "knowledge:read" | "knowledge:write" | "workspace:read" | "workspace:write" | "ai:chat";
+
+export interface ApiTokenInfo {
+  id: string;
+  name: string;
+  /** Awal token untuk dikenali (bukan rahasia) */
+  prefix: string;
+  scopes: ApiScope[];
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+
+/** Token baru: `token` utuh hanya dikirim sekali saat dibuat */
+export interface CreatedApiToken extends ApiTokenInfo {
+  token: string;
+}
+
+export interface AgentActivity {
+  id: string;
+  tokenName: string;
+  tool: string;
+  input: unknown;
+  status: "ok" | "error";
+  message: string | null;
+  createdAt: string;
 }
 
 // ---------------------------------------------------------------- Chatbot LifeOS & basis pengetahuan

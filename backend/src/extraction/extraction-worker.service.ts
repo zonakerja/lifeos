@@ -20,6 +20,7 @@ const MAX_EXTRACT_BYTES = 20 * 1024 * 1024;
 const MAX_EXTRACTED_CHARS = 2_000_000;
 
 /** Alasan berkas tidak menghasilkan teks (disimpan di `metadata.reason`). */
+// `needs_gemini_key` (nama lama, tersimpan di data) = tidak ada key AI yang bisa OCR (Gemini/OpenAI/Claude)
 type SkipReason = "unsupported_type" | "too_large" | "needs_gemini_key" | "empty";
 
 /**
