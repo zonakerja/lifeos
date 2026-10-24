@@ -1373,7 +1373,7 @@ try {
     return { s: res.status, d: await res.json().catch(() => null) };
   };
   r = await j("GET", "/integrations/scopes", null, at);
-  ok("integrations scopes", r.s === 200 && r.d.length === 5, r);
+  ok("integrations scopes", r.s === 200 && r.d.length === 7, r);
   r = await j("POST", "/integrations/tokens", { name: "x", scopes: [] }, at);
   ok("token without scopes 400", r.s === 400, r);
   r = await j("POST", "/integrations/tokens", { name: "x", scopes: ["admin:all"] }, at);
@@ -1435,6 +1435,166 @@ try {
   r = await mcp(pat, "tools/list");
   ok("mcp revoked token 401", r.s === 401, r);
   if (mcpTodo?.id) await j("DELETE", `/records/todo/${mcpTodo.id}`, null, at);
+
+  // ---- Pengajuan satker & Antrian Verifikasi (tahap 4 docs/AI-AGENT.md)
+  {
+    const { default: Zip } = await import("pizzip");
+    const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+    const tplZip = new Zip();
+    tplZip.file(
+      "[Content_Types].xml",
+      '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    );
+    tplZip.file(
+      "_rels/.rels",
+      '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    );
+    tplZip.file(
+      "word/document.xml",
+      `<?xml version="1.0"?><w:document ${W}><w:body><w:p><w:r><w:t>Nomor: \${nomor_naskah}</w:t></w:r></w:p><w:p><w:r><w:t>Hal: \${hal}</w:t></w:r></w:p><w:p><w:r><w:t>[Paragraf pembuka]</w:t></w:r></w:p></w:body></w:document>`,
+    );
+    const reqTplForm = new FormData();
+    reqTplForm.append("file", new Blob([tplZip.generate({ type: "uint8array" })]), "Nota Smoke.docx");
+    reqTplForm.append("context", "office-template");
+    const reqTpl = await j("POST", "/uploads", reqTplForm, at);
+    const letterForm = new FormData();
+    letterForm.append("file", new Blob(["Mohon PSP 3 unit laptop Satker Smoke."], { type: "text/plain" }), "surat.txt");
+    letterForm.append("context", "request");
+    const letter = await j("POST", "/uploads", letterForm, at);
+    const strangerForm = new FormData();
+    strangerForm.append("file", new Blob(["x"], { type: "text/plain" }), "asing.txt");
+    const stranger = await j("POST", "/uploads", strangerForm, pt);
+
+    r = await j("POST", "/requests", { kind: "asing", title: "x" }, at);
+    ok("request invalid kind 400", r.s === 400, r);
+    r = await j("POST", "/requests", { kind: "psp", title: "x", uploadIds: [stranger.d.id] }, at);
+    ok("request with other user's file 400", r.s === 400, r);
+    r = await j(
+      "POST",
+      "/requests",
+      {
+        kind: "psp",
+        title: "PSP laptop Smoke",
+        satker: "Satker Smoke",
+        letterDate: "2026-10-20",
+        uploadIds: [letter.d.id],
+      },
+      at,
+    );
+    const reqId = r.d?.id;
+    ok(
+      "request create (attachments + history baru)",
+      r.s === 201 &&
+        r.d.status === "baru" &&
+        r.d.source === "manual" &&
+        r.d.attachments[0]?.name === "surat.txt" &&
+        r.d.files[0]?.uploadId === letter.d.id &&
+        r.d.history.length === 1,
+      r,
+    );
+    r = await j("GET", `/requests/${reqId}`, null, pt);
+    ok("request isolated per user 404", r.s === 404, r);
+    r = await j("GET", "/requests?status=baru", null, at);
+    ok("request list filtered by status", r.s === 200 && r.d.some((x) => x.id === reqId), r);
+    r = await j("GET", "/requests?status=dikirim", null, at);
+    ok("request list other status excludes", r.s === 200 && !r.d.some((x) => x.id === reqId), r);
+    r = await j("POST", `/requests/${reqId}/analyze`, null, at);
+    ok("request analyze without AI key 4xx", r.s >= 400 && r.s < 500, r);
+
+    r = await j("GET", `/requests/templates/${reqTpl.d.id}/fields`, null, at);
+    ok(
+      "request template fields (SRIKANDI tag flagged, instruction slot)",
+      r.s === 200 &&
+        r.d.tags.some((t) => t.name === "hal" && !t.srikandi) &&
+        r.d.tags.some((t) => t.name === "nomor_naskah" && t.srikandi) &&
+        r.d.slots[0]?.instruction === "Paragraf pembuka",
+      r,
+    );
+    r = await j("GET", `/requests/templates/${letter.d.id}/fields`, null, at);
+    ok("request template must be office-template 404", r.s === 404, r);
+    r = await j("GET", `/requests/templates/${reqTpl.d.id}/fields`, null, pt);
+    ok("request template of other user 404", r.s === 404, r);
+    r = await j(
+      "POST",
+      `/requests/${reqId}/documents`,
+      { templateId: reqTpl.d.id, values: { hal: "PSP Laptop", __petunjuk_1: "Menindaklanjuti surat Saudara." } },
+      at,
+    );
+    const generated = r.d?.document;
+    ok(
+      "request document from template → menunggu verifikasi",
+      r.s === 201 && generated?.name.endsWith(".docx") && r.d.request.status === "menunggu_verifikasi",
+      r,
+    );
+    const genRes = await fetch(`${B}/uploads/${generated?.uploadId}`, { headers: { Authorization: `Bearer ${at}` } });
+    const genXml = new Zip(Buffer.from(await genRes.arrayBuffer())).file("word/document.xml")?.asText() ?? "";
+    ok(
+      "request document filled (SRIKANDI tag kept)",
+      genRes.status === 200 &&
+        genXml.includes("Hal: PSP Laptop") &&
+        genXml.includes("Menindaklanjuti surat Saudara.") &&
+        genXml.includes("${nomor_naskah}"),
+      genXml.slice(0, 300),
+    );
+    r = await j("PATCH", `/requests/${reqId}`, { status: "disetujui", statusNote: "Sudah diperiksa" }, at);
+    ok(
+      "request approve by user (history note)",
+      r.s === 200 &&
+        r.d.status === "disetujui" &&
+        r.d.history.at(-1)?.note === "Sudah diperiksa" &&
+        r.d.history.at(-1)?.by === "user",
+      r,
+    );
+    r = await j("PATCH", `/requests/${reqId}`, { status: "asing" }, at);
+    ok("request invalid status 400", r.s === 400, r);
+
+    // MCP: agen mencatat pengajuan (status Baru, sumber mcp) — persetujuan tetap di tangan pemilik
+    r = await j(
+      "POST",
+      "/integrations/tokens",
+      { name: "Smoke pengajuan", scopes: ["requests:read", "requests:write"], expiresInDays: 1 },
+      at,
+    );
+    const reqPat = r.d.token;
+    r = await mcp(reqPat, "tools/list");
+    ok(
+      "mcp request tools by scope",
+      ["analyze_request", "create_request", "get_request", "list_requests"].every((n) =>
+        (r.d?.result?.tools ?? []).some((t) => t.name === n),
+      ) && !(r.d?.result?.tools ?? []).some((t) => t.name === "create_todo"),
+      r.d,
+    );
+    r = await mcp(reqPat, "tools/call", {
+      name: "create_request",
+      arguments: { kind: "surat", title: "Surat Satker via agen", message: "Mohon penjelasan." },
+    });
+    const mcpReq = r.d?.result && !r.d.result.isError ? JSON.parse(r.d.result.content[0].text) : null;
+    ok("mcp create_request", mcpReq?.created === true, r.d);
+    r = await j("GET", `/requests/${mcpReq?.id}`, null, at);
+    ok(
+      "mcp request stored (source mcp, by agen)",
+      r.s === 200 && r.d.source === "mcp" && r.d.history[0].by === "agen",
+      r,
+    );
+    r = await mcp(reqPat, "tools/call", { name: "list_requests", arguments: {} });
+    ok(
+      "mcp list_requests",
+      !r.d?.result?.isError && r.d?.result?.content[0].text.includes("Surat Satker via agen"),
+      r.d,
+    );
+    r = await j("GET", "/integrations/tokens", null, at);
+    const reqPatRow = r.d.find?.((t) => t.name === "Smoke pengajuan");
+    if (reqPatRow) await j("DELETE", `/integrations/tokens/${reqPatRow.id}`, null, at);
+    if (mcpReq?.id) await j("DELETE", `/requests/${mcpReq.id}`, null, at);
+
+    r = await j("DELETE", `/requests/${reqId}`, null, at);
+    ok("request delete", r.s === 200, r);
+    const goneLetter = await j("GET", `/uploads/${letter.d.id}/metadata`, null, at);
+    const goneDoc = await j("GET", `/uploads/${generated?.uploadId}/metadata`, null, at);
+    ok("request delete removes its files", goneLetter.s === 404 && goneDoc.s === 404, [goneLetter.s, goneDoc.s]);
+    await j("DELETE", `/uploads/${reqTpl.d.id}`, null, at);
+    await j("DELETE", `/uploads/${stranger.d.id}`, null, pt);
+  }
 
   r = await j("POST", "/auth/change-password", { currentPassword: "salah", newPassword: "1234" }, pt);
   ok("change pw wrong 400", r.s === 400, r);

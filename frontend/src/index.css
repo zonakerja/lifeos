@@ -61,6 +61,7 @@
   --color-mod-notes: var(--mod-notes);
   --color-mod-productivity: var(--mod-productivity);
   --color-mod-files: var(--mod-files);
+  --color-mod-requests: var(--mod-requests);
   --color-mod-tools: var(--mod-tools);
   --color-mod-settings: var(--mod-settings);
 
@@ -128,6 +129,8 @@
   --mod-productivity-2: oklch(0.66 0.13 200);
   --mod-files: oklch(0.6 0.21 12);
   --mod-files-2: oklch(0.7 0.18 50);
+  --mod-requests: oklch(0.58 0.15 140);
+  --mod-requests-2: oklch(0.64 0.14 100);
   --mod-tools: oklch(0.6 0.12 195);
   --mod-tools-2: oklch(0.58 0.15 245);
   --mod-settings: oklch(0.58 0.2 320);
@@ -191,6 +194,8 @@
   --mod-productivity-2: oklch(0.74 0.12 200);
   --mod-files: oklch(0.7 0.18 15);
   --mod-files-2: oklch(0.76 0.15 50);
+  --mod-requests: oklch(0.72 0.14 140);
+  --mod-requests-2: oklch(0.76 0.13 100);
   --mod-tools: oklch(0.72 0.11 195);
   --mod-tools-2: oklch(0.7 0.13 245);
   --mod-settings: oklch(0.7 0.18 320);
@@ -229,6 +234,10 @@
 [data-module="files"] {
   --module: var(--mod-files);
   --module-2: var(--mod-files-2);
+}
+[data-module="requests"] {
+  --module: var(--mod-requests);
+  --module-2: var(--mod-requests-2);
 }
 [data-module="tools"] {
   --module: var(--mod-tools);

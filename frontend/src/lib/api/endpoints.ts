@@ -2,6 +2,13 @@ import { apiUrl, request } from "@/lib/api/client";
 import { useAuthStore } from "@/stores/auth-store";
 import type {
   AddNotebookSourceInput,
+  RequestDetail,
+  RequestDocument,
+  RequestInput,
+  RequestStatus,
+  RequestSummary,
+  RequestTemplateFields,
+  RequestUpdate,
   AgentActivity,
   ApiScope,
   ApiTokenInfo,
@@ -345,4 +352,30 @@ export const notebooksApi = {
     request<NotebookNote>(`/notebooks/${id}/notes/${noteId}`, { method: "PATCH", body: input }),
   removeNote: (id: string, noteId: string) =>
     request<{ success: boolean }>(`/notebooks/${id}/notes/${noteId}`, { method: "DELETE" }),
+};
+
+export const requestsApi = {
+  list: (status?: RequestStatus) => request<RequestSummary[]>("/requests", { query: status ? { status } : undefined }),
+  get: (id: string) => request<RequestDetail>(`/requests/${id}`),
+  create: (input: RequestInput) => request<RequestDetail>("/requests", { method: "POST", body: input }),
+  update: (id: string, input: RequestUpdate) =>
+    request<RequestDetail>(`/requests/${id}`, { method: "PATCH", body: input }),
+  remove: (id: string) => request<{ success: boolean }>(`/requests/${id}`, { method: "DELETE" }),
+  analyze: (id: string) =>
+    request<{ request: RequestDetail; fallback?: unknown }>(`/requests/${id}/analyze`, { method: "POST" }),
+  review: (id: string) =>
+    request<{ request: RequestDetail; fallback?: unknown }>(`/requests/${id}/review`, { method: "POST" }),
+  templateFields: (templateId: string) => request<RequestTemplateFields>(`/requests/templates/${templateId}/fields`),
+  suggestValues: (id: string, templateId: string) =>
+    request<{ values: Record<string, string> }>(`/requests/${id}/suggest-values`, {
+      method: "POST",
+      body: { templateId },
+    }),
+  createDocument: (id: string, input: { templateId: string; values: Record<string, string>; name?: string }) =>
+    request<{ document: RequestDocument; request: RequestDetail }>(`/requests/${id}/documents`, {
+      method: "POST",
+      body: input,
+    }),
+  removeDocument: (id: string, uploadId: string) =>
+    request<RequestDetail>(`/requests/${id}/documents/${uploadId}`, { method: "DELETE" }),
 };

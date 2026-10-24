@@ -272,11 +272,22 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `00-Inbox` = draf (LifeOS hanya menulis di sini lewat `POST /knowledge/inbox`), `90-Templat` = tidak diindeks. Logika
   murni + test `vault-parser.ts`. Endpoint `/knowledge/status|folders|vault|vault/create|scan|notes|notes/:id|inbox`.
 - **Integrasi agen / MCP** (`src/integrations/`, detail `docs/ARCHITECTURE.md` §3.7): token akses pribadi `api_tokens`
-  (`lifeos_pat_…`, hash SHA-256, cakupan `knowledge:read|knowledge:write|workspace:read|workspace:write|ai:chat`,
+  (`lifeos_pat_…`, hash SHA-256, cakupan `knowledge:read|knowledge:write|workspace:read|workspace:write|ai:chat|requests:read|requests:write`,
   kedaluwarsa; `/integrations/tokens|scopes|activity`) + **MCP server** `POST /api/v1/mcp` (Streamable HTTP stateless,
   Bearer token — JWT login ditolak; tools disaring izin: search/read knowledge, inbox, search workspace, agenda, task
-  terbuka, buat to-do lewat `RecordsService`, tanya asisten) + log `agent_activity_logs`. Logika murni + test
+  terbuka, buat to-do lewat `RecordsService`, tanya asisten, daftar/buka/catat/analisis pengajuan) + log `agent_activity_logs`. Logika murni + test
   `api-token-logic.ts`. Tool baru → `LifeosMcpService.createServer` (bungkus `run()` agar tercatat) + cakupan + smoke.
+- **Pengajuan & Antrian Verifikasi** (`src/requests/`, detail `docs/ARCHITECTURE.md` §3.8): tabel `requests` (milik user,
+  bukan record type; jenis psp/penghapusan/pemanfaatan/surat/lainnya, data surat, status `baru → diproses →
+  menunggu_verifikasi → disetujui → dikirim` / `ditolak`, `source` manual/mcp/whatsapp, berkas pemohon context `request`,
+  dokumen hasil templat context `request-document` — keduanya ikut terhapus bersama pengajuan, `history`). Agen AI:
+  `POST /requests/:id/analyze` (ringkasan, field, kelengkapan vs persyaratan basis pengetahuan) & `/review` (telaah
+  bersitasi + konsep jawaban) memakai teks ekstraksi berkas (masih dibaca → 409) + `AiIndexService.search` koleksi
+  `knowledge`; prompt & pembaca JSON murni di `request-logic.ts` (+ test). Status maju otomatis tetapi tidak pernah mundur
+  dan **disetujui/dikirim hanya oleh user**. **Mesin templat** `template-engine.ts` (+ test, docxtemplater + pizzip):
+  templat DOCX context `office-template` dengan `${penanda}` & paragraf petunjuk `[…]`; penanda SRIKANDI
+  (`nomor_naskah`, `tanggal_naskah`, `ttd*`) & penanda kosong dibiarkan utuh; teks beberapa baris → beberapa paragraf.
+  `GET /requests/templates/:id/fields`, `POST /:id/suggest-values` (usulan AI), `POST /:id/documents`.
 - **Database**: tabel & kolom snake_case (`@@map/@map`), timestamptz(3), FK `users` cascade. 21 tabel domain
   (agenda_types, schedules, routines, todos, routine_completions, free_notes, ai_notes, note_lists, areas, projects,
   activities, tasks, resources, para_archives, para_archive_logs, archive_classifications, archive_retention_schedules,
@@ -300,7 +311,8 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `20261016130000_asset_draft_link` (konsep ↔ dokumen final) + `20261018120000_sub_area_without_date` (Sub Area tanpa
   tanggal & lampiran) + `20261024120000_knowledge_base` (koleksi/metadata `ai_chunks`, `users.ai_profile` &
   `knowledge_vault`, `ai_conversations`, `ai_messages`, `knowledge_notes`, `knowledge_links`) +
-  `20261024130000_ai_routing` (`users.ai_routing`) + `20261024140000_api_tokens_mcp` (`api_tokens`, `agent_activity_logs`). Migrasi baru → lihat docs/SETUP.md §10
+  `20261024130000_ai_routing` (`users.ai_routing`) + `20261024140000_api_tokens_mcp` (`api_tokens`, `agent_activity_logs`) +
+  `20261024150000_requests` (Pengajuan). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
@@ -695,6 +707,14 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `DocumentLinksButton` di header pratinjau & editor (popover + dialog unggah final → Resource Global tag asal "Dokumen
   Final" + File Control, tautkan berkas/konsep), `DocumentLinkBadge` + `useOfficeLinkBadges` di tabel lampiran & Resources.
   Editor selalu `mobile: false` (editor seluler Community hanya melihat).
+- **Pengajuan** (`features/requests/`, modul `requests` di Workspace, warna `--mod-requests`): tab **Antrian Verifikasi**
+  (baru/diproses/menunggu verifikasi; menunggu verifikasi di atas) & **Selesai**; `?request=<id>` detail, `?request=new`
+  formulir (berkas diunggah saat Simpan, gagal → dibuang). Detail: data surat (ubah), berkas pemohon (pratinjau + status
+  baca), Analisis & kelengkapan, Telaah & konsep jawaban (Markdown bisa disunting/disalin, sitasi `CitationChip` dari
+  chatbot), Dokumen dari templat (`TemplateFillDialog`: isian `${…}` + paragraf, **Isi dengan AI** hanya mengisi yang
+  kosong → `openOfficeEditor`), keputusan (Setujui → Dikirim, Tolak dengan alasan, Buka kembali), Riwayat. Hook
+  `data/use-requests.ts`, logika murni `request-utils.ts` (+ test). Dialog berisi daftar panjang/teks panjang: `grid-cols-1`
+  pada `DialogContent` & grid di dalamnya (lihat §15).
 - **Komponen umum**: `ConfirmDialog`, `SectionCard`, `RenameDialog`, `SearchableSelect`, `PaginationControl`+`paginate()`,
   `Markdown`, `PriorityBadge`, `PageLoader`, `DateRangeFilter`, `SearchInput`.
 - **Paginasi daftar**: `usePagination(items, ukuranAwal)` (`hooks/use-pagination.ts`) → `{ pageItems, setPage,
@@ -803,7 +823,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Layout lanjutan: popover notifikasi panjang bisa digulir (footer tidak tertimpa), judul Mode Fokus sesuai sesi | ✅ 2026-10-16 — lint, typecheck, unit test, build, UI diuji di browser (layar 768 & 460 px) |
 | Perbaikan Overview (proyek berjalan, tugas mendesak + terlambat, to-do & rutinitas hari ini bisa dicentang, status & Gabung agenda, label Indonesia, notifikasi tugas terlambat & baru dibagikan) | ✅ 2026-10-15 — unit test (`overview-logic.test.ts`: 9), lint, typecheck, build, UI diuji di browser (desktop + HP; centang rutinitas/todo/task, tambah agenda, popover notifikasi) |
 | Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); **tahap 3 ✅ 2026-10-16** (revisi user: AI satu pintu = tab AI bawaan ONLYOFFICE memakai provider & key Pengaturan → AI lewat proxy backend; templat diunggah di Tools; impor berkas saat Buat Dokumen; unit + smoke lulus, UI diuji termasuk Summarization dengan Gemini sungguhan) + **lanjutan ✅** (Tools per role, font diunggah admin + pemantau, tautan konsep ↔ dokumen final) + **tahap 4 produksi ✅ 2026-10-16** (compose profile `office`, Caddy `/office/`, smoke penuh lewat stack produksi lokal); berikutnya agen SRIKANDI & agen pembuat dokumen di Tools (teknologi dibahas user) |
-| Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🚧 riset (2026-10-17/18, revisi OnTrack 2026-10-24; `docs/AI-AGENT.md` §9–§16, keputusan AG-18…AG-20 ✅, AG-21 ditunda) + **tahap 1 fondasi pengetahuan ✅ & tahap 2 konektor Obsidian ✅ 2026-10-24** (`POST /ai/chat` RAG + riwayat + sitasi, koleksi/metadata indeks, pemotongan per BAB/Pasal, profil kerja, vault Obsidian + graf tautan + Inbox, Tools → Basis Pengetahuan; unit backend +22 & frontend +7, smoke +20, skrip API vault 15/15, chat Gemini sungguhan, UI desktop & HP). **Pembagian tugas AI + embedding OpenAI + OCR multi-provider ✅** dan **tahap 3 token akses + MCP server ✅ 2026-10-24** (unit +8, klien MCP SDK 16/16, smoke +19, UI; embedding OpenAI belum diuji dengan key sungguhan). Berikutnya tahap 4 (Pengajuan + mesin templat) / tahap 5 (Hermes + WhatsApp) |
+| Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🚧 riset (2026-10-17/18, revisi OnTrack 2026-10-24; `docs/AI-AGENT.md` §9–§16, keputusan AG-18…AG-20 ✅, AG-21 ditunda) + **tahap 1 fondasi pengetahuan ✅ & tahap 2 konektor Obsidian ✅ 2026-10-24** (`POST /ai/chat` RAG + riwayat + sitasi, koleksi/metadata indeks, pemotongan per BAB/Pasal, profil kerja, vault Obsidian + graf tautan + Inbox, Tools → Basis Pengetahuan; unit backend +22 & frontend +7, smoke +20, skrip API vault 15/15, chat Gemini sungguhan, UI desktop & HP). **Pembagian tugas AI + embedding OpenAI + OCR multi-provider ✅** dan **tahap 3 token akses + MCP server ✅ 2026-10-24** (unit +8, klien MCP SDK 16/16, smoke +19, UI; embedding OpenAI belum diuji dengan key sungguhan). **Tahap 4 Pengajuan + mesin templat + Antrian Verifikasi + konsep jawaban ✅ 2026-10-24** (menu Pengajuan, MCP `requests:*`; unit backend +14 & frontend +4, smoke +20, UI desktop & HP dengan Gemini sungguhan: analisis, telaah, isi templat Surat Dinas → ONLYOFFICE). Berikutnya tahap 5 (Hermes + WhatsApp) / 5b (OnTrack) |
 | Productivity lanjutan: modal Project/Area lega, kartu ringkas, File Control opt-in, tag bebas Resource Global & lampiran | ✅ 2026-10-12–15 — unit test, lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Audit celah Productivity (8 temuan + 2 temuan saat uji): arsip yang sudah diberkaskan dikunci dari tab Resources, sumber My Notebook dilindungi di dialog hapus, item Area berlampiran & berdeskripsi, ubah lampiran, agenda berulang digabung per seri, form Area di-`key`, tag terhapus tidak kembali, filter & Kelola Tag, tag Musnah/Statis terkunci, tanggal bawaan lokal | ✅ 2026-10-18 — unit test (frontend 190+), lint, typecheck, build, UI diuji di browser dengan data `UJI-AUDIT` (dibersihkan) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
@@ -1210,7 +1230,7 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   File Control otomatis, tertaut dua arah lewat `assets.draft_id`; dasar agen SRIKANDI nanti). Produksi: service
   `onlyoffice` profile `office`, Caddy `/office/`. Ditemukan saat uji produksi: editor seluler Community hanya bisa
   melihat → selalu tampilan desktop. Rencana user berikutnya: agen SRIKANDI & agen pembuat dokumen bertemplat di Tools
-  (n8n / OpenClaw, dibahas nanti). Templat instansi user (29 DOCX dari folder `template/`, akan dihapus user) diunggah ke
+  (n8n / OpenClaw, dibahas nanti). Templat instansi user (29 DOCX dari folder `template/` yang sudah dihapus 2026-10-24) diunggah ke
   akun admin dev sebagai templat; pemilih templat menjadi modal dengan cari + filter + paginasi (permintaan user).
   Review celah (code review high) → 8 perbaikan: env kosong di compose produksi membuat backend gagal start saat
   ONLYOFFICE nonaktif (kini `emptyToUndefined` + test); kandidat tautan disaring format di database (sebelumnya hanya 120
@@ -1314,6 +1334,15 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   `@modelcontextprotocol/sdk` 1.32.1 (dipilih atas 1.32.2 yang baru rilis sehari) + `zod` 4. Ditemukan saat audit: advisory
   baru `body-parser`, `multer` (via NestJS/Express) & `fast-uri` (via ajv) diumumkan 19–22 Okt — ditangani terpisah
   (pemeliharaan dependensi), bukan di thread ini.
+- 2026-10-24 — **Tahap 4 AI Agent: Pengajuan + mesin templat + Antrian Verifikasi** (`docs/AI-AGENT.md` §19). Desain:
+  tabel sendiri `requests` (bukan record type) karena alur status, riwayat, dan hasil agen relasional & tidak perlu sinkron
+  per item; menu baru **Pengajuan** di Workspace (bukan sub menu Tools, karena dipakai harian sebagai antrian kerja).
+  Mesin templat memakai penanda gaya SRIKANDI `${…}` yang sudah ada di 29 templat instansi user + paragraf petunjuk
+  `[…]` (diganti teks AI, format paragraf dipertahankan); penanda SRIKANDI tidak pernah diisi LifeOS. Usulan isian AI
+  selalu disunting user dulu; agen (MCP) hanya boleh mencatat & menganalisis — persetujuan/pengiriman hanya user.
+  `satker_code` disiapkan untuk pemetaan pengguna WhatsApp per satker (AG-20, tahap 5). Paket baru: `docxtemplater`
+  3.71 + `pizzip` 3.3 (pure JS). Ditemukan saat uji: isian AI bernomor di paragraf rata kiri-kanan teregang bila
+  dijadikan pindah baris → dipecah menjadi beberapa paragraf.
 - 2026-10-24 — **CI merah setelah push** (laporan user): (1) `format:check` frontend gagal di `main` dan semua PR Dependabot
   — `notebook-utils.test.ts` belum diformat Prettier → diformat; (2) Dependabot docker-compose error sejak service
   ONLYOFFICE dev memakai `image: lifeos-onlyoffice:10.0` (dicari di Docker Hub) → tag lewat variabel
@@ -1421,6 +1450,11 @@ di dalam blok cakupan yang sesuai (`can("…")`), handler dibungkus `run(nama, �
 dengan zod (batasi panjang/rentang), aksi lewat service aplikasi (jangan query langsung yang melewati isolasi/berbagi).
 Cakupan baru → `API_SCOPES` + `SCOPE_LABELS` (backend) & `SCOPE_SHORT` (frontend `integrations-tab.tsx`); label log di
 `TOOL_LABELS`. Tambah skenario smoke (JSON-RPC `tools/call`).
+
+**Menambah jenis pengajuan / templat**: jenis baru → `REQUEST_KINDS` + `KIND_LABELS` (backend `request-logic.ts`) & frontend
+`request-utils.ts` (label sama). Templat baru cukup diunggah user (Tools → ONLYOFFICE → Templat) dengan penanda
+`${nama_isian}` (huruf/angka/garis bawah) dan paragraf petunjuk yang seluruhnya `[…]`; penanda khusus SRIKANDI baru →
+`isSrikandiTag` (`template-engine.ts`).
 
 **Menambah dependensi npm**: pilih paket dengan prebuilt arm64/pure JS; paket berat → import dinamis agar chunk
 utama tetap < 500 kB (cek output `npm run build`).
@@ -1606,6 +1640,11 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Komponen `ScrollArea` (shadcn/Radix) hanya menggulir bila **tingginya pasti** (`h-*`, atau flex item di kontainer
   bertinggi pasti). Dengan `max-h-*` saja viewport (`size-full`) ikut setinggi isi → isi meluber & tidak bisa digulir.
   Untuk panel ber-`max-h` (popover) pakai `div overflow-y-auto`.
+- Item grid CSS punya `min-width: auto`: teks `truncate` / baris panjang di dalam `grid` (termasuk `DialogContent` shadcn
+  yang ber-`display: grid`) melebarkan kolom sehingga dialog/halaman meluber di HP. Pakai `grid-cols-1` (= `minmax(0,1fr)`)
+  pada grid tersebut atau `min-w-0` pada item. Cek dengan `el.scrollWidth > el.clientWidth` di mode HP.
+- Tes AI sungguhan lewat `javascript_tool` (panel tersembunyi): satu panggilan maks. ± 45 detik → tunggu bertahap
+  (beberapa panggilan `await` 30–40 detik), jangan satu loop panjang.
 
 ## 16. Memori & Kesinambungan Antar-Chat
 

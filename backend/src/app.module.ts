@@ -15,6 +15,7 @@ import { NotebooksModule } from "./notebooks/notebooks.module";
 import { OfficeModule } from "./office/office.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RecordsModule } from "./records/records.module";
+import { RequestsModule } from "./requests/requests.module";
 import { RedisModule } from "./redis/redis.module";
 import { SettingsModule } from "./settings/settings.module";
 import { SharingModule } from "./sharing/sharing.module";
@@ -42,6 +43,7 @@ import { UsersModule } from "./users/users.module";
     AiModule,
     KnowledgeModule,
     IntegrationsModule,
+    RequestsModule,
     NotebooksModule,
     OfficeModule,
   ],

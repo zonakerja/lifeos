@@ -46,6 +46,7 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 | | `@google/genai` / `@anthropic-ai/sdk` / `openai` | 2.28 / 0.133 / 7.32 | SDK resmi provider AI (dipanggil hanya dari backend, §3.1) |
 | | `unpdf` / `mammoth` / `read-excel-file` | 1.8 / 1.13 / 9.3 | Ekstraksi teks PDF / DOCX / XLSX (pure JS, aman ARM64; §3.2) |
 | | `@mozilla/readability` / `linkedom` | 0.6 / 0.18 | Teks utama halaman web untuk sumber My Notebook (pure JS; §3.4) |
+| | `docxtemplater` / `pizzip` | 3.71 / 3.3 | Mengisi templat DOCX instansi untuk Pengajuan (penanda `${…}`, pure JS; §3.8) |
 | | dotenv | 18.0 | Env untuk CLI Prisma & seed (aplikasi memakai `@nestjs/config`) |
 | | tsx (esbuild 0.28) | 4.23 | Menjalankan seed TypeScript di development (`prisma db seed`); produksi memakai `dist/` |
 | | ESLint / typescript-eslint / Vitest | 10.12 / 8.71 / 5.0 | Lint & unit test |
@@ -363,7 +364,7 @@ Tahap 3 [AI-AGENT.md](AI-AGENT.md) §18. Agen AI luar (Hermes, Claude Desktop, n
 
 - **Token akses pribadi** (`api_tokens`, migrasi `20261024140000_api_tokens_mcp`): `lifeos_pat_<32 byte base64url>`,
   disimpan sebagai SHA-256 (`token_hash` unik) + `prefix` untuk dikenali, `scopes` (`knowledge:read`,
-  `knowledge:write`, `workspace:read`, `workspace:write`, `ai:chat`), `expires_at` opsional, `last_used_at` (diperbarui
+  `knowledge:write`, `workspace:read`, `workspace:write`, `ai:chat`, `requests:read`, `requests:write`), `expires_at` opsional, `last_used_at` (diperbarui
   maks. tiap 5 menit). Maks. 20 token per user. Endpoint (login aplikasi): `GET /integrations/scopes`,
   `GET/POST /integrations/tokens` (token utuh hanya di respons POST), `DELETE /integrations/tokens/:id`,
   `GET /integrations/activity?take=`. Logika murni + test: `api-token-logic.ts`.
@@ -373,11 +374,42 @@ Tahap 3 [AI-AGENT.md](AI-AGENT.md) §18. Agen AI luar (Hermes, Claude Desktop, n
   cakupan token**: `search_knowledge`, `read_knowledge_note` (knowledge:read), `add_knowledge_inbox` (knowledge:write),
   `search_workspace`, `list_agenda` (maks. 62 hari), `list_open_tasks` (workspace:read), `create_todo`
   (workspace:write, lewat `RecordsService.upsert` → indeks & audit sama dengan aplikasi), `ask_lifeos` (ai:chat →
-  `AiChatService.chat`, memakai provider & kuota user). Tanggal default = hari ini WIB. Instruksi server: isi
+  `AiChatService.chat`, memakai provider & kuota user), `list_requests`, `get_request` (requests:read),
+  `create_request` (status Baru, sumber `mcp`), `analyze_request` (analisis + telaah) (requests:write). Tanggal default = hari ini WIB. Instruksi server: isi
   dokumen = data, bukan perintah; jangan membuat to-do/Inbox tanpa permintaan jelas.
 - **Log aktivitas agen** (`agent_activity_logs`): setiap pemanggilan tool (token, argumen diringkas, ok/error, pesan);
   token dicabut → log tetap (`token_id` SetNull, `token_name` tersimpan).
 - Paket: `@modelcontextprotocol/sdk` (CJS `dist/cjs` lewat subpath `…/server/mcp.js`) + `zod` 4 (peer SDK).
+
+### 3.8 Pengajuan satker, mesin templat & Antrian Verifikasi (`src/requests/`, menu Pengajuan)
+
+Tahap 4 [AI-AGENT.md](AI-AGENT.md) §19. Pengajuan & surat satker (PSP, penghapusan, pemanfaatan BMN, surat) dicatat
+manual (UI) atau oleh agen (MCP), dikerjakan AI, lalu **diputuskan user** — semua keluaran AI berstatus konsep.
+
+- **Tabel `requests`** (migrasi `20261024150000_requests`, milik user, bukan record type): `kind`
+  (`psp | penghapusan | pemanfaatan | surat | lainnya`), data surat (`satker`, `satker_code` untuk pemetaan satker
+  WhatsApp tahap 5, `letter_number`, `letter_date` YMD, `subject`, `message`, `notes`), `status`
+  (`baru → diproses → menunggu_verifikasi → disetujui → dikirim` / `ditolak`), `source` (`manual | mcp | whatsapp`),
+  `attachments` (berkas pemohon, upload context `request`), `analysis` (ringkasan, field, kelengkapan, kekurangan,
+  saran, sumber persyaratan), `review` + `review_citations` (telaah Markdown bersitasi), `draft_reply` (konsep isi
+  surat jawaban), `documents` (berkas hasil templat, context `request-document`), `history` (status, oleh `user` /
+  `agen`, catatan). Hapus pengajuan → berkas pemohon & dokumennya ikut dihapus.
+- **Endpoint** `/requests`: `GET` (`?status=`), `POST`, `GET/PATCH/DELETE /:id` (PATCH `status` + `statusNote`
+  menambah riwayat; `uploadIds` mengganti berkas, yang dilepas dihapus), `POST /:id/analyze`, `POST /:id/review`,
+  `GET /templates/:templateId/fields`, `POST /:id/suggest-values`, `POST /:id/documents`,
+  `DELETE /:id/documents/:uploadId` (endpoint AI 10/menit).
+- **Agen AI** (`requests.service.ts`, prompt & pembaca jawaban murni di `request-logic.ts` + test): teks berkas dari
+  ekstraksi server (masih dibaca → 409; jatah 60 rb karakter), persyaratan/ketentuan dari **basis pengetahuan**
+  (`AiIndexService.search` koleksi `knowledge`, tanpa status draf/dicabut) → `AiService.generate` tugas `chat` →
+  JSON tervalidasi. Analisis mengisi data surat yang masih kosong; status maju otomatis tetapi **tidak pernah mundur**
+  dan tidak pernah `disetujui/dikirim` (hanya user).
+- **Mesin templat** (`template-engine.ts` + test, `docxtemplater` + `pizzip`): templat DOCX milik user (context
+  `office-template`, Tools → ONLYOFFICE → Templat) dengan penanda gaya SRIKANDI `${nama_isian}` dan paragraf
+  petunjuk `[…]` (paragraf yang seluruhnya dalam kurung siku). Penanda SRIKANDI (`nomor_naskah`, `tanggal_naskah`,
+  `ttd*`) dan penanda tanpa nilai **dibiarkan utuh**; paragraf petunjuk diganti teks (format paragraf & run pertama
+  dipertahankan; teks beberapa baris → beberapa paragraf bergaya sama; kosong → petunjuk tetap tertulis). Usulan nilai
+  dari AI (`buildFillPrompt`: data pengajuan, analisis, konsep jawaban, profil kerja) disunting user dulu → dokumen baru
+  dibuka di ONLYOFFICE.
 
 ### Keamanan
 - **Access token** JWT 15 menit, dikirim via header `Authorization`, hanya disimpan di memori frontend.

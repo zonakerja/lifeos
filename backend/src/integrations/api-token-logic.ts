@@ -15,6 +15,8 @@ export const API_SCOPES = [
   "workspace:read",
   "workspace:write",
   "ai:chat",
+  "requests:read",
+  "requests:write",
 ] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
 
@@ -24,6 +26,8 @@ export const SCOPE_LABELS: Record<ApiScope, string> = {
   "workspace:read": "Baca data kerja (cari data, agenda, to-do & task)",
   "workspace:write": "Buat to-do",
   "ai:chat": "Tanya asisten LifeOS (memakai provider & kuota AI Anda)",
+  "requests:read": "Baca pengajuan satker & Antrian Verifikasi",
+  "requests:write": "Catat pengajuan baru & jalankan analisis/telaah AI (persetujuan tetap oleh Anda)",
 };
 
 /** Token baru: `lifeos_pat_` + 32 byte acak (base64url) — cukup acak sehingga hash SHA-256 tanpa salt aman. */

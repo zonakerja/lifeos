@@ -33,6 +33,8 @@ const SCOPE_SHORT: Record<ApiScope, string> = {
   "workspace:read": "Baca data kerja",
   "workspace:write": "Buat to-do",
   "ai:chat": "Tanya asisten",
+  "requests:read": "Baca pengajuan",
+  "requests:write": "Catat & analisis pengajuan",
 };
 
 /**

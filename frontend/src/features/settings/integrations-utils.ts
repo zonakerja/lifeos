@@ -36,6 +36,10 @@ export const TOOL_LABELS: Record<string, string> = {
   list_open_tasks: "To-do & task terbuka",
   create_todo: "Buat to-do",
   ask_lifeos: "Tanya asisten LifeOS",
+  list_requests: "Daftar pengajuan",
+  get_request: "Buka pengajuan",
+  create_request: "Catat pengajuan",
+  analyze_request: "Analisis pengajuan",
 };
 
 /** Ringkasan argumen untuk tabel log: "query: sewa · limit: 3". */

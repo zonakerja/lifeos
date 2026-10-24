@@ -12,6 +12,9 @@ import {
   FolderTree,
   Grid2x2,
   HardDrive,
+  Inbox,
+  ListTodo,
+  CheckCheck,
   Hourglass,
   Layers,
   Library,
@@ -33,7 +36,8 @@ import {
 } from "lucide-react";
 import type { UserRole } from "@/types/api";
 
-export type ModuleKey = "overview" | "planner" | "notes" | "productivity" | "files" | "tools" | "settings" | "profile";
+export type ModuleKey =
+  "overview" | "planner" | "notes" | "productivity" | "files" | "requests" | "tools" | "settings" | "profile";
 
 export interface ModuleTab {
   id: string;
@@ -123,6 +127,18 @@ export const MODULES: ModuleDef[] = [
       { id: "destroyed", label: "Musnah", icon: FileX },
       { id: "references", label: "Referensi", icon: Tag },
       { id: "shared", label: "Dibagikan", icon: Users },
+    ],
+  },
+  {
+    key: "requests",
+    label: "Pengajuan",
+    description:
+      "Pengajuan & surat satker (PSP, penghapusan, pemanfaatan BMN): analisis kelengkapan, telaah, konsep jawaban, dan dokumen dari templat — semua diverifikasi Anda.",
+    path: "/requests",
+    icon: Inbox,
+    tabs: [
+      { id: "queue", label: "Antrian Verifikasi", icon: ListTodo },
+      { id: "done", label: "Selesai", icon: CheckCheck },
     ],
   },
   {

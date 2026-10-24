@@ -91,7 +91,14 @@ export interface AiSearchHit {
 
 // ---------------------------------------------------------------- Integrasi agen (token akses + MCP)
 
-export type ApiScope = "knowledge:read" | "knowledge:write" | "workspace:read" | "workspace:write" | "ai:chat";
+export type ApiScope =
+  | "knowledge:read"
+  | "knowledge:write"
+  | "workspace:read"
+  | "workspace:write"
+  | "ai:chat"
+  | "requests:read"
+  | "requests:write";
 
 export interface ApiTokenInfo {
   id: string;
@@ -642,4 +649,103 @@ export interface NotebookUsage {
   recordType: NotebookRecordType | null;
   recordId: string | null;
   assetId: string | null;
+}
+
+// ---------------------------------------------------------------- Pengajuan satker & Antrian Verifikasi
+
+export type RequestKind = "psp" | "penghapusan" | "pemanfaatan" | "surat" | "lainnya";
+export type RequestStatus = "baru" | "diproses" | "menunggu_verifikasi" | "disetujui" | "dikirim" | "ditolak";
+
+export interface RequestAttachment {
+  uploadId: string;
+  name: string;
+  mimeType: string;
+}
+
+export interface RequestDocument {
+  uploadId: string;
+  name: string;
+  templateName: string;
+  createdAt: string;
+}
+
+export interface RequestChecklistItem {
+  dokumen: string;
+  status: "ada" | "tidak_ada" | "perlu_dicek";
+  catatan: string;
+}
+
+export interface RequestAnalysis {
+  summary: string;
+  fields: Record<string, unknown>;
+  checklist: RequestChecklistItem[];
+  missing: string[];
+  suggestion: string;
+  sources: { n: number; title: string; sourceType: string; sourceId: string }[];
+  analyzedAt: string;
+  provider?: string;
+}
+
+export interface RequestHistoryEntry {
+  at: string;
+  status: RequestStatus;
+  by: "user" | "agen";
+  note?: string;
+}
+
+export interface RequestSummary {
+  id: string;
+  kind: RequestKind;
+  title: string;
+  satker: string | null;
+  letterNumber: string | null;
+  letterDate: string | null;
+  subject: string | null;
+  status: RequestStatus;
+  source: "manual" | "mcp" | "whatsapp";
+  attachments: RequestAttachment[];
+  documents: RequestDocument[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RequestDetail extends RequestSummary {
+  satkerCode: string | null;
+  message: string | null;
+  notes: string | null;
+  analysis: RequestAnalysis | null;
+  review: string | null;
+  reviewCitations: AiChatCitation[] | null;
+  draftReply: string | null;
+  history: RequestHistoryEntry[];
+  files: (RequestAttachment & { extraction: string | null })[];
+}
+
+export interface RequestInput {
+  kind: RequestKind;
+  title: string;
+  satker?: string;
+  letterNumber?: string;
+  letterDate?: string;
+  subject?: string;
+  message?: string;
+  uploadIds?: string[];
+}
+
+export type RequestUpdate = Partial<
+  Omit<RequestInput, "kind" | "title"> & {
+    kind: RequestKind;
+    title: string;
+    notes: string | null;
+    review: string | null;
+    draftReply: string | null;
+    status: RequestStatus;
+    statusNote: string;
+  }
+>;
+
+export interface RequestTemplateFields {
+  templateName: string;
+  tags: { name: string; srikandi: boolean }[];
+  slots: { name: string; instruction: string }[];
 }

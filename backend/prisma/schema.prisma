@@ -138,6 +138,7 @@ model User {
   aiConversations  AiConversation[]
   knowledgeNotes   KnowledgeNote[]
   apiTokens        ApiToken[]
+  requests         Request[]
   agentActivity    AgentActivityLog[]
 
   @@map("users")
@@ -1106,4 +1107,47 @@ model AgentActivityLog {
 
   @@index([userId, createdAt])
   @@map("agent_activity_logs")
+}
+
+// ---------------------------------------------------------------- Pengajuan satker & Antrian Verifikasi
+
+/// Pengajuan / surat masuk dari satker (PSP, penghapusan, pemanfaatan, permintaan arahan, …) yang diproses bersama agen.
+model Request {
+  id              String   @id @default(cuid())
+  userId          String   @map("user_id")
+  /// psp | penghapusan | pemanfaatan | surat | lainnya
+  kind            String
+  title           String
+  satker          String?
+  satkerCode      String?  @map("satker_code")
+  letterNumber    String?  @map("letter_number")
+  /// Tanggal surat YYYY-MM-DD
+  letterDate      String?  @map("letter_date")
+  subject         String?
+  /// Isi pesan / permintaan pemohon (mis. dari WhatsApp)
+  message         String?
+  /// baru | diproses | menunggu_verifikasi | disetujui | dikirim | ditolak
+  status          String   @default("baru")
+  /// manual | whatsapp | mcp
+  source          String   @default("manual")
+  /// Berkas dari pemohon: [{ uploadId, name, mimeType }]
+  attachments     Json     @default("[]")
+  /// Hasil analisis AI: { summary, fields, checklist[], missing[], suggestion, sources[], analyzedAt }
+  analysis        Json?
+  /// Telaah (Markdown, sitasi [n]) + sumbernya
+  review          String?
+  reviewCitations Json?    @map("review_citations")
+  /// Konsep jawaban / isi surat (Markdown)
+  draftReply      String?  @map("draft_reply")
+  /// Dokumen yang dibuat dari templat: [{ uploadId, name, templateName, createdAt }]
+  documents       Json     @default("[]")
+  notes           String?
+  /// Riwayat status: [{ at, status, note?, by }]
+  history         Json     @default("[]")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, updatedAt])
+  @@map("requests")
 }

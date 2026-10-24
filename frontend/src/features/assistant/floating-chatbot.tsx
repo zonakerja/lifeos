@@ -191,7 +191,7 @@ function ConversationHistory({ current, onSelect }: { current: string | null; on
   );
 }
 
-function CitationChip({ citation }: { citation: AiChatCitation }) {
+export function CitationChip({ citation }: { citation: AiChatCitation }) {
   const navigate = useNavigate();
   const [popoverOpen, setPopoverOpen] = useState(false);
   const target = citationTarget(citation);

@@ -501,7 +501,7 @@ Arah teknis awal:
 | **1. Fondasi pengetahuan** | R-1 `POST /ai/chat` RAG backend + riwayat; R-4/R-5 koleksi, metadata, pemotongan sadar struktur; peringatan data Gemini (R-2); profil kerja & instruksi tetap (§2.4) | Chatbot LifeOS menjawab dari isi dokumen/peraturan dengan sitasi |
 | **2. Konektor Obsidian** | Volume vault + pemantau + indeks `obsidian` + `knowledge_links` + halaman Pengetahuan + `00-Inbox` | Menulis di Obsidian → beberapa detik kemudian bisa ditanyakan di LifeOS |
 | **3. Token akses + MCP LifeOS** | Token pribadi bercakupan, MCP server (`knowledge.search`, `request.*`, `document.*`, `task.*`), log aktivitas | Hermes / Claude Desktop bisa memakai LifeOS |
-| **4. Pengajuan + mesin templat + Antrian Verifikasi** | Modul Pengajuan (PSP / penghapusan / pemanfaatan), ekstraksi field, cek kelengkapan, placeholder templat → ONLYOFFICE, telaah & konsep jawaban surat | Use case 2 & 3 bisa dikerjakan lewat UI LifeOS (unggah manual) sebelum WhatsApp |
+| **4. Pengajuan + mesin templat + Antrian Verifikasi** ✅ 2026-10-24 (§19) | Modul Pengajuan (PSP / penghapusan / pemanfaatan), ekstraksi field, cek kelengkapan, placeholder templat → ONLYOFFICE, telaah & konsep jawaban surat | Use case 2 & 3 bisa dikerjakan lewat UI LifeOS (unggah manual) sebelum WhatsApp |
 | **5. Hermes** | Compose profile `agent`: `hermes-private` (memori, Telegram/WhatsApp Anda) + `hermes-public` (WhatsApp Cloud API, terkunci) | Use case 1 lewat WhatsApp; pengajuan masuk otomatis |
 | **5b. Konektor OnTrack** (revisi 2026-10-24, §16) | Klien REST API OnTrack (API key) di backend + OnTrack sebagai server MCP kedua untuk Hermes; data SIMAN & MyIntress untuk pengajuan, telaah, dan chatbot | Agen bisa mencocokkan NUP/kode barang & data keuangan tanpa robot di LifeOS |
 | **6. Robot & konektor sesi** | Service Playwright + profil persisten + browser jarak jauh; **hanya e-Kinerja (bulanan) → SRIKANDI** (SIMAN pindah ke OnTrack) | Detail dibahas setelah tahap 4–5 |
@@ -740,3 +740,34 @@ User menerima semua rekomendasi (key yang dimiliki: **Gemini & OpenAI**) lalu la
 
 **Berikutnya**: tahap 4 (modul Pengajuan + mesin templat + Antrian Verifikasi + konsep jawaban surat) atau tahap 5
 (Hermes + WhatsApp, butuh VPS & domain). OnTrack akan menjadi server MCP kedua untuk agen (§16).
+
+## 19. Hasil 2026-10-24: tahap 4 (Pengajuan + mesin templat + Antrian Verifikasi + konsep jawaban surat)
+
+Detail teknis: [ARCHITECTURE.md §3.8](ARCHITECTURE.md). Menu baru **Pengajuan** (sidebar Workspace) dengan tab
+**Antrian Verifikasi** (Baru, Diproses, Menunggu verifikasi — yang menunggu keputusan di atas) dan **Selesai**
+(Disetujui, Dikirim, Ditolak); `?request=<id>` membuka detail, `?request=new` formulir baru.
+
+Alur (use case 2 & 3 §12, lewat UI sebelum WhatsApp):
+1. **Catat pengajuan** — jenis, satker, nomor/tanggal surat, perihal, isi, berkas pemohon (diunggah saat Simpan; gagal
+   → berkas dibuang). Agen juga bisa mencatat lewat MCP (`create_request`, izin baru `requests:write`).
+2. **Analisis dengan AI** — ringkasan, data surat (mengisi yang kosong), **kelengkapan** per dokumen (Ada / Tidak ada /
+   Perlu dicek) terhadap persyaratan di Basis Pengetahuan (tulis persyaratan per jenis di vault, mis. `50-Persyaratan/`),
+   kekurangan, saran. Tanpa persyaratan di basis pengetahuan, layar memberi tahu bahwa penilaian dari pengetahuan umum AI.
+3. **Telaah dengan AI** — telaah (pokok masalah, dasar hukum bersitasi `[n]`, analisis, opsi, risiko) + **konsep
+   jawaban** surat; keduanya bisa disunting & disalin. AI diminta tidak mengarang dasar hukum yang tidak ada di sumber.
+4. **Buat dari templat** — pilih templat DOCX instansi → isian `${…}` & paragraf `[…]` tampil sebagai formulir →
+   **Isi dengan AI** (hanya mengisi yang kosong) → sunting → dokumen dibuka di ONLYOFFICE; penanda SRIKANDI dibiarkan.
+   Status → Menunggu verifikasi.
+5. **Keputusan user** — Setujui → Tandai sudah dikirim (setelah diproses di SRIKANDI), Tolak/kembalikan (alasan
+   tercatat), Buka kembali. Riwayat mencatat siapa (Anda / agen AI) dan kapan.
+
+Diuji: unit backend (mesin templat 6, logika prompt 8) & frontend (4), smoke
+(+20: validasi, isolasi user, filter status, templat & penanda SRIKANDI, dokumen terisi, persetujuan, MCP tools/izin,
+hapus berantai berkas), UI desktop & HP dengan **Gemini sungguhan** (analisis, telaah, isi templat Surat Dinas →
+ONLYOFFICE). Ditemukan saat uji: paragraf AI bernomor menjadi pindah baris yang teregang di paragraf rata kiri-kanan →
+dipecah menjadi beberapa paragraf.
+
+**Catatan untuk user**: isi vault dengan persyaratan per jenis pengajuan (PSP, penghapusan, pemanfaatan) dan peraturan
+BMN agar kelengkapan & telaah bersitasi; templat SK (PSP, panitia penghapusan, pemanfaatan) perlu penanda `${…}` /
+paragraf `[…]` seperti templat Surat Dinas. **Berikutnya**: tahap 5 (Hermes + WhatsApp — pengajuan masuk otomatis,
+`satker_code` untuk pengguna terverifikasi per satker, AG-20) dan tahap 5b (OnTrack).
