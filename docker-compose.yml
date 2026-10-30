@@ -43,7 +43,7 @@ services:
 
   storage:
     # Object storage S3-compatible (SeaweedFS). Image MinIO tidak lagi tersedia di registry publik.
-    image: chrislusf/seaweedfs:4.48
+    image: chrislusf/seaweedfs:4.50
     container_name: lifeos-storage
     restart: unless-stopped
     command: >-
