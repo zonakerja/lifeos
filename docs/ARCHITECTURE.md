@@ -62,6 +62,8 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 | | Redis | **8.10** (`redis:8.10-alpine`) | Antrian BullMQ; cache/rate-limit/sesi chat (rencana) |
 | | SeaweedFS | 4.48 | S3-compatible self-host (dev & default produksi) |
 | Edge | Caddy / nginx | 2.11 / 1.30 (stable) | HTTPS otomatis + reverse proxy / sajian SPA + CSP |
+| Agen | Hermes Agent (`nousresearch/hermes-agent:v0.22.2`, image resmi, amd64+arm64) | 0.22.2 | Service `hermes` (profile `agent`): API server OpenAI-compatible + MCP klien ke LifeOS; skill di `agents/hermes/skills/` (§3.11) |
+| Robot | Playwright + Chromium (`mcr.microsoft.com/playwright:v1.63.0-noble`, paket `playwright` **1.63.0** — versi keduanya wajib sama) | 1.63 | Service `robot/` (TypeScript, Node bawaan image): browser jarak jauh & eksplor halaman konektor SRIKANDI/e-Kinerja (§3.10) |
 | Backup | rclone (`rclone/rclone:1.75.1`) di image `infra/backup` (base = image postgres) | 1.75 | Cermin object storage via API S3 + salinan luar server terenkripsi (crypt) |
 | CI | GitHub Actions | checkout v7, setup-node v7, setup-buildx v4, build-push v7; runner `ubuntu-24.04` | Lint, test, build, smoke, drift, image |
 
@@ -143,7 +145,7 @@ unduhan disensor; health check tidak dicatat.
 - **Provider** (`ai-providers.ts` = katalog, satu klien per provider di `providers/`, SDK resmi):
   Gemini `generateContent` (stateless; Interactions API menyimpan percakapan di server Google secara default),
   Claude Messages API (streaming, `effort` + `fallbacks: "default"` pada model yang mendukung), OpenAI Responses
-  API (`store: false`). Model default ada di katalog, tetapi **user bisa mengganti model** di Pengaturan → AI — bila
+  API (`store: false`). Model default ada di katalog, tetapi **user bisa mengganti model** di Pengaturan → Model AI — bila
   provider menghentikan model, tidak perlu rilis aplikasi.
 - **Lampiran**: maks. 5 berkas / 20 MB total, diterima di memori lalu dikirim inline. PDF, gambar (png/jpeg/gif/webp),
   teks (dikirim sebagai teks) untuk semua provider; audio hanya Gemini.
@@ -164,7 +166,7 @@ unduhan disensor; health check tidak dicatat.
   Provider aktif di `users.ai_provider`. Kunci enkripsi diganti/hilang ⇒ key tersimpan tidak terbaca (422, user
   memasukkan ulang).
 - **Error provider → HTTP**: kuota/limit → 429; key ditolak, model tidak tersedia, ditolak filter keamanan, provider
-  tidak terjangkau → 422 dengan pesan Indonesia yang menyebut tindakan (mis. "Ganti model di Pengaturan → AI").
+  tidak terjangkau → 422 dengan pesan Indonesia yang menyebut tindakan (mis. "Ganti model di Pengaturan → Model AI").
   Sengaja tidak memakai 401 (memicu refresh sesi di frontend) maupun ≥ 502 (disamarkan frontend sebagai "server tidak
   dapat dihubungi"). Log mencatat provider, model, durasi, jenis error — tidak pernah key maupun isi prompt.
 
@@ -306,7 +308,7 @@ tetap Asset LifeOS di object storage.
 - **AI di editor (satu pintu)**: sakelar mati → `customization.ai.disabled`; aktif → tab AI plugin resmi (dipasang di image
   `infra/onlyoffice/Dockerfile` bersama jembatan `lifeos-ai-bridge.js`) dengan `editorConfig.plugins.options[GUID AI] =
   { lifeos: { token, proxy, url, … } }`; jembatan mengisi mode pengaturan server plugin (provider "AI LifeOS", tanpa tombol
-  Settings) sehingga semua permintaan lewat `/office/ai/proxy` memakai provider & key Pengaturan → AI. Detail: ONLYOFFICE.md §3.4.
+  Settings) sehingga semua permintaan lewat `/office/ai/proxy` memakai provider & key Pengaturan → Model AI. Detail: ONLYOFFICE.md §3.4.
 - **Alamat backend untuk ONLYOFFICE** (`ONLYOFFICE_BACKEND_URL`): `auto` (dev) = IPv4 antarmuka Windows `vEthernet (WSL…)`
   dibaca setiap membuat config; produksi `http://backend:4000`. Logika murni + test: `office-logic.ts`.
 
@@ -324,7 +326,7 @@ limit, { only?, collections?, excludeStatuses?, publicOnly? })`.
 sumber notebook, dan catatan Obsidian dipotong **sadar struktur** (`chunkStructured`: judul Markdown, BAB, Bagian,
 Paragraf, Pasal; bagian < 200 karakter digabung ke bagian berikutnya; tiap potongan membawa "Konteks: induk > …";
 bagian panjang dipotong lagi dengan label "(Pasal 5, lanjutan)"); record tetap `chunkText`. Teks tanpa judul = hasil
-sama persis dengan `chunkText`. Ganti aturan pemotongan ⇒ "Indeks ulang" di Pengaturan → AI agar sitasi notebook
+sama persis dengan `chunkText`. Ganti aturan pemotongan ⇒ "Indeks ulang" di Tools → Indeks Pengetahuan agar sitasi notebook
 mode RAG kembali cocok dengan indeks.
 
 **Chat** (`POST /ai/chat { conversationId?, message, snapshot?, today? }`, 20/menit): cari koleksi `knowledge`
@@ -383,6 +385,9 @@ Tahap 3 [AI-AGENT.md](AI-AGENT.md) §18. Agen AI luar (Hermes, Claude Desktop, n
 - Paket: `@modelcontextprotocol/sdk` (CJS `dist/cjs` lewat subpath `…/server/mcp.js`) + `zod` 4 (peer SDK).
 
 ### 3.8 Pengajuan satker, mesin templat & Antrian Verifikasi (`src/requests/`, menu Pengajuan)
+
+> **Arah 2026-10-31** (`AI-AGENT.md` §22): alur per jenis dokumen (Analisis/Telaah bawaan) akan dikerjakan agen Hermes lewat
+> skill; tabel `requests`, Approval (menu Workspace), dan mesin templat tetap, mesin templat diekspos sebagai tool MCP.
 
 Tahap 4 [AI-AGENT.md](AI-AGENT.md) §19. Pengajuan & surat dari pemohon mana pun (satker, instansi, masyarakat; jenis PSP,
 penghapusan, pemanfaatan BMN, surat, lainnya) dicatat
@@ -452,6 +457,83 @@ bot bisa dipakai untuk layanan apa pun (profil layanan per user).
 - Pengiriman: `POST {WHATSAPP_API_URL}/{WHATSAPP_GRAPH_VERSION}/{phone_number_id}/messages` (teks dipecah ≤ 4096);
   media diunduh dari Graph API (≤ 20 MB) → `createFromBuffer` context `request`.
 
+### 3.10 Konektor robot SRIKANDI & e-Kinerja (`robot/`, `src/robot/`, tab Connector di Laporan Kinerja & SRIKANDI) + tautan publik
+
+Tahap 6 [AI-AGENT.md](AI-AGENT.md) §21. Mesin robot dibangun di LifeOS (keputusan AG-21): OnTrack belum punya mesin
+Playwright, dan pola "sesi tersimpan + login manusia" dipakai bersama kedua sistem.
+
+- **Service robot** (`robot/`, container `robot`, profile `robot`, port dev `127.0.0.1:4100`, produksi hanya jaringan
+  internal): Node `http` + Playwright Chromium headless, viewport 1280×800, locale id-ID/WIB. **Tanpa penyimpanan**: sesi
+  masuk sebagai `storageState` (cookie + localStorage + IndexedDB) dari backend dan dikembalikan setelah selesai. API
+  (Bearer `ROBOT_TOKEN`): `POST /sessions` (buka browser jarak jauh), `GET /sessions/:id/frame` (JPEG + header url/judul/
+  status login), `POST /sessions/:id/input` (klik, ketik, tombol terbatas, gulir, buka alamat, kembali, muat ulang),
+  `POST /sessions/:id/capture` (rekam halaman yang sedang tampil, tanpa klik), `POST /sessions/:id/finish` (kembalikan sesi & tutup), `DELETE /sessions/:id`, `POST /check`, `POST /capture`
+  (tangkapan layar halaman penuh + `ariaSnapshot`), `GET /health`. Hanya membuka host konektor (+ subdomain, https)
+  — `urlAllowed`; tombol yang boleh dikirim dibatasi (tanpa pintasan alat pengembang); sesi menganggur ditutup 10 menit,
+  maks. 4 sesi. Status login ditebak `looksLikeLogin` (kolom password terlihat / penanda alamat login). Logika murni +
+  test: `robot/src/logic.ts`.
+- **Backend** `src/robot/`: tabel `robot_connectors` (per user per sistem: alamat, host tambahan, penanda login, status
+  `none | active | expired | error`, `session_enc` = storageState terenkripsi AES-256-GCM dengan kunci turunan HMAC dari
+  `AI_ENCRYPTION_KEY` — `robotSessionKey`), `robot_runs` (login/check/capture, url, judul, catatan, snapshot aria,
+  `screenshot_key` = objek JPEG di object storage `robot/<userId>/<runId>.jpg`, bukan Asset → tidak diekstraksi/OCR).
+  Endpoint `/robot/status`, `/robot/connectors[/:system]` (PATCH alamat), `/connectors/:system/login|check|capture`,
+  `DELETE /connectors/:system/session`, `/robot/sessions/:id/frame|input|capture|finish` (sesi live dipetakan ke user di memori),
+  `/robot/runs[/:id[/screenshot]]`. Klien `robot-client.ts`: robot mati → 422 berpetunjuk. Katalog sistem & batas
+  tindakan: `robot-logic.ts` (`SYSTEM_INFO`; SRIKANDI bawaan https://srikandi.arsip.go.id, e-Kinerja diisi user).
+  Status juga melaporkan `vault` (brankas aktif).
+- **Brankas kredensial & login otomatis** (§21.1 AI-AGENT): `credential-vault.ts` (AES-256-GCM, kunci
+  `CREDENTIAL_ENCRYPTION_KEY` khusus, AAD user+sistem+kolom), kolom `username_enc`/`password_enc`/`credential_hint`;
+  `POST /robot/connectors/:system/credentials` (wajib `accountPassword` LifeOS), `DELETE …/credentials`,
+  `POST …/auto-login`, `POST /robot/sessions/:id/answer` (`captcha | otp`). Robot: `POST /sessions/:id/autofill` &
+  `/answer` + `login-form.ts` (pengenalan kolom & tombol). CAPTCHA/OTP **tidak pernah** dibaca mesin; rahasia TOTP tidak
+  disimpan. Modal informasi setelah login ("berhasil" + OK) ditutup otomatis (`dismissInfoDialog`, aturan `infoDialogButton`);
+  modal keputusan tidak pernah ditutup robot.
+- **Alur kerja robot** (job `POST /jobs/...` di service robot, dipanggil endpoint backend; detail
+  [AI-AGENT.md](AI-AGENT.md) §21.4–§21.12). Semua job membuka konteks baru dari sesi tersimpan, mengembalikan sesi yang
+  diperbarui, dan mencatat run (+ tangkapan layar) di Riwayat Connector:
+
+  | Sistem | Job robot | Endpoint backend | Isi |
+  |---|---|---|---|
+  | e-Kinerja | `/jobs/ekinerja/skp` | `POST /robot/ekinerja/skp/sync` | baca SKP & RHK → record `skp`, `skp_target` |
+  | e-Kinerja | `/jobs/ekinerja/renaksi` (`mode: add \| sync`) | `POST /robot/ekinerja/renaksi/fill` | samakan Rencana Aksi bulanan dengan LifeOS: baca & impor dulu, tambah butir, tulis ulang baris yang berubah (`dryRun` = Periksa); tidak pernah Kirim Penilaian |
+  | e-Kinerja | `/jobs/ekinerja/renaksi/read` | `POST /robot/ekinerja/renaksi/sync` | baca semua bulan (status draf/diajukan/dinilai, tanggal pengajuan, rating, isi, feedback) → `action_plan_month` + impor |
+  | SRIKANDI | `/jobs/srikandi/outgoing` | `POST /robot/srikandi/letters/sync` | Daftar Naskah Keluar + PDF ber-TTD & lampiran → `srikandi_letter`, Resource Global |
+  | SRIKANDI | `/jobs/srikandi/references` (`categories?`) | `POST /robot/srikandi/references/sync`, `…/classifications/sync` | tabel menu Pengguna (7 kategori) / Klasifikasi Arsip (1.048 baris) → `srikandi_reference` |
+  | SRIKANDI | `/jobs/srikandi/register` (body ≤ 40 MB, berkas base64) | `POST /robot/srikandi/register/:id { dryRun? }` | isi formulir Registrasi Naskah Keluar dari `srikandi_outgoing` → **Simpan** = konsep di Log Naskah Keluar (tidak ganda); tidak pernah Kirim Konsep |
+
+  Pengaman bersama: `safeClick` menolak tombol berteks kirim/ajukan/submit/hapus; pilihan react-select diklik (tidak
+  pernah Enter); setiap job memeriksa ulang status login setelah halaman dimuat. Robot tidak pernah menandatangani,
+  mengisi CAPTCHA/OTP, atau mengirim hasil akhir.
+- **Tautan publik berkas** (`src/uploads/public-links.ts`, tabel `public_links`): `POST/GET /uploads/:id/public-links`
+  (pemilik berkas saja; token `lp_<32 byte>` tampil sekali, disimpan hash SHA-256, masa berlaku opsional),
+  `DELETE /public-links/:id`, publik `GET /api/v1/public/files/:token` (header sama dengan unduhan: CSP sandbox,
+  konten aktif dipaksa attachment, + `X-Robots-Tag: noindex`, `Referrer-Policy: no-referrer`; hitung akses). Token di
+  path disensor dari log request. Dipakai sebagai "link dokumen" e-Kinerja.
+- **Brankas digital** (`src/uploads/public-vaults.ts`, logika murni + test `vault-logic.ts`; tabel `public_vaults`,
+  `public_vault_files`, `public_vault_accesses`): bukti data dukung **satu poin renaksi = satu tautan** berisi beberapa berkas
+  yang terisolasi (token hanya membuka berkas brankas itu). Pemilik: `POST /vaults { title, entryId?, assetIds }` (hanya berkas
+  milik sendiri, maks. 30; path `/brankas/bv_<token>` tampil sekali, token disimpan hash), `GET /vaults`, `GET/PATCH/DELETE
+  /vaults/:id` (ganti berkas = tautan tetap), `POST /vaults/:id/rotate` (tautan baru, lama mati), `GET /vaults/:id/accesses`.
+  Publik (tanpa login, 60/menit): `GET /public/vaults/:token` (isi + catatan akses pengunjung sendiri) dan
+  `GET /public/vaults/:token/files/:fileId?download=1` (header unduhan aman + noindex). **Setiap pembukaan, lihat, & unduh
+  dicatat**: waktu, IP (`req.ip`; produksi `TRUST_PROXY=true` di belakang Caddy), perkiraan lokasi dari IP (env
+  `GEOIP_PROVIDER` = `ipapi` bawaan — layanan ipapi.co tanpa key, IP pengunjung dikirim ke sana, cache 24 jam, timeout 2,5 dtk,
+  IP lokal/privat tidak dicari; `none` = hanya IP), peramban. Berkas brankas tidak bisa dihapus dari fitur lain
+  (`DELETE /uploads/:id` → 409). Entri renaksi yang dihapus menghapus brankasnya (frontend; entri ber-tanda hapus dihapus server
+  setelah Kirim perubahan). Halaman publik SPA `/brankas/:token` (`features/vault/public-vault-page.tsx`) memuat
+  **Pemberitahuan Pelindungan Data Pribadi** (UU 27/2022 Pasal 65 jo. 67, hanya untuk atasan/penilai/PPK) + pemberitahuan
+  pencatatan akses beserta IP/lokasi/peramban pengunjung itu.
+
+### 3.11 Asisten Agen — Hermes (`src/agent/`, `features/agent/`, service `hermes`)
+
+[AI-AGENT.md](AI-AGENT.md) §22–§23. Hermes (Nous Research) berjalan sebagai container (profile `agent`) dengan API server
+OpenAI-compatible (port 8642, Bearer `API_SERVER_KEY` = `HERMES_API_KEY` backend) dan klien MCP ke LifeOS (`lifeos-api:4000`,
+token akses pribadi pemilik di `/opt/data/.env`). Backend `AgentService`: status (`/health`), skill (folder repo
+`HERMES_SKILLS_DIR` + skill bawaan dari `/v1/skills` bila berfungsi), chat & skill sebagai **run** asinkron (`POST /v1/runs`
+{ input, session_id } → `GET /v1/runs/:id`), hanya untuk `HERMES_OWNER_EMAIL`. Agen bekerja lewat alat MCP (§3.7) sehingga
+isolasi data, log aktivitas, dan aturan "agen tidak memutuskan" berlaku sama. Data Hermes (model, memori, sesi) di volume
+`hermes-data`, bukan database LifeOS.
+
 ### Keamanan
 - **Access token** JWT 15 menit, dikirim via header `Authorization`, hanya disimpan di memori frontend.
 - **Refresh token** JWT (`jti` = `refresh_tokens.id`, DB hanya menyimpan hash SHA-256) dikirim sebagai cookie
@@ -473,9 +555,9 @@ dengan `ON DELETE CASCADE`, soft delete `deleted_at` pada tabel domain.
 ### 4.1 Tabel inti
 `users` (+ `ai_provider`, `ai_fallback`, `ai_index_enabled`), `refresh_tokens`, `app_settings`, `assets` (+ `uploaded_by_id`,
 `version`, `version_author_id`, `versioned_at`, `office_key`), `asset_versions` (§3.5), `asset_extractions`, `archive_audit_logs`, `ai_credentials` (§3.1), `ai_chunks` (pgvector, §3.2),
-`shares` & `record_comments` (§3.3).
+`shares` & `record_comments` (§3.3), `public_links`, `public_vaults` / `public_vault_files` / `public_vault_accesses` (§3.10).
 
-### 4.2 Tabel domain (20)
+### 4.2 Tabel domain (28)
 
 | Record type (API) | Tabel | Kolom utama |
 |---|---|---|
@@ -494,6 +576,13 @@ dengan `ON DELETE CASCADE`, soft delete `deleted_at` pada tabel domain.
 | `para_resource` | `resources` | title, type, url, upload_id, date, tags, ai_summary + **field kearsipan** (archival_status, archive_reg_id, classification_id, jra_id, retention_*_date, status, is_vital, is_auto_dispose, phys_*_id, digital_*, disposition_data) |
 | `para_archive` | `para_archives` | original_type, original_id, data, archived_at (turunan yang ikut diarsipkan — `related` — di `extra`) |
 | `para_archive_log` | `para_archive_logs` | action (archived/restored), original_type, original_id, archive_id, title, summary, actor_name, at — riwayat arsip & pemulihan PARA (append-only) |
+| `skp` | `skps` | external_id (nomor SKP e-Kinerja), start_date, end_date, status, approach, appraiser, synced_at — SKP diambil robot (beberapa per tahun) |
+| `skp_target` | `skp_targets` | year, skp_id, name, section (UTAMA/TAMBAHAN), leader, indicators, order — RHK milik SKP (robot) atau manual per tahun |
+| `action_plan_entry` | `action_plan_entries` | period (YYYY-MM), skp_id, target_id, description, document_url, source_type/id/title, status (draft/ready/filled), filled_at — rencana aksi e-Kinerja yang dipilih user dari Productivity (di `extra`: realization, time_realization, indicators, pushedSignature + pushed = pengenal perubahan, deleted = hapus tertunda) |
+| `action_plan_month` | `action_plan_months` | period, skp_id, status (empty/unavailable/draft/submitted/rated), submitted_at, synced_at — potret bulan Rencana Aksi e-Kinerja (di `extra`: workday, ratings, rows + feedback) |
+| `srikandi_reference` | `srikandi_references` | category (signer/recipient/recipient_group/verifier/cc/cc_group/disposition_group/classification), label, fields, order, synced_at — referensi SRIKANDI diambil robot (klasifikasi: label "KODE - Nama", fields.Status) |
+| `srikandi_letter` | `srikandi_letters` | number, date, subject, origin, sign_status, send_status, upload_id, imported_at — naskah keluar ber-TTD dari Daftar Naskah Keluar (di `extra`: attachments, resources) |
+| `srikandi_outgoing` | `srikandi_outgoings` | form_type, subject, number, status (draft/submitted/done), upload_id, source_type/id, letter_id, submitted_at — Register Naskah Keluar (isian formulir Registrasi, berkas, tujuan, verifikator, penandatangan di `extra`) |
 | `archive_classification` | `archive_classifications` | jenis, kode_pokok/sub/item, nama_* |
 | `archive_jra` | `archive_retention_schedules` | kategori_utama, sub_kategori, jenis_arsip, retensi_aktif, retensi_inaktif, keterangan |
 | `archive_physical_reference` | `archive_locations` | type (location/rack/box/folder), parent_id, code, name |
@@ -603,6 +692,8 @@ jaringan internal: postgres · redis (password) · SeaweedFS S3 · backup harian
 
 ## 8. Rencana berikutnya
 
-- RAG tahap 2 ✅ (§3.6). Berikutnya (docs/AI-AGENT.md §14): token akses + MCP LifeOS, modul Pengajuan + mesin
-  templat, Hermes; RAG tahap 3: Redis untuk cache embedding pertanyaan, batas pemakaian harian, penyimpanan throttler.
+- RAG tahap 2 ✅ (§3.6), token akses + MCP ✅ (§3.7), Pengajuan/Approval + mesin templat ✅ (§3.8), bot WhatsApp ✅
+  (§3.9), robot e-Kinerja & SRIKANDI termasuk Register Naskah Keluar ✅ (§3.10), Hermes tahap pertama ✅ (§3.11).
+  Berikutnya ([AI-AGENT.md](AI-AGENT.md) §22): skill Hermes per jenis dokumen, integrasi OnTrack (SIMAN/MyIntress); RAG
+  tahap 3: Redis untuk cache embedding pertanyaan, batas pemakaian harian, penyimpanan throttler.
 - Upgrade tech stack yang masih tertunda: lihat [UPGRADE-PLAN.md](UPGRADE-PLAN.md).

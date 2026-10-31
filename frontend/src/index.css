@@ -62,6 +62,9 @@
   --color-mod-productivity: var(--mod-productivity);
   --color-mod-files: var(--mod-files);
   --color-mod-requests: var(--mod-requests);
+  --color-mod-agent: var(--mod-agent);
+  --color-mod-kinerja: var(--mod-kinerja);
+  --color-mod-srikandi: var(--mod-srikandi);
   --color-mod-tools: var(--mod-tools);
   --color-mod-settings: var(--mod-settings);
 
@@ -131,6 +134,12 @@
   --mod-files-2: oklch(0.7 0.18 50);
   --mod-requests: oklch(0.58 0.15 140);
   --mod-requests-2: oklch(0.64 0.14 100);
+  --mod-agent: oklch(0.55 0.2 300);
+  --mod-agent-2: oklch(0.6 0.17 270);
+  --mod-kinerja: oklch(0.6 0.15 85);
+  --mod-kinerja-2: oklch(0.66 0.15 55);
+  --mod-srikandi: oklch(0.55 0.16 255);
+  --mod-srikandi-2: oklch(0.6 0.14 220);
   --mod-tools: oklch(0.6 0.12 195);
   --mod-tools-2: oklch(0.58 0.15 245);
   --mod-settings: oklch(0.58 0.2 320);
@@ -196,6 +205,12 @@
   --mod-files-2: oklch(0.76 0.15 50);
   --mod-requests: oklch(0.72 0.14 140);
   --mod-requests-2: oklch(0.76 0.13 100);
+  --mod-agent: oklch(0.72 0.16 300);
+  --mod-agent-2: oklch(0.74 0.14 270);
+  --mod-kinerja: oklch(0.76 0.14 85);
+  --mod-kinerja-2: oklch(0.78 0.13 55);
+  --mod-srikandi: oklch(0.72 0.13 255);
+  --mod-srikandi-2: oklch(0.74 0.12 220);
   --mod-tools: oklch(0.72 0.11 195);
   --mod-tools-2: oklch(0.7 0.13 245);
   --mod-settings: oklch(0.7 0.18 320);
@@ -238,6 +253,18 @@
 [data-module="requests"] {
   --module: var(--mod-requests);
   --module-2: var(--mod-requests-2);
+}
+[data-module="agent"] {
+  --module: var(--mod-agent);
+  --module-2: var(--mod-agent-2);
+}
+[data-module="kinerja"] {
+  --module: var(--mod-kinerja);
+  --module-2: var(--mod-kinerja-2);
+}
+[data-module="srikandi"] {
+  --module: var(--mod-srikandi);
+  --module-2: var(--mod-srikandi-2);
 }
 [data-module="tools"] {
   --module: var(--mod-tools);

@@ -15,7 +15,7 @@ export const DOCUMENT_ACCEPT = ".pdf,.txt,.md,.csv,.json,.docx,.xlsx,image/*";
 const REASON_MESSAGES: Record<string, string> = {
   too_large: "Berkas lebih dari 20 MB tidak bisa dibaca.",
   unsupported_type: "Format berkas ini tidak bisa dibaca. Gunakan PDF, DOCX, XLSX, teks, atau gambar.",
-  needs_gemini_key: "Gambar / PDF hasil scan perlu dibaca AI. Atur AI di Pengaturan → AI.",
+  needs_gemini_key: "Gambar / PDF hasil scan perlu dibaca AI. Atur AI di Pengaturan → Model AI.",
   empty: "Tidak ada teks yang terbaca dari berkas ini.",
 };
 

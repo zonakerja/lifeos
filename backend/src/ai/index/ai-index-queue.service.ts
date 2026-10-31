@@ -57,7 +57,7 @@ export class AiIndexQueueService implements OnModuleDestroy {
     try {
       await this.queue.add(data.kind, data, { delay, deduplication: { id: dedupId, keepLastIfActive: true } });
     } catch (error) {
-      // Gagal mengantre tidak boleh menggagalkan penyimpanan data; indeks bisa dibangun ulang dari Pengaturan → AI
+      // Gagal mengantre tidak boleh menggagalkan penyimpanan data; indeks bisa dibangun ulang dari Tools → Indeks Pengetahuan
       this.logger.error(`Gagal mengantre indeks AI (${dedupId}): ${error instanceof Error ? error.message : error}`);
     }
   }

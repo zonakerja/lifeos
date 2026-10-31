@@ -1,0 +1,12 @@
+
+# --- LifeOS (ditambahkan infra/hermes/configure.sh; docs/AI-AGENT.md §23) ---
+# MCP server LifeOS. Kunci = API_SERVER_KEY container (sama dengan HERMES_API_KEY backend); izinnya diaktifkan dari
+# LifeOS → Asisten Agen → Status & Skill → Siapkan agen (token akses "Agen Hermes" di Pengaturan → Integrasi).
+# "lifeos-api" = backend LifeOS (dev: IP Windows lewat extra_hosts; produksi: alias jaringan service backend).
+mcp_servers:
+  lifeos:
+    url: "http://lifeos-api:4000/api/v1/mcp"
+    headers:
+      Authorization: "Bearer ${API_SERVER_KEY}"
+    timeout: 180
+    connect_timeout: 30

@@ -16,6 +16,8 @@ import { OfficeModule } from "./office/office.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RecordsModule } from "./records/records.module";
 import { RequestsModule } from "./requests/requests.module";
+import { RobotModule } from "./robot/robot.module";
+import { AgentModule } from "./agent/agent.module";
 import { WhatsappModule } from "./whatsapp/whatsapp.module";
 import { RedisModule } from "./redis/redis.module";
 import { SettingsModule } from "./settings/settings.module";
@@ -46,6 +48,8 @@ import { UsersModule } from "./users/users.module";
     IntegrationsModule,
     RequestsModule,
     WhatsappModule,
+    RobotModule,
+    AgentModule,
     NotebooksModule,
     OfficeModule,
   ],

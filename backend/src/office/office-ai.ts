@@ -5,7 +5,7 @@
  * (`infra/onlyoffice/lifeos-ai-bridge.js`) membaca opsi plugin dari config editor bertanda tangan (token sesi AI + alamat
  * backend) lalu mendaftarkan satu provider "AI LifeOS". Semua permintaan plugin (format OpenAI Chat Completions)
  * dibungkus plugin menjadi `{ target, method, headers, data }` dan dikirim ke `POST /office/ai/proxy`; backend
- * menerjemahkannya ke `AiService.generate` dengan provider & API key milik user (Pengaturan → AI). Key tidak pernah ke
+ * menerjemahkannya ke `AiService.generate` dengan provider & API key milik user (Pengaturan → Model AI). Key tidak pernah ke
  * browser dan tidak ada pengaturan AI terpisah di editor. Detail: docs/ONLYOFFICE.md §3.4.
  */
 

@@ -121,6 +121,13 @@ model User {
   resources                 Resource[]
   paraArchives              ParaArchive[]
   paraArchiveLogs           ParaArchiveLog[]
+  skps                      Skp[]
+  skpTargets                SkpTarget[]
+  actionPlanEntries         ActionPlanEntry[]
+  actionPlanMonths          ActionPlanMonth[]
+  srikandiReferences        SrikandiReference[]
+  srikandiLetters           SrikandiLetter[]
+  srikandiOutgoings         SrikandiOutgoing[]
   archiveClassifications    ArchiveClassification[]
   archiveRetentionSchedules ArchiveRetentionSchedule[]
   archiveLocations          ArchiveLocation[]
@@ -140,6 +147,10 @@ model User {
   apiTokens        ApiToken[]
   requests         Request[]
   contactGroups    ContactGroup[]
+  robotConnectors  RobotConnector[]
+  robotRuns        RobotRun[]
+  publicLinks      PublicLink[]
+  publicVaults     PublicVault[]
   waContacts       WaContact[]
   waMessages       WaMessage[]
   /// Profil layanan bot WhatsApp: { serviceName, topic }
@@ -404,35 +415,37 @@ model KnowledgeLink {
 // ---------------------------------------------------------------- Aset & berkas
 
 model Asset {
-  id              String           @id @default(cuid())
-  userId          String           @map("user_id")
+  id              String            @id @default(cuid())
+  userId          String            @map("user_id")
   bucket          String
-  objectKey       String           @unique @map("object_key")
-  originalName    String           @map("original_name")
-  mimeType        String           @map("mime_type")
+  objectKey       String            @unique @map("object_key")
+  originalName    String            @map("original_name")
+  mimeType        String            @map("mime_type")
   size            Int
   checksum        String
-  status          AssetStatus      @default(uploaded)
-  source          String           @default("upload")
+  status          AssetStatus       @default(uploaded)
+  source          String            @default("upload")
   context         String?
   // Pengunggah bila berbeda dari pemilik (kolaborator dengan izin edit mengunggah ke item milik user lain)
-  uploadedById    String?          @map("uploaded_by_id")
+  uploadedById    String?           @map("uploaded_by_id")
   // Editor ONLYOFFICE: nomor versi isi saat ini, siapa yang menyimpannya, dan kunci sesi edit (berganti setiap kali
   // dokumen selesai disimpan; document.key = "<id>-<officeKey>")
-  version         Int              @default(1)
-  versionAuthorId String?          @map("version_author_id")
-  officeKey       String?          @map("office_key")
+  version         Int               @default(1)
+  versionAuthorId String?           @map("version_author_id")
+  officeKey       String?           @map("office_key")
   // Waktu isi saat ini disimpan (updated_at ikut berubah oleh ekstraksi, jadi tidak bisa dipakai); null = createdAt
-  versionedAt     DateTime?        @map("versioned_at") @db.Timestamptz(3)
+  versionedAt     DateTime?         @map("versioned_at") @db.Timestamptz(3)
   // Dokumen final (mis. PDF bertanda tangan) → konsepnya (dokumen ONLYOFFICE); konsep dihapus = tautan dilepas
-  draftId         String?          @map("draft_id")
-  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  draftId         String?           @map("draft_id")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   extraction      AssetExtraction?
   versions        AssetVersion[]
-  draft           Asset?           @relation("AssetFinals", fields: [draftId], references: [id], onDelete: SetNull)
-  finals          Asset[]          @relation("AssetFinals")
+  draft           Asset?            @relation("AssetFinals", fields: [draftId], references: [id], onDelete: SetNull)
+  finals          Asset[]           @relation("AssetFinals")
+  publicLinks     PublicLink[]
+  vaultFiles      PublicVaultFile[]
 
   @@index([userId, status])
   @@index([draftId])
@@ -925,6 +938,180 @@ model ParaArchiveLog {
   @@map("para_archive_logs")
 }
 
+/// Record type `skp`
+model Skp {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  clientId   String    @map("client_id")
+  externalId String?   @map("external_id")
+  startDate  DateTime? @map("start_date") @db.Date
+  endDate    DateTime? @map("end_date") @db.Date
+  status     String?
+  approach   String?
+  appraiser  String?
+  syncedAt   DateTime? @map("synced_at") @db.Timestamptz(3)
+  extra      Json      @default("{}")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, startDate])
+  @@map("skps")
+}
+
+/// Record type `skp_target`
+model SkpTarget {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  clientId   String    @map("client_id")
+  year       Int?
+  skpId      String?   @map("skp_id")
+  name       String?
+  section    String?
+  leader     String?
+  indicators Json?
+  order      Int?
+  extra      Json      @default("{}")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, year])
+  @@index([userId, skpId])
+  @@map("skp_targets")
+}
+
+/// Record type `action_plan_entry`
+model ActionPlanEntry {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  period      String?
+  skpId       String?   @map("skp_id")
+  targetId    String?   @map("target_id")
+  description String?
+  documentUrl String?   @map("document_url")
+  sourceType  String?   @map("source_type")
+  sourceId    String?   @map("source_id")
+  sourceTitle String?   @map("source_title")
+  status      String?
+  filledAt    DateTime? @map("filled_at") @db.Timestamptz(3)
+  extra       Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, period])
+  @@index([userId, sourceId])
+  @@map("action_plan_entries")
+}
+
+/// Record type `action_plan_month`
+model ActionPlanMonth {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  period      String?
+  skpId       String?   @map("skp_id")
+  status      String?
+  submittedAt DateTime? @map("submitted_at") @db.Date
+  syncedAt    DateTime? @map("synced_at") @db.Timestamptz(3)
+  extra       Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, period])
+  @@map("action_plan_months")
+}
+
+/// Record type `srikandi_reference`
+model SrikandiReference {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  clientId  String    @map("client_id")
+  category  String?
+  label     String?
+  fields    Json?
+  order     Int?
+  syncedAt  DateTime? @map("synced_at") @db.Timestamptz(3)
+  extra     Json      @default("{}")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, category])
+  @@map("srikandi_references")
+}
+
+/// Record type `srikandi_letter`
+model SrikandiLetter {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  clientId   String    @map("client_id")
+  number     String?
+  date       DateTime? @db.Date
+  subject    String?
+  origin     String?
+  signStatus String?   @map("sign_status")
+  sendStatus String?   @map("send_status")
+  uploadId   String?   @map("upload_id")
+  importedAt DateTime? @map("imported_at") @db.Timestamptz(3)
+  extra      Json      @default("{}")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, date])
+  @@index([userId, number])
+  @@map("srikandi_letters")
+}
+
+/// Record type `srikandi_outgoing`
+model SrikandiOutgoing {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  formType    String?   @map("form_type")
+  subject     String?
+  number      String?
+  status      String?
+  uploadId    String?   @map("upload_id")
+  sourceType  String?   @map("source_type")
+  sourceId    String?   @map("source_id")
+  letterId    String?   @map("letter_id")
+  submittedAt DateTime? @map("submitted_at") @db.Timestamptz(3)
+  extra       Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId, deletedAt])
+  @@index([userId, status])
+  @@index([userId, letterId])
+  @@map("srikandi_outgoings")
+}
+
 /// Record type `archive_classification`
 model ArchiveClassification {
   id        String    @id @default(cuid())
@@ -1238,4 +1425,144 @@ model WaMessage {
   @@index([userId, phone, createdAt])
   @@index([userId, status])
   @@map("wa_messages")
+}
+
+// ---------------------------------------------------------------- Konektor robot SRIKANDI & e-Kinerja (tahap 6)
+
+/// Konektor robot per user per sistem. Menyimpan sesi browser (cookie/storage) TERENKRIPSI — tidak pernah kata sandi
+/// atau rahasia OTP; pengguna sendiri yang login lewat browser jarak jauh.
+model RobotConnector {
+  id                   String     @id @default(cuid())
+  userId               String     @map("user_id")
+  /// srikandi | ekinerja
+  system               String
+  baseUrl              String     @map("base_url")
+  /// Host tambahan yang boleh dibuka robot (mis. server SSO)
+  extraHosts           Json       @default("[]") @map("extra_hosts")
+  /// Penanda alamat halaman login khusus sistem ini
+  loginMarkers         Json       @default("[]") @map("login_markers")
+  /// none | active | expired | error
+  status               String     @default("none")
+  /// storageState Playwright terenkripsi AES-256-GCM
+  sessionEnc           String?    @map("session_enc")
+  /// Brankas kredensial (AES-256-GCM, kunci CREDENTIAL_ENCRYPTION_KEY, AAD = user+sistem+kolom). Tidak pernah dikirim ke browser.
+  usernameEnc          String?    @map("username_enc")
+  passwordEnc          String?    @map("password_enc")
+  /// Nama pengguna tersamar untuk ditampilkan (mis. "Yu•••EU")
+  credentialHint       String?    @map("credential_hint")
+  credentialsUpdatedAt DateTime?  @map("credentials_updated_at") @db.Timestamptz(3)
+  lastLoginAt          DateTime?  @map("last_login_at") @db.Timestamptz(3)
+  lastCheckAt          DateTime?  @map("last_check_at") @db.Timestamptz(3)
+  lastUrl              String?    @map("last_url")
+  lastError            String?    @map("last_error")
+  createdAt            DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user                 User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runs                 RobotRun[]
+
+  @@unique([userId, system])
+  @@map("robot_connectors")
+}
+
+/// Log setiap pekerjaan robot (login, cek sesi, eksplor halaman, nanti alur pengisian) + tangkapan layar.
+model RobotRun {
+  id            String         @id @default(cuid())
+  userId        String         @map("user_id")
+  connectorId   String         @map("connector_id")
+  /// login | check | capture
+  kind          String
+  /// ok | failed
+  status        String
+  url           String?
+  title         String?
+  note          String?
+  /// Snapshot aksesibilitas halaman (struktur formulir/tombol) untuk memetakan alur
+  aria          String?
+  /// Kunci objek tangkapan layar di object storage (JPEG)
+  screenshotKey String?        @map("screenshot_key")
+  error         String?
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connector     RobotConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("robot_runs")
+}
+
+/// Tautan publik baca-saja ke satu berkas (mis. link dokumen bukti di e-Kinerja). Token hanya disimpan hash-nya.
+model PublicLink {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  assetId      String    @map("asset_id")
+  tokenHash    String    @unique @map("token_hash")
+  /// Awal token untuk dikenali (bukan rahasia)
+  prefix       String
+  label        String?
+  expiresAt    DateTime? @map("expires_at") @db.Timestamptz(3)
+  accessCount  Int       @default(0) @map("access_count")
+  lastAccessAt DateTime? @map("last_access_at") @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset        Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+  @@map("public_links")
+}
+
+/// Brankas digital: satu tautan publik baca-saja berisi beberapa berkas bukti untuk satu poin renaksi e-Kinerja (dibuka
+/// atasan / pejabat pembina kepegawaian tanpa akun). Token hanya disimpan hash-nya; setiap akses dicatat.
+model PublicVault {
+  id           String              @id @default(cuid())
+  userId       String              @map("user_id")
+  tokenHash    String              @unique @map("token_hash")
+  prefix       String
+  title        String
+  description  String?
+  /// Entri renaksi asal (client id action_plan_entry)
+  entryId      String?             @map("entry_id")
+  expiresAt    DateTime?           @map("expires_at") @db.Timestamptz(3)
+  accessCount  Int                 @default(0) @map("access_count")
+  lastAccessAt DateTime?           @map("last_access_at") @db.Timestamptz(3)
+  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  files        PublicVaultFile[]
+  accesses     PublicVaultAccess[]
+
+  @@index([userId])
+  @@index([entryId])
+  @@map("public_vaults")
+}
+
+model PublicVaultFile {
+  id        String      @id @default(cuid())
+  vaultId   String      @map("vault_id")
+  assetId   String      @map("asset_id")
+  order     Int         @default(0)
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  vault     PublicVault @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  asset     Asset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([vaultId, assetId])
+  @@map("public_vault_files")
+}
+
+/// Log akses brankas: setiap pembukaan halaman & unduhan (IP + perkiraan lokasi dari IP + peramban)
+model PublicVaultAccess {
+  id        String      @id @default(cuid())
+  vaultId   String      @map("vault_id")
+  /// open | view | download
+  action    String
+  fileName  String?     @map("file_name")
+  ip        String?
+  userAgent String?     @map("user_agent")
+  country   String?
+  region    String?
+  city      String?
+  network   String?
+  at        DateTime    @default(now()) @db.Timestamptz(3)
+  vault     PublicVault @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+
+  @@index([vaultId, at])
+  @@map("public_vault_accesses")
 }

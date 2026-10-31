@@ -89,7 +89,56 @@ services:
       retries: 10
       start_period: 60s
 
+  robot:
+    # Browser otomatis (Playwright) untuk konektor SRIKANDI & e-Kinerja (Tools → Konektor Robot, docs/AI-AGENT.md §21).
+    # Opsional (± 300–600 MB RAM saat dipakai) → hanya menyala dengan profile: docker compose --profile robot up -d
+    # Tanpa penyimpanan: sesi login dikirim/disimpan backend (terenkripsi), bukan di container ini.
+    build: ./robot
+    # Image lokal; tag lewat variabel (lihat catatan onlyoffice) — nilai default = versi Playwright
+    image: lifeos-robot:${LIFEOS_ROBOT_TAG:-1.63.0}
+    container_name: lifeos-robot
+    restart: unless-stopped
+    profiles: ["robot"]
+    environment:
+      # Token khusus development; harus sama dengan ROBOT_TOKEN di backend/.env.
+      ROBOT_TOKEN: lifeos-dev-robot-token-0123456789abcdef0123
+    ports:
+      # Hanya untuk backend di laptop (bukan untuk dibuka ke jaringan)
+      - "127.0.0.1:4100:4100"
+    shm_size: 512m
+    init: true
+
+  hermes:
+    # Agen AI Hermes (Nous Research) untuk skill dokumen bertemplat & asisten pribadi (docs/AI-AGENT.md §22–§23).
+    # Opsional → hanya menyala dengan profile: sh infra/hermes/up.sh (menghitung alamat backend LifeOS di Windows)
+    # Data (config.yaml, .env berisi API key model, memori, sesi) di volume lifeos-hermes-data — bukan di repo.
+    image: nousresearch/hermes-agent:${LIFEOS_HERMES_TAG:-v0.22.2}
+    container_name: lifeos-hermes
+    restart: unless-stopped
+    profiles: ["agent"]
+    command: gateway run
+    environment:
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: 0.0.0.0
+      # Kunci khusus development; harus sama dengan HERMES_API_KEY di backend/.env.
+      API_SERVER_KEY: lifeos-dev-hermes-key-0123456789abcdef
+    extra_hosts:
+      # Backend LifeOS berjalan di Windows (port 4000); host-gateway Docker = VM WSL, bukan Windows → up.sh mengisi
+      # LIFEOS_API_HOST dengan IP gateway WSL. Di produksi backend dijangkau lewat alias jaringan yang sama.
+      - "lifeos-api:${LIFEOS_API_HOST:-host-gateway}"
+    volumes:
+      - lifeos-hermes-data:/opt/data
+      # Skill LifeOS dari repo (baca-saja) → kategori "lifeos" di daftar skill Hermes
+      - ./agents/hermes/skills:/opt/data/skills/lifeos:ro
+      - ./infra/hermes:/opt/lifeos:ro
+    ports:
+      # Hanya untuk backend di laptop (bukan untuk dibuka ke jaringan)
+      - "127.0.0.1:8642:8642"
+    shm_size: 1g
+
 volumes:
+  lifeos-hermes-data:
+    name: lifeos-hermes-data
   lifeos-onlyoffice-cache:
     name: lifeos-onlyoffice-cache
   lifeos-onlyoffice-logs:

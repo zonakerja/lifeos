@@ -17,7 +17,7 @@ export interface AiProviderInfo {
 
 /**
  * Katalog provider AI. Model hanya default — bila provider menghentikan sebuah model, user cukup menggantinya di
- * Pengaturan → AI tanpa menunggu rilis aplikasi. Perbarui default di sini saat ada generasi model baru.
+ * Pengaturan → Model AI tanpa menunggu rilis aplikasi. Perbarui default di sini saat ada generasi model baru.
  */
 export const AI_PROVIDERS: Record<AiProvider, AiProviderInfo> = {
   gemini: {

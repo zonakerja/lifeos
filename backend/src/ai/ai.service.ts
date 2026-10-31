@@ -98,6 +98,7 @@ export class AiService {
       effective: {
         chat: taskProvider(routing, "chat", user.aiProvider, configured),
         general: taskProvider(routing, "general", user.aiProvider, configured),
+        agent: taskProvider(routing, "agent", user.aiProvider, configured),
         ocr: ocrCandidates(routing, configured, "pdf")[0] ?? null,
         embedding: embeddingProvider(routing, configured),
       },
@@ -223,6 +224,18 @@ export class AiService {
     }
   }
 
+  /** Provider, key & model untuk agen Hermes (Pembagian tugas → Agen; kosong = provider aktif). Null = belum ada key. */
+  async agentCredential(userId: string) {
+    const [user, credentials] = await Promise.all([
+      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { aiProvider: true, aiRouting: true } }),
+      this.prisma.aiCredential.findMany({ where: { userId }, select: { provider: true } }),
+    ]);
+    const configured = credentials.map((c) => c.provider);
+    const provider = taskProvider(parseRouting(user.aiRouting), "agent", user.aiProvider, configured);
+    const credential = provider ? await this.getCredentialKey(userId, provider) : null;
+    return provider && credential ? { provider, ...credential } : null;
+  }
+
   /** Key & model embedding indeks (Gemini atau OpenAI sesuai pembagian tugas); null = pencarian kata saja. */
   async embeddingCredential(userId: string): Promise<EmbeddingCredential | null> {
     const [user, credentials] = await Promise.all([
@@ -239,7 +252,7 @@ export class AiService {
   }
 
   /**
-   * Baca teks dari gambar / PDF hasil scan memakai provider OCR pemilik berkas (pilihan di Pengaturan → AI, lalu Gemini →
+   * Baca teks dari gambar / PDF hasil scan memakai provider OCR pemilik berkas (pilihan di Pengaturan → Model AI, lalu Gemini →
    * OpenAI → Claude yang punya key). Kuota habis / tidak terjangkau → provider berikutnya. Null bila tidak ada key yang
    * bisa membaca berkas (berkas tetap tersimpan, hanya tidak terindeks). Error provider dilempar sebagai `AiProviderError`.
    */
@@ -283,7 +296,7 @@ export class AiService {
       }),
       this.prisma.aiCredential.findMany({ where: { userId } }),
     ]);
-    // Provider utama tugas ini (Pengaturan → AI → Pembagian tugas); kosong = provider aktif
+    // Provider utama tugas ini (Pengaturan → Model AI → Pembagian tugas); kosong = provider aktif
     const active = taskProvider(
       parseRouting(user.aiRouting),
       task,
@@ -291,7 +304,7 @@ export class AiService {
       credentials.map((c) => c.provider),
     );
     if (!active || !credentials.some((c) => c.provider === active)) {
-      throw new BadRequestException("AI belum diatur. Pilih provider dan simpan API key di Pengaturan → AI.");
+      throw new BadRequestException("AI belum diatur. Pilih provider dan simpan API key di Pengaturan → Model AI.");
     }
 
     const attachments = this.toAttachments(files);
@@ -355,8 +368,8 @@ export class AiService {
       (id) => AI_PROVIDERS[id].label,
     );
     const hint = fallbackEnabled
-      ? `Simpan API key ${supporters.join(" / ")} di Pengaturan → AI agar dipakai otomatis untuk lampiran ini.`
-      : `Nyalakan "Cadangan otomatis" atau ganti provider ke ${supporters.join(" / ")} di Pengaturan → AI.`;
+      ? `Simpan API key ${supporters.join(" / ")} di Pengaturan → Model AI agar dipakai otomatis untuk lampiran ini.`
+      : `Nyalakan "Cadangan otomatis" atau ganti provider ke ${supporters.join(" / ")} di Pengaturan → Model AI.`;
     return new BadRequestException(
       `${AI_PROVIDERS[active].label} tidak mendukung lampiran ${missing.join(", ")}. ${hint}`,
     );
@@ -418,7 +431,7 @@ export class AiService {
     switch (error.kind) {
       case "auth":
         return new UnprocessableEntityException(
-          `API key ${label} ditolak. Periksa key di Pengaturan → AI. (${detail})${suffix}`,
+          `API key ${label} ditolak. Periksa key di Pengaturan → Model AI. (${detail})${suffix}`,
         );
       case "quota":
         return new HttpException(
@@ -427,7 +440,7 @@ export class AiService {
         );
       case "model":
         return new UnprocessableEntityException(
-          `Model "${model}" tidak tersedia di ${label}. Ganti model di Pengaturan → AI. (${detail})${suffix}`,
+          `Model "${model}" tidak tersedia di ${label}. Ganti model di Pengaturan → Model AI. (${detail})${suffix}`,
         );
       case "refusal":
         return new UnprocessableEntityException(`${label} menolak permintaan ini. (${detail})${suffix}`);
@@ -435,7 +448,7 @@ export class AiService {
         return new UnprocessableEntityException(`${label} tidak dapat memproses permintaan: ${detail}${suffix}`);
       case "credential":
         return new UnprocessableEntityException(
-          `API key ${label} tersimpan tidak bisa dibaca (kunci enkripsi server berubah). Masukkan ulang key di Pengaturan → AI.${suffix}`,
+          `API key ${label} tersimpan tidak bisa dibaca (kunci enkripsi server berubah). Masukkan ulang key di Pengaturan → Model AI.${suffix}`,
         );
       default:
         return new UnprocessableEntityException(

@@ -21,6 +21,11 @@ Urutan yang disarankan: **(1)** KaTeX 0.19 (≥ 29 Oktober 2026) → **(2)** Nod
 **(3)** tinjau kuartalan TS 7, Prisma 8, ioredis 6, dan temuan audit (§3). Major PostgreSQL berikutnya (19, rilis
 ± September 2027) mengikuti prosedur [DEPLOYMENT.md §8](DEPLOYMENT.md#8-upgrade-major-postgresql-mis-18--19).
 
+**Playwright (service robot)**: paket npm `playwright` di `robot/package.json` dan tag image
+`mcr.microsoft.com/playwright:v<versi>-noble` di `robot/Dockerfile` **wajib sama** (Chromium dibundel di image) → keduanya
+dikecualikan dari Dependabot dan dinaikkan manual bersama; uji ulang dengan `docker compose --profile robot build robot`
++ smoke (bagian robot berjalan bila service menyala).
+
 Verifikasi standar setiap upgrade: lint, typecheck, unit test, build, smoke test (termasuk ekstraksi BullMQ), cek drift
 Prisma, build image Docker; untuk perubahan infra juga stack produksi lokal + cek UI (resep di CLAUDE.md §14).
 

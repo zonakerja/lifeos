@@ -59,6 +59,7 @@ import type { Activity, AttachedResource, Priority, Project, ProjectTask, Schedu
 import { type AreaLevel, collapseAgendaSeries, completionDefaults } from "../lib/para";
 import { projectTimeProgress, taskProgress } from "../lib/progress";
 import { useAttachmentEdits } from "../use-attachment-edits";
+import { ActionPlanButton } from "./action-plan-dialog";
 import { AgendaDeleteDialog, AgendaItem, ITEM_TAG_STYLE } from "./agenda-item";
 import { CompleteTaskDialog } from "./complete-task-dialog";
 
@@ -233,6 +234,18 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
         )}
         {canEdit && (
           <div className="flex gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+            {!task.share && (
+              <ActionPlanButton
+                source={{
+                  type: "task",
+                  id: task.id,
+                  title: task.title,
+                  description: task.description,
+                  dates: [task.completedAt, task.dueDate],
+                  resources: task.resources,
+                }}
+              />
+            )}
             <Button variant="ghost" size="icon-sm" title="Ubah" onClick={() => setEditing(task)}>
               <PencilLine />
             </Button>
@@ -312,6 +325,18 @@ export function TaskManager({ owner, ownerType, headerExtra }: TaskManagerProps)
                   <Plus /> <span className="max-sm:sr-only">Agenda</span>
                 </Button>
               </>
+            )}
+            {!isProject && ownerType !== "Sub Area" && !owner.share && (
+              <ActionPlanButton
+                source={{
+                  type: "activity",
+                  id: owner.id,
+                  title: owner.title,
+                  description: owner.description,
+                  dates: [(owner as Activity).deadline],
+                  resources: owner.resources,
+                }}
+              />
             )}
             {isProject && <ShareButton item={owner} recordType="para_project" title={owner.title} iconOnly />}
           </div>

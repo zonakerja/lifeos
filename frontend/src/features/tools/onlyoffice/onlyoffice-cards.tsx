@@ -29,7 +29,7 @@ import { TemplateBrowser } from "./template-browser";
 
 /**
  * AI di editor (keputusan user): tab **AI** bawaan ONLYOFFICE (Chatbot, Summarization, Translation, Grammar & Spelling,
- * asisten kustom, OCR) dengan provider & API key yang sama dengan Pengaturan → AI — satu pintu, tanpa pengaturan key di
+ * asisten kustom, OCR) dengan provider & API key yang sama dengan Pengaturan → Model AI — satu pintu, tanpa pengaturan key di
  * editor. Sakelar pribadi; berlaku saat dokumen dibuka berikutnya.
  */
 export function OfficeAiCard() {
@@ -50,7 +50,7 @@ export function OfficeAiCard() {
     <SectionCard
       icon={Sparkles}
       title="AI di editor"
-      description="Tab AI ONLYOFFICE memakai AI LifeOS (Pengaturan → AI)."
+      description="Tab AI ONLYOFFICE memakai AI LifeOS (Pengaturan → Model AI)."
     >
       {isLoading ? (
         <Skeleton className="h-24 w-full" />
@@ -92,7 +92,7 @@ export function OfficeAiCard() {
             <Notice>
               AI belum bisa menjawab: pilih provider dan simpan API key di{" "}
               <Link to="/settings/api" className="font-medium underline">
-                Pengaturan → AI
+                Pengaturan → Model AI
               </Link>
               .
             </Notice>

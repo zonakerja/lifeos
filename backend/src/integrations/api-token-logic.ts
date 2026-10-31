@@ -17,6 +17,7 @@ export const API_SCOPES = [
   "ai:chat",
   "requests:read",
   "requests:write",
+  "ai:model",
 ] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
 
@@ -28,6 +29,7 @@ export const SCOPE_LABELS: Record<ApiScope, string> = {
   "ai:chat": "Tanya asisten LifeOS (memakai provider & kuota AI Anda)",
   "requests:read": "Baca pengajuan & Antrian Verifikasi",
   "requests:write": "Catat pengajuan baru & jalankan analisis/telaah AI (persetujuan tetap oleh Anda)",
+  "ai:model": "Model AI agen lewat LifeOS (memakai provider, API key & kuota Anda — key tidak pernah keluar)",
 };
 
 /** Token baru: `lifeos_pat_` + 32 byte acak (base64url) — cukup acak sehingga hash SHA-256 tanpa salt aman. */
@@ -36,8 +38,11 @@ export const hashToken = (token: string) => createHash("sha256").update(token).d
 /** Awal token yang ditampilkan agar user mengenali token (bukan rahasia). */
 export const tokenPrefix = (token: string) => token.slice(0, TOKEN_PREFIX.length + 4);
 
-export const looksLikeToken = (value: string) =>
-  value.startsWith(TOKEN_PREFIX) && /^[A-Za-z0-9_-]{30,80}$/.test(value.slice(TOKEN_PREFIX.length));
+/**
+ * Bentuk token yang diterima: token pribadi `lifeos_pat_…` atau kunci agen Hermes (`HERMES_API_KEY`, lihat
+ * `agent-setup.ts`) — huruf/angka/`_`/`-`. JWT login (bertitik) selalu ditolak. Keabsahan tetap ditentukan hash di database.
+ */
+export const looksLikeToken = (value: string) => /^[A-Za-z0-9_-]{24,128}$/.test(value);
 
 /** Ambil token dari header `Authorization: Bearer <token>`. */
 export function bearerToken(header: string | string[] | undefined) {

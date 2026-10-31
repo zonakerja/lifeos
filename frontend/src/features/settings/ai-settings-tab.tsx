@@ -1,5 +1,6 @@
 import {
   CheckCircle2,
+  DatabaseZap,
   ChevronDown,
   ExternalLink,
   Eye,
@@ -10,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { PageLoader } from "@/components/common/page-loader";
@@ -28,7 +30,6 @@ import {
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { AiIndexCard } from "@/features/settings/ai-index-card";
 import { AiRoutingCard } from "@/features/settings/ai-routing-card";
 import {
   useAiSettings,
@@ -43,14 +44,14 @@ import type { AiAttachmentKind, AiProviderSettings, AiSettings } from "@/types/a
 
 const KIND_LABELS: Record<AiAttachmentKind, string> = { pdf: "PDF", image: "gambar", text: "teks", audio: "audio" };
 
-/** Pengaturan → AI: provider aktif, API key (terenkripsi di server), dan model per provider. */
+/** Pengaturan → Model AI: provider aktif, API key (terenkripsi di server), dan model per provider. */
 export function AiSettingsTab() {
   const { data, isLoading, error } = useAiSettings();
 
   if (isLoading) return <PageLoader />;
   if (!data) {
     return (
-      <SectionCard icon={Sparkles} title="Asisten AI">
+      <SectionCard icon={Sparkles} title="Model AI">
         <p className="text-sm text-destructive">Gagal memuat pengaturan AI: {errorMessage(error)}</p>
       </SectionCard>
     );
@@ -61,7 +62,7 @@ export function AiSettingsTab() {
   return (
     <SectionCard
       icon={Sparkles}
-      title="Asisten AI"
+      title="Model AI"
       description="Pilih provider AI dan simpan API key milik Anda. Key hanya berlaku untuk akun Anda."
     >
       <div className="flex flex-col gap-5">
@@ -100,7 +101,13 @@ export function AiSettingsTab() {
 
         <AiRoutingCard settings={data} />
 
-        <AiIndexCard settings={data} />
+        <Link
+          to="/tools/index"
+          className="flex w-fit items-center gap-1 text-xs font-medium text-info underline-offset-2 hover:underline"
+        >
+          <DatabaseZap className="size-3.5" /> Indeks Pengetahuan (RAG) — nyala/mati, indeks ulang, dan uji pencarian —
+          ada di Tools → Indeks Pengetahuan
+        </Link>
 
         <div className="flex items-start gap-3 rounded-2xl bg-info/10 p-4 text-xs text-info">
           <ShieldCheck className="mt-0.5 size-4 shrink-0" />

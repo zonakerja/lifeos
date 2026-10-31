@@ -21,30 +21,8 @@ import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { AuthUser } from "../common/types/auth-user";
 import { UploadFileDto } from "./dto/upload-file.dto";
+import { fileHeaders } from "./file-headers";
 import { UploadsService } from "./uploads.service";
-
-/** Tipe yang bisa menjalankan script bila dibuka inline → selalu diunduh sebagai lampiran. */
-const ACTIVE_CONTENT = new Set([
-  "text/html",
-  "application/xhtml+xml",
-  "image/svg+xml",
-  "text/xml",
-  "application/xml",
-  "text/javascript",
-  "application/javascript",
-]);
-const isActiveContent = (mimeType: string) => ACTIVE_CONTENT.has(mimeType.split(";")[0].trim().toLowerCase());
-
-/**
- * Header aman untuk menyajikan berkas user dari origin aplikasi: CSP sandbox mencegah
- * berkas berbahaya menjalankan script/akses sesi (XSS), konten aktif dipaksa attachment.
- */
-const fileHeaders = (asset: { originalName: string; mimeType: string }) => ({
-  "Content-Disposition": `${isActiveContent(asset.mimeType) ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(asset.originalName)}`,
-  "Content-Security-Policy":
-    "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'",
-  "Cache-Control": "private, no-store",
-});
 
 @ApiTags("uploads")
 @Controller("uploads")

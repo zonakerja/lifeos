@@ -460,3 +460,65 @@ Catatan operasional:
 - Pesan bebas hanya terkirim ≤ 24 jam sejak pesan terakhir kontak; di luar itu dicatat `failed` (butuh pesan templat).
 - Ganti token: buat token System User baru → ganti `WHATSAPP_ACCESS_TOKEN` → `dc up -d` → cabut token lama di Meta.
 - Riwayat percakapan & kontak tersimpan di PostgreSQL (ikut backup harian).
+
+## 13. Konektor robot SRIKANDI & e-Kinerja (opsional)
+
+Service robot Playwright untuk tab **Connector** di Laporan Kinerja & SRIKANDI (docs/AI-AGENT.md §21). Langkah pemakaian dengan bahasa
+sederhana: [TODO-USER.md](TODO-USER.md) A8.
+
+1. Tambahkan ke `.env`, lalu `dc up -d --build`:
+
+   ```bash
+   COMPOSE_PROFILES=robot              # bersama ONLYOFFICE: COMPOSE_PROFILES=office,robot
+   ROBOT_TOKEN=<openssl rand -hex 32>  # ROBOT_URL backend otomatis http://robot:4100
+   CREDENTIAL_ENCRYPTION_KEY=<openssl rand -hex 32>   # brankas kredensial SRIKANDI/e-Kinerja (opsional)
+   # ROBOT_MEM_LIMIT=1024m
+   ```
+
+2. Container `robot` **tidak** membuka port; hanya backend yang memanggilnya di jaringan Docker. Image ± 3,5 GB (Chromium).
+3. Server sebaiknya di **Indonesia dengan IP tetap**: sistem pemerintah bisa menolak IP luar negeri, dan IP berubah dapat
+   memicu OTP ulang.
+4. Sesi login tersimpan terenkripsi di PostgreSQL (ikut backup harian) dengan kunci turunan `AI_ENCRYPTION_KEY` — ganti
+   kunci itu = semua sesi robot harus login ulang (dan API key AI dimasukkan ulang).
+5. **Brankas kredensial**: `CREDENTIAL_ENCRYPTION_KEY` wajib unik per server, disimpan di password manager, **tidak** sama
+   dengan `AI_ENCRYPTION_KEY`. Hilang/diganti = kredensial robot harus disimpan ulang dari tab Connector (sesi
+   & data lain tidak terpengaruh). Backup database berisi kredensial terenkripsi — tanpa kunci ini tidak bisa dibuka.
+6. Pembaruan Playwright: ganti versi paket `playwright` **dan** tag image di `robot/Dockerfile` bersamaan
+   (docs/UPGRADE-PLAN.md).
+7. Tautan publik berkas (`/api/v1/public/files/<token>`) dan **brankas digital** (`/brankas/<token>`, API
+   `/api/v1/public/vaults/…`) tidak butuh konfigurasi tambahan; jalur `/api` sudah diteruskan Caddy. Log akses brankas memakai IP
+   asli pengunjung — wajib `TRUST_PROXY=true` (bawaan compose produksi). Lokasi IP: `GEOIP_PROVIDER` (kosong = `ipapi`, layanan
+   ipapi.co tanpa key; `none` = hanya IP, tanpa mengirim IP pengunjung ke layanan luar).
+8. Alur yang memakai robot (semua lewat backend, tanpa konfigurasi tambahan): Ambil SKP/RHK, Pantau e-Kinerja & Kirim
+   perubahan Rencana Aksi (Laporan Kinerja; menulis ulang baris indikator yang berubah), Ambil dari SRIKANDI (naskah ber-TTD), Ambil referensi & **Ambil klasifikasi** (± 1 menit, 1.048 baris), dan
+   **Daftarkan ke SRIKANDI** dari Register Naskah Keluar (berkas naskah ≤ 5 MB + lampiran ≤ 20 MB dikirim ke robot di jaringan
+   internal; robot hanya menyimpan konsep, Kirim Konsep tetap oleh user). Sesi SRIKANDI kedaluwarsa (± harian) → login ulang
+   di SRIKANDI → Connector (CAPTCHA diketik user).
+
+## 14. Agen Hermes (Asisten Agen, opsional)
+
+Hermes = agen AI (Nous Research) yang dipakai LifeOS lewat menu **AI Agent → Asisten Agen** dan tombol **Kerjakan dengan
+agen** di Approval (docs/AI-AGENT.md §22–§23). Di server berjalan sebagai service `hermes` (profile `agent`), **tanpa port
+publik**: backend memanggil `http://hermes:8642`, Hermes memanggil MCP LifeOS di `http://lifeos-api:4000/api/v1/mcp` (alias
+jaringan service backend).
+
+1. `.env`: `COMPOSE_PROFILES=…,agent`, `HERMES_API_KEY` (`openssl rand -hex 32`), `HERMES_OWNER_EMAIL` (akun LifeOS Anda),
+   opsional `HERMES_MEM_LIMIT` (bawaan 1536m) dan `HERMES_TAG`.
+2. `docker compose -f docker-compose.prod.yml up -d` (image `nousresearch/hermes-agent` diunduh).
+3. Konfigurasi Hermes sekali (tanpa rahasia — model lewat LifeOS, MCP LifeOS; aman diulang):
+   ```bash
+   docker compose -f docker-compose.prod.yml exec -u 0 hermes chown 10000:10000 /opt/data/skills
+   docker compose -f docker-compose.prod.yml exec hermes sh /opt/lifeos/configure.sh
+   docker compose -f docker-compose.prod.yml restart hermes
+   ```
+4. Di LifeOS (akun `HERMES_OWNER_EMAIL`): API key model di **Pengaturan → Model AI** (baris **Agen (Hermes)** di Pembagian
+   tugas bila ingin provider khusus), lalu **Asisten Agen → Status & Skill → Siapkan agen**. Ketiga langkah di kartu hijau.
+   API key model **tidak** disimpan di Hermes (docs/AI-AGENT.md §23.1); mengganti `HERMES_API_KEY` → tekan Siapkan agen lagi.
+5. **Backup**: volume `hermes-data` (config, memori, sesi) **tidak** ikut image backup bawaan —
+   cadangkan berkala (mis. `docker run --rm -v lifeos-prod_hermes-data:/d -v $PWD/backups:/b alpine tar czf
+   /b/hermes-$(date +%F).tgz -C /d .`) dan simpan terenkripsi; isinya rahasia.
+6. **RAM**: dengan ONLYOFFICE + robot + Hermes sekaligus, gunakan VPS **8 GB**.
+7. Telegram (opsional, asisten pribadi dari HP): `docker compose … run --rm hermes gateway setup`. WhatsApp **tidak** lewat
+   Hermes — bot WhatsApp tetap di LifeOS (§12).
+8. Pembaruan: ganti `HERMES_TAG` ke versi stabil ≥ 2 minggu, `up -d`; cek ulang daftar skill (`/v1/skills` sempat rusak di
+   0.22.x) dan log `docker compose logs hermes`.

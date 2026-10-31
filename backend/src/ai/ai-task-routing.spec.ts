@@ -14,6 +14,8 @@ describe("pembagian tugas AI", () => {
     expect(taskProvider({ chat: "anthropic" }, "chat", "gemini", ["gemini", "openai"])).toBe("gemini");
     expect(taskProvider({}, "general", "openai", ["openai"])).toBe("openai");
     expect(taskProvider({}, "general", null, [])).toBeNull();
+    expect(taskProvider(parseRouting({ agent: "gemini" }), "agent", "openai", ["gemini", "openai"])).toBe("gemini");
+    expect(taskProvider(parseRouting({ agent: "gemini" }), "agent", "openai", ["openai"])).toBe("openai");
   });
 
   it("ocrCandidates: pilihan user lebih dulu, lalu urutan bawaan; hanya yang punya key", () => {

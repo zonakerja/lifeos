@@ -191,7 +191,7 @@ Keputusan awal user: plugin AI LifeOS sendiri, AI bawaan dengan key di editor, t
 dari folder server. **Direvisi user di hari yang sama** setelah mencoba (lihat U-9 s.d. U-13):
 
 - **AI satu pintu**: tab **AI bawaan ONLYOFFICE** (Chatbot, Summarization, Translation, Grammar & Spelling, asisten
-  kustom, OCR PDF, …) dipakai apa adanya, tetapi **provider & API key = Pengaturan → AI LifeOS**; tidak ada pengaturan AI
+  kustom, OCR PDF, …) dipakai apa adanya, tetapi **provider & API key = Pengaturan → Model AI LifeOS**; tidak ada pengaturan AI
   di editor; plugin panel "AI LifeOS" buatan sendiri dihapus.
 - **Templat diunggah di Tools → ONLYOFFICE** (bukan lewat tag Resource).
 - **Impor berkas** DOCX/XLSX/PPTX/… saat Buat Dokumen.
@@ -335,11 +335,11 @@ Code review menyeluruh atas lanjutan tahap 3 + tahap 4 → 8 temuan, semuanya di
 
 ### 3.7 Rencana berikutnya (dari user, teknologi dibahas nanti — mis. n8n / OpenClaw)
 
-- **Agen SRIKANDI**: mengambil dokumen final (PDF bertanda tangan elektronik) dari SRIKANDI lalu menautkannya ke konsep
-  di LifeOS lewat `/uploads` + `PUT /office/files/:id/draft`.
-- **Agen pembuat dokumen**: membuat dokumen bertemplat (output DOCX/XLSX/…) — memakai templat Tools → ONLYOFFICE dan
-  `POST /office/documents { templateId }` sebagai titik awal.
-- Keduanya dikelompokkan di menu **Tools** (sub menu baru).
+- **Agen SRIKANDI** ✅ (dibangun sebagai robot, bukan menu Tools — [AI-AGENT.md](AI-AGENT.md) §21.6–§21.12): mengambil
+  naskah final ber-TTD dari SRIKANDI, dan **Register Naskah Keluar** mendaftarkan konsep ke SRIKANDI lalu menautkan PDF
+  final ke konsep DOCX lewat `PUT /office/files/:id/draft`.
+- **Agen pembuat dokumen**: membuat dokumen bertemplat (output DOCX/XLSX/…) — kini lewat skill agen Hermes + mesin templat
+  Approval ([AI-AGENT.md](AI-AGENT.md) §22), memakai templat Tools → ONLYOFFICE.
 
 ## 4. To-do untuk user
 
@@ -362,7 +362,7 @@ Code review menyeluruh atas lanjutan tahap 3 + tahap 4 → 8 temuan, semuanya di
 | U-6 | Edit bersama mengikuti berbagi LifeOS (Edit / Komentar / Lihat). |
 | U-7 | **User memilih**: AI LifeOS (lewat backend) **atau** AI bawaan ONLYOFFICE (atau mati) — lihat §2 butir AI. |
 | U-8 | Bahasa Indonesia, nama sesuai akun LifeOS. |
-| U-9 | (2026-10-16, revisi) **AI satu pintu**: tab AI bawaan ONLYOFFICE apa adanya, provider & key = Pengaturan → AI LifeOS; tanpa pengaturan AI di editor; sakelar per user (default mati). |
+| U-9 | (2026-10-16, revisi) **AI satu pintu**: tab AI bawaan ONLYOFFICE apa adanya, provider & key = Pengaturan → Model AI LifeOS; tanpa pengaturan AI di editor; sakelar per user (default mati). |
 | U-10 | (2026-10-16, revisi) Pilihan "AI bawaan dengan key diisi di editor" dan plugin panel AI LifeOS sendiri **dihapus**. |
 | U-11 | (2026-10-16, revisi) Templat instansi **diunggah di Tools → ONLYOFFICE** (bukan tag Resource). |
 | U-12 | (2026-10-16) Font tambahan = **folder font di server** (`infra/onlyoffice/fonts`) + restart container. |

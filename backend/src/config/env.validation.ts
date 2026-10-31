@@ -101,6 +101,15 @@ class EnvironmentVariables {
   @IsIn(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
   LOG_LEVEL?: string;
 
+  /**
+   * Lokasi IP untuk log akses brankas digital: `ipapi` (bawaan, layanan ipapi.co tanpa key — IP pengunjung dikirim ke
+   * layanan itu) atau `none` (hanya IP yang dicatat).
+   */
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsIn(["ipapi", "none"])
+  GEOIP_PROVIDER?: string;
+
   /** Cookie refresh hanya via HTTPS. Default: true bila NODE_ENV=production. */
   @IsOptional()
   @Transform(({ value }) =>
@@ -201,6 +210,56 @@ class EnvironmentVariables {
 
   @Matches(/^https?:\/\/\S+$/)
   WHATSAPP_API_URL = "https://graph.facebook.com";
+
+  /**
+   * Service robot browser (Playwright) untuk konektor SRIKANDI & e-Kinerja (tahap 6 docs/AI-AGENT.md §21). Kosong = Tools
+   * → Konektor Robot nonaktif. Dev: http://localhost:4100 (compose profile `robot`); produksi: http://robot:4100.
+   */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @Matches(/^https?:\/\/\S+$/, { message: "ROBOT_URL harus URL http(s)." })
+  ROBOT_URL?: string;
+
+  /**
+   * Kunci brankas kredensial konektor robot (64 hex, `openssl rand -hex 32`), terpisah dari AI_ENCRYPTION_KEY. Kosong =
+   * penyimpanan kredensial nonaktif (login tetap bisa lewat browser jarak jauh). Ganti nilai = kredensial harus disimpan ulang.
+   */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @Matches(/^[0-9a-fA-F]{64}$/, { message: "CREDENTIAL_ENCRYPTION_KEY harus 64 karakter hex." })
+  CREDENTIAL_ENCRYPTION_KEY?: string;
+
+  /** Token antar-service backend ↔ robot (sama dengan ROBOT_TOKEN container robot). */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @IsString()
+  @MinLength(32)
+  ROBOT_TOKEN?: string;
+
+  /** API server Hermes (Asisten Agen, docs/AI-AGENT.md §23), mis. http://localhost:8642 (dev) / http://hermes:8642. */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @Matches(/^https?:\/\/\S+$/, { message: "HERMES_URL harus URL http(s)." })
+  HERMES_URL?: string;
+
+  /** Kunci API server Hermes (sama dengan API_SERVER_KEY container hermes). */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  HERMES_API_KEY?: string;
+
+  /** Folder skill LifeOS (SKILL.md) — bawaan ../agents/hermes/skills dari folder backend; produksi: mount baca-saja. */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @IsString()
+  HERMES_SKILLS_DIR?: string;
+
+  /** Satu-satunya akun yang boleh memakai agen (Hermes memakai token MCP milik akun ini). */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @IsEmail()
+  HERMES_OWNER_EMAIL?: string;
 
   /** true bila API berada di belakang reverse proxy (nginx) agar IP klien asli terbaca (rate limit). */
   @Transform(({ value }) => value === true || ["true", "1"].includes(String(value).toLowerCase()))

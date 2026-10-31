@@ -269,6 +269,36 @@ try {
       back.priority === null,
     r,
   );
+  // Register Naskah Keluar SRIKANDI: kolom bertipe + isian formulir di `extra` kembali utuh, lalu dihapus
+  const register = {
+    id: "smoke-reg-1",
+    formType: "keluar",
+    subject: "Smoke register",
+    number: "1/SMOKE/X/2026",
+    status: "submitted",
+    submittedAt: "2026-10-31T02:00:00.000Z",
+    file: { uploadId: "u-smoke", name: "konsep.docx", owned: true },
+    recipients: [{ id: "sr-1", label: "Kepala Biro" }],
+    signer: { id: "sr-2", label: "Sesditjen" },
+    visualTte: "qr",
+  };
+  r = await j("PUT", "/records/srikandi_outgoing/smoke-reg-1", { payload: register }, at);
+  ok(
+    "srikandi_outgoing round-trip",
+    r.s === 200 &&
+      r.d.payload.status === "submitted" &&
+      r.d.payload.submittedAt === register.submittedAt &&
+      same(r.d.payload.recipients, register.recipients) &&
+      r.d.payload.file?.uploadId === "u-smoke" &&
+      r.d.payload.file?.owned === true &&
+      r.d.payload.signer?.label === "Sesditjen",
+    r,
+  );
+  r = await j("DELETE", "/records/srikandi_outgoing/smoke-reg-1", null, at);
+  ok("srikandi_outgoing delete", r.s === 200, r);
+  // Entri terhapus / tanpa sesi SRIKANDI tidak pernah sampai ke robot
+  r = await j("POST", "/robot/srikandi/register/smoke-reg-1", { dryRun: true }, at);
+  ok("srikandi register deleted entry rejected", r.s === 404 || r.s === 400, r);
   r = await j(
     "PUT",
     "/records/todo/numeric-5",
@@ -1373,7 +1403,7 @@ try {
     return { s: res.status, d: await res.json().catch(() => null) };
   };
   r = await j("GET", "/integrations/scopes", null, at);
-  ok("integrations scopes", r.s === 200 && r.d.length === 7, r);
+  ok("integrations scopes", r.s === 200 && r.d.length === 8, r);
   r = await j("POST", "/integrations/tokens", { name: "x", scopes: [] }, at);
   ok("token without scopes 400", r.s === 400, r);
   r = await j("POST", "/integrations/tokens", { name: "x", scopes: ["admin:all"] }, at);
@@ -1388,11 +1418,32 @@ try {
   const pat = r.d.token;
   const patId = r.d.id;
   r = await j("GET", "/integrations/tokens", null, at);
-  ok("token list hides plain token", r.s === 200 && r.d.length === 1 && !("token" in r.d[0]), r);
+  // Akun admin dev bisa punya token "Agen Hermes (otomatis)" dari Siapkan agen → cek token smoke saja
+  ok(
+    "token list hides plain token",
+    r.s === 200 && r.d.some((t) => t.id === patId) && r.d.every((t) => !("token" in t)),
+    r,
+  );
   r = await j("GET", "/integrations/tokens", null, pt);
   ok("token list isolated per user", r.s === 200 && r.d.length === 0, r);
   r = await j("DELETE", `/integrations/tokens/${patId}`, null, pt);
   ok("revoke other user's token 404", r.s === 404, r);
+
+  // Proxy model agen Hermes (OpenAI-compatible): hanya token berizin ai:model; tanpa memanggil provider sungguhan
+  r = await j("GET", "/agent/llm/v1/models");
+  ok("agent llm without token 401", r.s === 401, r);
+  r = await j("GET", "/agent/llm/v1/models", null, at);
+  ok("agent llm rejects login JWT", r.s === 401, r);
+  r = await j("POST", "/agent/llm/v1/chat/completions", { messages: [{ role: "user", content: "x" }] }, pat);
+  ok("agent llm needs ai:model scope", r.s === 403 && !!r.d?.error?.message, r);
+  {
+    const modelPat = await j("POST", "/integrations/tokens", { name: "Smoke model", scopes: ["ai:model"] }, at);
+    r = await j("GET", "/agent/llm/v1/models", null, modelPat.d.token);
+    ok("agent llm models list", r.s === 200 && r.d.data?.[0]?.id === "lifeos-agent", r);
+    r = await j("POST", "/agent/llm/v1/chat/completions", { model: "lifeos-agent", messages: [] }, modelPat.d.token);
+    ok("agent llm empty messages 400", r.s === 400 && !!r.d?.error?.message, r);
+    await j("DELETE", `/integrations/tokens/${modelPat.d.id}`, null, at);
+  }
   r = await mcp(pat, "tools/list");
   const toolNames = (r.d?.result?.tools ?? [])
     .map((t) => t.name)
@@ -1559,9 +1610,18 @@ try {
     r = await mcp(reqPat, "tools/list");
     ok(
       "mcp request tools by scope",
-      ["analyze_request", "create_request", "get_request", "list_requests"].every((n) =>
-        (r.d?.result?.tools ?? []).some((t) => t.name === n),
-      ) && !(r.d?.result?.tools ?? []).some((t) => t.name === "create_todo"),
+      [
+        "analyze_request",
+        "create_request",
+        "get_request",
+        "list_requests",
+        "list_templates",
+        "get_template_fields",
+        "read_request_files",
+        "update_request",
+        "create_request_document",
+      ].every((n) => (r.d?.result?.tools ?? []).some((t) => t.name === n)) &&
+        !(r.d?.result?.tools ?? []).some((t) => t.name === "create_todo"),
       r.d,
     );
     r = await mcp(reqPat, "tools/call", {
@@ -1582,10 +1642,60 @@ try {
       !r.d?.result?.isError && r.d?.result?.content[0].text.includes("Surat Satker via agen"),
       r.d,
     );
+    // Alat skill agen (docs/AI-AGENT.md §22): templat, berkas, simpan telaah, dokumen dari templat — tanpa persetujuan
+    const call = async (name, args) => {
+      const res = await mcp(reqPat, "tools/call", { name, arguments: args });
+      return { error: !!res.d?.result?.isError, text: res.d?.result?.content?.[0]?.text ?? "", raw: res.d };
+    };
+    let t = await call("list_templates", { query: "nota smoke" });
+    ok("mcp list_templates", !t.error && t.text.includes(reqTpl.d.id), t.raw);
+    t = await call("get_template_fields", { templateId: reqTpl.d.id });
+    ok("mcp get_template_fields", !t.error && t.text.includes("nomor_naskah") && t.text.includes("hal"), t.raw);
+    t = await call("read_request_files", { requestId: mcpReq?.id });
+    ok("mcp read_request_files (no files)", !t.error && t.text.includes("belum punya berkas"), t.raw);
+    t = await call("update_request", {
+      requestId: mcpReq?.id,
+      review: "## Telaah\nUji agen.",
+      notes: "Kelengkapan: surat permohonan ada.",
+      submitForReview: true,
+      note: "Telaah disusun agen",
+    });
+    ok("mcp update_request → menunggu verifikasi", !t.error && t.text.includes("Menunggu verifikasi"), t.raw);
+    t = await call("create_request_document", {
+      requestId: mcpReq?.id,
+      templateId: reqTpl.d.id,
+      values: { hal: "Uji agen" },
+    });
+    ok("mcp create_request_document", !t.error && t.text.includes('"created": true'), t.raw);
+    r = await j("GET", `/requests/${mcpReq?.id}`, null, at);
+    ok(
+      "agent work stored (review, document, history by agen)",
+      r.s === 200 &&
+        r.d.status === "menunggu_verifikasi" &&
+        r.d.review?.includes("Uji agen") &&
+        r.d.documents?.length === 1 &&
+        r.d.history.at(-1)?.by === "agen",
+      r,
+    );
+    t = await call("update_request", { requestId: reqId, notes: "x", submitForReview: true });
+    ok("mcp update_request rejects decided request", t.error, t.raw);
+
     r = await j("GET", "/integrations/tokens", null, at);
     const reqPatRow = r.d.find?.((t) => t.name === "Smoke pengajuan");
     if (reqPatRow) await j("DELETE", `/integrations/tokens/${reqPatRow.id}`, null, at);
     if (mcpReq?.id) await j("DELETE", `/requests/${mcpReq.id}`, null, at);
+
+    // Asisten Agen (Hermes): hanya pemilik agen (HERMES_OWNER_EMAIL); tanpa Hermes/konfigurasi → 422, bukan 5xx
+    r = await j("GET", "/agent/status", null, pt);
+    ok("agent status for non-owner", r.s === 200 && r.d.owner === false && r.d.reachable === false, r);
+    r = await j("GET", "/agent/skills", null, pt);
+    ok("agent skills non-owner rejected", r.s === 403 || r.s === 422, r);
+    r = await j("POST", "/agent/setup", {}, pt);
+    ok("agent setup non-owner rejected", r.s === 403 || r.s === 422, r);
+    r = await j("POST", `/agent/requests/${reqId}/run`, { skill: "telaah-pengajuan" }, pt);
+    ok("agent run by non-owner rejected", r.s === 403 || r.s === 422, r);
+    r = await j("POST", `/agent/requests/${reqId}/run`, { skill: "../x" }, at);
+    ok("agent run invalid skill 400", r.s === 400, r);
 
     r = await j("DELETE", `/requests/${reqId}`, null, at);
     ok("request delete", r.s === 200, r);
@@ -1831,6 +1941,269 @@ try {
     r = await j("GET", "/whatsapp/contacts", null, at);
     ok("wa contact group set null", r.d?.[0]?.group === null, r);
     await j("DELETE", `/whatsapp/contacts/${contactId}`, null, at);
+  }
+
+  // ---- Tautan publik berkas (link dokumen e-Kinerja) & konektor robot (tahap 6 docs/AI-AGENT.md)
+  {
+    const pubForm = new FormData();
+    pubForm.append("file", new Blob(["Bukti kinerja Oktober"], { type: "text/plain" }), "bukti.txt");
+    const pubFile = await j("POST", "/uploads", pubForm, at);
+    r = await j("POST", `/uploads/${pubFile.d.id}/public-links`, { days: 30, label: "e-Kinerja Okt" }, at);
+    const pubPath = r.d?.path;
+    ok(
+      "public link create (token shown once, expiry)",
+      r.s === 201 && /^\/api\/v1\/public\/files\/lp_/.test(pubPath) && r.d.expiresAt && r.d.label === "e-Kinerja Okt",
+      r,
+    );
+    const origin = B.replace(/\/api\/v1$/, "");
+    let pub = await fetch(origin + pubPath);
+    ok(
+      "public link opens without login (safe headers)",
+      pub.status === 200 &&
+        (await pub.text()) === "Bukti kinerja Oktober" &&
+        /sandbox/.test(pub.headers.get("content-security-policy") ?? "") &&
+        pub.headers.get("x-robots-tag")?.includes("noindex"),
+      pub.status,
+    );
+    r = await j("POST", `/uploads/${pubFile.d.id}/public-links`, {}, pt);
+    ok("public link only by file owner (403)", r.s === 403, r);
+    r = await j("GET", `/uploads/${pubFile.d.id}/public-links`, null, at);
+    ok(
+      "public link list (no token, access counted)",
+      r.s === 200 && r.d[0]?.accessCount === 1 && !("path" in r.d[0]),
+      r,
+    );
+    const linkId = r.d?.[0]?.id;
+    pub = await fetch(`${origin}/api/v1/public/files/lp_${"x".repeat(43)}`);
+    ok("public link unknown token 404", pub.status === 404, pub.status);
+    r = await j("DELETE", `/public-links/${linkId}`, null, pt);
+    ok("public link revoke by other user 404", r.s === 404, r);
+    r = await j("DELETE", `/public-links/${linkId}`, null, at);
+    pub = await fetch(origin + pubPath);
+    ok("public link revoked → 404", r.s === 200 && pub.status === 404, pub.status);
+
+    // Brankas digital: beberapa berkas di balik satu tautan, berkas di luar brankas tidak terjangkau, setiap akses dicatat
+    const vForm = new FormData();
+    vForm.append("file", new Blob(["Bukti kedua"], { type: "text/plain" }), "bukti-2.txt");
+    const vFile2 = await j("POST", "/uploads", vForm, at);
+    const oForm = new FormData();
+    oForm.append("file", new Blob(["Rahasia"], { type: "text/plain" }), "lain.txt");
+    const otherFile = await j("POST", "/uploads", oForm, at);
+    r = await j(
+      "POST",
+      "/vaults",
+      { title: "Renaksi Okt", assetIds: [pubFile.d.id, vFile2.d.id], entryId: "smoke-e" },
+      at,
+    );
+    const vaultId = r.d?.id;
+    const vaultToken = r.d?.path?.replace("/brankas/", "");
+    ok(
+      "vault create (2 files, path shown once)",
+      r.s === 201 && /^bv_/.test(vaultToken ?? "") && r.d.files.length === 2,
+      r,
+    );
+    r = await j("POST", "/vaults", { title: "x", assetIds: [otherFile.d.id] }, pt);
+    ok("vault only with own files (403)", r.s === 403, r);
+    let pv = await fetch(`${origin}/api/v1/public/vaults/${vaultToken}`);
+    let pvBody = await pv.json();
+    ok(
+      "vault opens without login + visitor notice (ip, location)",
+      pv.status === 200 &&
+        pvBody.files.length === 2 &&
+        pvBody.visitor.ip &&
+        pvBody.visitor.location &&
+        pv.headers.get("x-robots-tag")?.includes("noindex"),
+      pvBody,
+    );
+    pv = await fetch(`${origin}/api/v1/public/vaults/${vaultToken}/files/${vFile2.d.id}?download=1`);
+    ok(
+      "vault file download (attachment, sandbox)",
+      pv.status === 200 &&
+        (await pv.text()) === "Bukti kedua" &&
+        /attachment/.test(pv.headers.get("content-disposition") ?? "") &&
+        /sandbox/.test(pv.headers.get("content-security-policy") ?? ""),
+      pv.status,
+    );
+    pv = await fetch(`${origin}/api/v1/public/vaults/${vaultToken}/files/${otherFile.d.id}`);
+    ok("vault isolates files (outside file 404)", pv.status === 404, pv.status);
+    r = await j("GET", `/vaults/${vaultId}/accesses`, null, at);
+    ok(
+      "vault access log (open + download, ip, location)",
+      r.s === 200 &&
+        r.d.length === 2 &&
+        r.d.some((a) => a.action === "download" && a.fileName === "bukti-2.txt") &&
+        r.d.every((a) => a.ip && a.location),
+      r,
+    );
+    r = await j("GET", `/vaults/${vaultId}/accesses`, null, pt);
+    ok("vault log only for owner (404)", r.s === 404, r);
+    r = await j("DELETE", `/uploads/${vFile2.d.id}`, null, at);
+    ok("vault file protected from delete (409)", r.s === 409, r);
+    r = await j("PATCH", `/vaults/${vaultId}`, { assetIds: [pubFile.d.id] }, at);
+    ok("vault update files (link unchanged)", r.s === 200 && r.d.files.length === 1, r);
+    r = await j("POST", `/vaults/${vaultId}/rotate`, null, at);
+    const newToken = r.d?.path?.replace("/brankas/", "");
+    pv = await fetch(`${origin}/api/v1/public/vaults/${vaultToken}`);
+    const pvNew = await fetch(`${origin}/api/v1/public/vaults/${newToken}`);
+    ok("vault rotate (old link 404, new works)", pv.status === 404 && pvNew.status === 200, [pv.status, pvNew.status]);
+    r = await j("DELETE", `/vaults/${vaultId}`, null, at);
+    pv = await fetch(`${origin}/api/v1/public/vaults/${newToken}`);
+    ok("vault delete → 404", r.s === 200 && pv.status === 404, pv.status);
+    await j("DELETE", `/uploads/${vFile2.d.id}`, null, at);
+    await j("DELETE", `/uploads/${otherFile.d.id}`, null, at);
+    await j("DELETE", `/uploads/${pubFile.d.id}`, null, at);
+
+    r = await j("GET", "/robot/connectors", null, at);
+    ok(
+      "robot connectors (srikandi default url, no session)",
+      r.s === 200 &&
+        r.d.length === 2 &&
+        r.d.find((c) => c.system === "srikandi")?.baseUrl === "https://srikandi.arsip.go.id" &&
+        r.d.every((c) => c.status === "none" && c.hasSession === false && !("sessionEnc" in c)),
+      r,
+    );
+    r = await j("PATCH", "/robot/connectors/ekinerja", { baseUrl: "http://ekin.contoh.go.id" }, at);
+    ok("robot connector rejects non-https url", r.s === 400, r);
+    r = await j("PATCH", "/robot/connectors/siman", { baseUrl: "https://x.go.id" }, at);
+    ok("robot unknown system 404", r.s === 404, r);
+    r = await j("POST", "/robot/connectors/srikandi/check", null, at);
+    ok("robot check without session 400", r.s === 400, r);
+    r = await j("GET", "/robot/status", null, at);
+    if (!r.d?.reachable) {
+      console.log("SKIP robot browser (service robot tidak aktif: docker compose --profile robot up -d robot)");
+    } else {
+      // Situs uji publik tanpa login: robot menilai "sudah login" → alur sesi lengkap tanpa menyentuh sistem pemerintah
+      r = await j("PATCH", "/robot/connectors/ekinerja", { baseUrl: "https://example.com" }, at);
+      ok("robot connector url set", r.s === 200 && r.d.baseUrl === "https://example.com", r);
+      r = await j("POST", "/robot/connectors/ekinerja/login", null, at);
+      const sessionId = r.d?.sessionId;
+      ok("robot remote login session opened", r.s === 201 && sessionId && r.d.url.startsWith("https://example.com"), r);
+      const frame = await fetch(`${B}/robot/sessions/${sessionId}/frame`, {
+        headers: { Authorization: `Bearer ${at}` },
+      });
+      ok(
+        "robot frame jpeg + page info",
+        frame.status === 200 &&
+          frame.headers.get("content-type") === "image/jpeg" &&
+          (await frame.arrayBuffer()).byteLength > 1000 &&
+          frame.headers.get("x-robot-logged-in") === "true",
+        frame.status,
+      );
+      r = await j("GET", `/robot/sessions/${sessionId}/frame`, null, pt);
+      ok("robot session of other user 403", r.s === 403, r);
+      r = await j("POST", `/robot/sessions/${sessionId}/input`, { type: "goto", url: "https://google.com" }, at);
+      ok("robot goto outside connector 400", r.s === 400, r);
+      r = await j("POST", `/robot/sessions/${sessionId}/input`, { type: "key", key: "F12" }, at);
+      ok("robot disallowed key rejected", r.s === 422 || r.s === 400, r);
+      r = await j("POST", `/robot/sessions/${sessionId}/input`, { type: "click", x: 100, y: 100 }, at);
+      ok("robot click input", r.s === 200 && typeof r.d.url === "string", r);
+      r = await j("POST", `/robot/sessions/${sessionId}/capture`, null, pt);
+      ok("robot capture live session of other user 403", r.s === 403, r);
+      r = await j("POST", `/robot/sessions/${sessionId}/capture`, null, at);
+      ok(
+        "robot capture live session page",
+        r.s === 200 &&
+          r.d.kind === "capture" &&
+          r.d.title === "Example Domain" &&
+          /- (heading|paragraph)/.test(r.d.aria ?? ""),
+        r,
+      );
+      r = await j("POST", `/robot/sessions/${sessionId}/finish`, null, at);
+      ok("robot finish login → session saved (encrypted)", r.s === 200 && r.d.status === "active" && r.d.hasSession, r);
+      r = await j("POST", "/robot/connectors/ekinerja/check", null, at);
+      ok("robot check session active", r.s === 200 && r.d.status === "active" && r.d.lastCheckAt, r);
+      r = await j("POST", "/robot/connectors/ekinerja/capture", { url: "https://google.com" }, at);
+      ok("robot capture outside connector 400", r.s === 400, r);
+      r = await j("POST", "/robot/connectors/ekinerja/capture", { url: "https://example.com/" }, at);
+      const runId = r.d?.id;
+      ok(
+        "robot capture page (screenshot + aria snapshot)",
+        r.s === 200 && r.d.kind === "capture" && r.d.hasScreenshot && /- (heading|paragraph)/.test(r.d.aria ?? ""),
+        r.d?.aria?.slice?.(0, 200) ?? r,
+      );
+      const shot = await fetch(`${B}/robot/runs/${runId}/screenshot`, { headers: { Authorization: `Bearer ${at}` } });
+      ok("robot run screenshot", shot.status === 200 && shot.headers.get("content-type") === "image/jpeg", shot.status);
+      r = await j("GET", "/robot/runs?system=ekinerja", null, at);
+      ok(
+        "robot run log (login, check, capture)",
+        r.s === 200 && ["login", "check", "capture"].every((k) => r.d.some((x) => x.kind === k)) && !("aria" in r.d[0]),
+        r,
+      );
+      r = await j("GET", `/robot/runs/${runId}`, null, pt);
+      ok("robot run isolated per user", r.s === 404, r);
+      r = await j("DELETE", `/robot/runs/${runId}`, null, at);
+      ok("robot run delete", r.s === 200, r);
+      r = await j("DELETE", "/robot/connectors/ekinerja/session", null, at);
+      ok("robot forget session", r.s === 200 && r.d.status === "none" && !r.d.hasSession, r);
+      r = await j("POST", "/robot/connectors/ekinerja/login", null, at);
+      if (r.d?.sessionId) {
+        r = await j("DELETE", `/robot/sessions/${r.d.sessionId}`, null, at);
+        ok("robot cancel login session", r.s === 200 && r.d.closed, r);
+      }
+    }
+  }
+
+  // ---- Brankas kredensial konektor robot (nilai uji palsu; tidak ada login ke sistem pemerintah)
+  {
+    r = await j("GET", "/robot/status", null, at);
+    const vaultOn = r.d?.vault === true;
+    if (!vaultOn) {
+      console.log("SKIP robot vault (CREDENTIAL_ENCRYPTION_KEY kosong)");
+    } else {
+      r = await j(
+        "POST",
+        "/robot/connectors/ekinerja/credentials",
+        { username: "nip-uji-001", password: "sandi-uji", accountPassword: "salah" },
+        at,
+      );
+      ok("robot credentials need LifeOS password (403)", r.s === 403, r);
+      r = await j(
+        "POST",
+        "/robot/connectors/ekinerja/credentials",
+        { username: "nip-uji-001", password: "sandi-uji", accountPassword: "rahasia2" },
+        at,
+      );
+      ok(
+        "robot credentials stored (masked hint only)",
+        r.s === 200 &&
+          r.d.hasCredentials &&
+          r.d.credentialHint === "ni•••01" &&
+          !JSON.stringify(r.d).includes("sandi-uji"),
+        r,
+      );
+      r = await j("GET", "/robot/connectors", null, at);
+      ok(
+        "robot connectors never return credentials",
+        r.s === 200 && !JSON.stringify(r.d).includes("sandi-uji") && !JSON.stringify(r.d).includes("nip-uji-001"),
+        r,
+      );
+      r = await j("GET", "/robot/connectors", null, pt);
+      ok(
+        "robot credentials isolated per user",
+        r.d?.every?.((c) => !c.hasCredentials),
+        r,
+      );
+      r = await j("POST", "/robot/sessions/tidak-ada/answer", { kind: "otp", value: "123456" }, at);
+      ok("robot answer unknown session 404", r.s === 404, r);
+      r = await j("POST", "/robot/sessions/x/answer", { kind: "otp", value: "12 34" }, at);
+      ok("robot answer invalid value 400", r.s === 400, r);
+      r = await j("GET", "/robot/status", null, at);
+      if (r.d?.reachable) {
+        // Situs uji tanpa formulir login → robot langsung "sudah masuk", sesi disimpan tanpa memakai kredensial
+        await j("PATCH", "/robot/connectors/ekinerja", { baseUrl: "https://example.com" }, at);
+        r = await j("POST", "/robot/connectors/ekinerja/auto-login", null, at);
+        ok(
+          "robot auto-login (done → session saved)",
+          r.s === 201 && r.d.stage === "done" && r.d.connector?.status === "active",
+          r,
+        );
+        await j("DELETE", "/robot/connectors/ekinerja/session", null, at);
+      }
+      r = await j("DELETE", "/robot/connectors/ekinerja/credentials", null, at);
+      ok("robot credentials deleted", r.s === 200 && !r.d.hasCredentials && r.d.credentialHint === null, r);
+      r = await j("POST", "/robot/connectors/ekinerja/auto-login", null, at);
+      ok("robot auto-login without credentials 400", r.s === 400, r);
+    }
   }
 
   r = await j("POST", "/auth/change-password", { currentPassword: "salah", newPassword: "1234" }, pt);

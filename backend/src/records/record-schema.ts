@@ -290,6 +290,116 @@ export const RECORD_TABLES = {
     ],
     indexes: [["at"], ["originalId"]],
   },
+  // SKP e-Kinerja (satu tahun bisa beberapa SKP berperiode) — diambil robot dari daftar SKP
+  skp: {
+    model: "Skp",
+    table: "skps",
+    titleKey: "externalId",
+    dateKey: "startDate",
+    fields: [
+      s("externalId"),
+      f("startDate", "ymd"),
+      f("endDate", "ymd"),
+      s("status"),
+      s("approach"),
+      s("appraiser"),
+      f("syncedAt", "timestamp"),
+    ],
+    indexes: [["startDate"]],
+  },
+  // Rencana Hasil Kerja (RHK) milik satu SKP (atau RHK manual per tahun) — tujuan pemetaan rencana aksi e-Kinerja
+  skp_target: {
+    model: "SkpTarget",
+    table: "skp_targets",
+    titleKey: "name",
+    fields: [
+      f("year", "int"),
+      s("skpId"),
+      s("name"),
+      s("section"),
+      s("leader"),
+      f("indicators", "json"),
+      f("order", "int"),
+    ],
+    indexes: [["year"], ["skpId"]],
+  },
+  // Rencana aksi bulanan yang dipilih user dari Productivity (produk jadi untuk robot e-Kinerja)
+  action_plan_entry: {
+    model: "ActionPlanEntry",
+    table: "action_plan_entries",
+    titleKey: "description",
+    fields: [
+      s("period"),
+      s("skpId"),
+      s("targetId"),
+      s("description"),
+      s("documentUrl"),
+      s("sourceType"),
+      s("sourceId"),
+      s("sourceTitle"),
+      s("status"),
+      f("filledAt", "timestamp"),
+    ],
+    indexes: [["period"], ["sourceId"]],
+  },
+
+  // Potret satu bulan Rencana Aksi di e-Kinerja (dibaca robot): status draf/diajukan/dinilai, tanggal pengajuan, rating,
+  // isi per indikator + feedback (di `extra`) — pembanding isian LifeOS & penanda bulan terkunci
+  action_plan_month: {
+    model: "ActionPlanMonth",
+    table: "action_plan_months",
+    titleKey: "period",
+    fields: [s("period"), s("skpId"), s("status"), f("submittedAt", "ymd"), f("syncedAt", "timestamp")],
+    indexes: [["period"]],
+  },
+
+  // Referensi SRIKANDI (menu Pengguna) untuk Register Naskah Keluar: penandatangan, tujuan, verifikator, tembusan, grup
+  srikandi_reference: {
+    model: "SrikandiReference",
+    table: "srikandi_references",
+    titleKey: "label",
+    fields: [s("category"), s("label"), f("fields", "json"), f("order", "int"), f("syncedAt", "timestamp")],
+    indexes: [["category"]],
+  },
+
+  // Naskah keluar SRIKANDI yang sudah ditandatangani, diambil robot (PDF = Asset `uploadId`)
+  srikandi_letter: {
+    model: "SrikandiLetter",
+    table: "srikandi_letters",
+    titleKey: "subject",
+    dateKey: "date",
+    fields: [
+      s("number"),
+      f("date", "ymd"),
+      s("subject"),
+      s("origin"),
+      s("signStatus"),
+      s("sendStatus"),
+      s("uploadId"),
+      f("importedAt", "timestamp"),
+    ],
+    indexes: [["date"], ["number"]],
+  },
+
+  // Register Naskah Keluar: gerbang LifeOS sebelum naskah didaftarkan ke SRIKANDI (isian formulir Registrasi Naskah
+  // Keluar + berkas mentah dari Approval / Productivity); naskah final dari Daftar Naskah Keluar ditautkan lewat `letterId`
+  srikandi_outgoing: {
+    model: "SrikandiOutgoing",
+    table: "srikandi_outgoings",
+    titleKey: "subject",
+    fields: [
+      s("formType"),
+      s("subject"),
+      s("number"),
+      s("status"),
+      s("uploadId"),
+      s("sourceType"),
+      s("sourceId"),
+      s("letterId"),
+      f("submittedAt", "timestamp"),
+    ],
+    indexes: [["status"], ["letterId"]],
+  },
 
   // ---------------------------------------------------- File Control (arsip)
   archive_classification: {

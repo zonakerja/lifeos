@@ -71,6 +71,7 @@ test) semuanya mengandalkan angka yang sama.
 | Redis | **6379** | — | `docker-compose.yml` |
 | SeaweedFS S3 API / filer UI | **8333** / **8888** | filer: http://localhost:8888 | `docker-compose.yml` |
 | ONLYOFFICE Docs (opsional, profile `office`) | **8080** | http://localhost:8080 (`/healthcheck` → `true`) | `docker-compose.yml` |
+| Service robot Playwright (opsional, profile `robot`) | **4100** (hanya 127.0.0.1) | http://localhost:4100/health | `docker-compose.yml` |
 | Prisma Studio (opsional) | 5555 | `npm --prefix backend run prisma:studio` | default Prisma |
 | Vite preview build (opsional) | 4173 | `npm --prefix frontend run preview` | default Vite |
 | Stack produksi uji lokal (opsional) | 80 / 443 | http://localhost | `docker-compose.prod.yml` (Caddy) |
@@ -216,6 +217,25 @@ Setelah ini, cukup ikuti §4 setiap mulai bekerja. Ulangi `npm install` (backend
    ONLYOFFICE yang tidak tersedia. `backend/.env` harus berisi variabel `ONLYOFFICE_*` (salin dari
    `backend/.env.example`, lalu restart backend). Detail: [ONLYOFFICE.md](ONLYOFFICE.md).
 
+7. **Opsional — Service robot** (konektor SRIKANDI & e-Kinerja, tab **Connector** di menu Laporan Kinerja & SRIKANDI; ± 300–600 MB RAM saat
+   dipakai):
+   ```powershell
+   wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose --profile robot up -d --wait robot"
+   ```
+   Pertama kali **membangun image** `lifeos-robot` (image resmi Playwright + Chromium, unduhan ± 2 GB, ukuran ± 3,5 GB).
+   `backend/.env` harus berisi `ROBOT_URL` & `ROBOT_TOKEN` (salin dari `backend/.env.example`, lalu restart backend).
+   Cek: http://localhost:4100/health → `{"ok":true,…}`.
+
+8. **Opsional — Agen Hermes** (menu AI Agent → Asisten Agen; ± 300–800 MB RAM):
+   ```powershell
+   wsl -e sh /mnt/d/Development/Application/LifeOS/infra/hermes/up.sh
+   ```
+   Pertama kali mengunduh image `nousresearch/hermes-agent`; skrip juga mengatur Hermes agar memakai model **lewat LifeOS**
+   (`infra/hermes/configure.sh`, tanpa API key di Hermes). Sekali di LifeOS: API key di Pengaturan → Model AI, lalu
+   **Asisten Agen → Status & Skill → Siapkan agen** (docs/TODO-USER.md A7).
+   `backend/.env` harus berisi `HERMES_URL`, `HERMES_API_KEY`, `HERMES_OWNER_EMAIL` (salin dari `backend/.env.example`).
+   Cek: http://localhost:8642/health → `{"status": "ok", …}`.
+
 Alternatif: minta Claude menyalakannya — Claude memakai konfigurasi yang sama (`.claude/launch.json`, port 4000 &
 5173) setelah mengecek status, jadi tidak akan bentrok dengan yang sudah berjalan.
 
@@ -230,9 +250,9 @@ Data tetap aman — semua langkah di bawah hanya menghentikan proses, tidak meng
    dinyalakan Claude, minta Claude "matikan semua".
 2. **Infrastruktur Docker**:
    ```powershell
-   wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose --profile office stop"
+   wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose --profile office --profile robot --profile agent stop"
    ```
-   (`--profile office` ikut menghentikan ONLYOFFICE bila menyala; aman walau tidak menyala. Di lazydocker: pilih container → tekan `s` untuk stop.) Gunakan **`stop`**, bukan `down -v` — `-v` menghapus data.
+   (`--profile office --profile robot --profile agent` ikut menghentikan ONLYOFFICE, robot & Hermes bila menyala; aman walau tidak menyala. Di lazydocker: pilih container → tekan `s` untuk stop.) Gunakan **`stop`**, bukan `down -v` — `-v` menghapus data.
 3. **Tab A**: keluar dari lazydocker (`q`) atau tekan `Ctrl+C` pada `sleep infinity`.
 4. Opsional, membebaskan RAM laptop: `wsl --shutdown`.
 5. Pastikan semua sudah mati dengan §6 (tidak ada port tersisa).
@@ -256,7 +276,7 @@ npm --prefix backend run prisma:seed
 ```powershell
 # Port LifeOS yang sedang dipakai + prosesnya (wslrelay = container Docker, node = dev server)
 Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
-  Where-Object { $_.LocalPort -in 80,443,4000,5173,5432,6379,8080,8333,8888 } |
+  Where-Object { $_.LocalPort -in 80,443,4000,4100,5173,5432,6379,8080,8333,8888 } |
   Sort-Object LocalPort -Unique |
   ForEach-Object { "{0}  pid={1}  {2}" -f $_.LocalPort, $_.OwningProcess, (Get-Process -Id $_.OwningProcess).ProcessName }
 
@@ -418,7 +438,7 @@ Lihat [DEPLOYMENT.md](DEPLOYMENT.md) (VPS dengan `docker-compose.prod.yml`: Cadd
 | `database "lifeos_shadow" already exists` | Aman diabaikan (sudah dibuat sebelumnya) |
 | Vite menampilkan modul usang setelah banyak perubahan | Restart `npm run dev` frontend |
 | `Konfigurasi environment tidak valid` saat backend start | Lengkapi `backend/.env` sesuai `.env.example` (mis. setelah `git pull` menambah variabel baru seperti `AI_ENCRYPTION_KEY`: buat dengan `node -p "require('crypto').randomBytes(32).toString('hex')"`) |
-| Fitur AI: "AI belum diatur" / "Model … tidak tersedia" / "API key … ditolak" | Buka **Pengaturan → AI**: simpan API key, pilih provider aktif, ganti model bila provider menghentikannya, lalu **Uji koneksi** |
+| Fitur AI: "AI belum diatur" / "Model … tidak tersedia" / "API key … ditolak" | Buka **Pengaturan → Model AI**: simpan API key, pilih provider aktif, ganti model bila provider menghentikannya, lalu **Uji koneksi** |
 | Prisma error tabel/kolom tidak ada | `npx prisma migrate deploy` lalu `npx prisma generate` |
 | `Cannot find module '../generated/prisma/client'` | Prisma Client belum dibuat → `npm --prefix backend install` atau `npm --prefix backend run prisma:generate` |
 | Node/npm terasa lambat di Windows ARM, `node -p "process.arch"` = `x64` | Node x64 berjalan lewat emulasi → pasang versi arm64 (§3 langkah 0, "Salah arsitektur?") lalu pasang ulang `node_modules` |

@@ -13,5 +13,6 @@ import { LifeosMcpService } from "./lifeos-mcp.service";
   imports: [AiModule, KnowledgeModule, RecordsModule, RequestsModule, WhatsappModule],
   controllers: [IntegrationsController, McpController],
   providers: [ApiTokensService, LifeosMcpService],
+  exports: [ApiTokensService],
 })
 export class IntegrationsModule {}

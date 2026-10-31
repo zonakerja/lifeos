@@ -294,6 +294,238 @@ export interface ParaArchive extends Owned {
   archivedAt: string;
 }
 
+/** SKP e-Kinerja (diambil robot). Satu tahun bisa terdiri dari beberapa SKP berperiode. */
+export interface Skp extends Owned {
+  id: string;
+  /** Nomor SKP di e-Kinerja */
+  externalId: string;
+  /** YYYY-MM-DD */
+  startDate: string;
+  endDate: string;
+  status?: string;
+  approach?: string;
+  appraiser?: string;
+  syncedAt?: string;
+}
+
+export interface SkpIndicator {
+  aspect: string;
+  indicator: string;
+  target: string;
+}
+
+/**
+ * Rencana Hasil Kerja (RHK) — tujuan pemetaan rencana aksi e-Kinerja. Dari robot: milik satu SKP (`skpId`) + bagian,
+ * RHK pimpinan, indikator. Manual: tanpa `skpId`, per tahun.
+ */
+export interface SkpTarget extends Owned {
+  id: string;
+  year: number;
+  skpId?: string;
+  name: string;
+  /** UTAMA | TAMBAHAN */
+  section?: string;
+  /** RHK pimpinan yang diintervensi */
+  leader?: string;
+  /** Indikator RHK pimpinan */
+  leaderIndicator?: string;
+  indicators?: SkpIndicator[];
+  order?: number;
+  /** RHK sudah tidak ada di SKP e-Kinerja tetapi masih dipakai rencana aksi */
+  stale?: boolean;
+}
+
+export type ActionPlanSourceType = "task" | "activity" | "schedule" | "ekinerja";
+/** draft = belum lengkap; ready = siap diisikan robot; filled = sudah terisi (draf) di e-Kinerja */
+export type ActionPlanStatus = "draft" | "ready" | "filled";
+
+/**
+ * Rencana aksi bulanan yang dipilih user dari Productivity — "produk jadi" untuk robot e-Kinerja: bulan, RHK +
+ * indikator, rencana aksi, realisasi, bukti data dukung. Satu entri = satu butir di setiap indikator terpilih.
+ */
+export interface ActionPlanEntry extends Owned {
+  id: string;
+  /** YYYY-MM */
+  period: string;
+  /** ID `Skp` yang periodenya mencakup bulan ini (beberapa SKP dalam setahun) */
+  skpId?: string;
+  /** ID `SkpTarget` */
+  targetId?: string;
+  /** Rencana aksi (butir "Renaksi" di e-Kinerja) */
+  description: string;
+  /** Realisasi untuk indikator kuantitas/kualitas */
+  realization?: string;
+  /** Realisasi indikator aspek WAKTU (bawaan "Penyampaian tepat waktu") */
+  timeRealization?: string;
+  /** Teks indikator RHK yang dicentang; kosong = semua indikator RHK */
+  indicators?: string[];
+  /** Bukti Data Dukung */
+  documentUrl?: string;
+  /** Brankas digital (beberapa berkas, satu tautan) yang menjadi bukti data dukung entri ini */
+  vaultId?: string;
+  /** Asal item di Productivity (hanya rujukan; entri tetap ada walau item dihapus) */
+  sourceType?: ActionPlanSourceType;
+  sourceId?: string;
+  sourceTitle?: string;
+  status: ActionPlanStatus;
+  /** Waktu robot mengisikan ke e-Kinerja (ISO) */
+  filledAt?: string;
+  /** Pengenal perubahan: tanda tangan isi saat terakhir terisi di e-Kinerja (beda dengan isi sekarang = "Berubah") */
+  pushedSignature?: string;
+  /** Isi saat terakhir terisi di e-Kinerja (pembanding butir lama) */
+  pushed?: Pick<
+    ActionPlanEntry,
+    "targetId" | "description" | "realization" | "timeRealization" | "documentUrl" | "indicators"
+  >;
+  /** Ditandai hapus: butirnya akan dihapus dari e-Kinerja saat Kirim perubahan, lalu entri dihapus */
+  deleted?: boolean;
+  createdAt?: string;
+}
+
+/** Keadaan bulan Rencana Aksi di e-Kinerja. */
+export type ActionPlanMonthStatus = "empty" | "unavailable" | "draft" | "submitted" | "rated";
+
+/** Potret satu bulan Rencana Aksi di e-Kinerja (dibaca robot "Ambil dari e-Kinerja"). */
+export interface ActionPlanMonth extends Owned {
+  id: string;
+  /** YYYY-MM */
+  period: string;
+  skpId: string;
+  status: ActionPlanMonthStatus;
+  /** Tanggal diajukan ke atasan (YYYY-MM-DD) */
+  submittedAt?: string;
+  workday?: number;
+  ratings?: { hasilKerja?: string; perilaku?: string; predikat?: string; tunkin?: string };
+  rows?: {
+    key: string;
+    text: string;
+    feedback?: string;
+    renaksi: string[];
+    realisasi: string[];
+    bukti: string[];
+  }[];
+  syncedAt?: string;
+}
+
+/** Naskah keluar SRIKANDI (diambil robot; PDF ber-TTD = berkas LifeOS `uploadId`). */
+export interface SrikandiLetter extends Owned {
+  id: string;
+  /** Kunci = nomor naskah */
+  key: string;
+  number: string;
+  /** YYYY-MM-DD */
+  date?: string;
+  dateText?: string;
+  subject: string;
+  origin?: string;
+  verifyStatus?: string;
+  signStatus?: string;
+  sendStatus?: string;
+  fileStatus?: string;
+  uploadId?: string;
+  importedAt?: string;
+  syncedAt?: string;
+  /** Lampiran naskah (berkas LifeOS; tanpa `uploadId` = belum terambil) */
+  attachments?: { name: string; uploadId?: string }[];
+  /** PDF utama + semua lampiran sudah di LifeOS */
+  attachmentsComplete?: boolean;
+  /** uploadId → ID Resource Global yang dibuat (tag "Dokumen Final", masuk File Control) */
+  resources?: Record<string, string>;
+}
+
+export type SrikandiReferenceCategory =
+  "signer" | "recipient" | "recipient_group" | "verifier" | "cc" | "cc_group" | "disposition_group" | "classification";
+
+/** Referensi SRIKANDI (menu Pengguna) — pilihan formulir Register Naskah Keluar. */
+export interface SrikandiReference extends Owned {
+  id: string;
+  category: SrikandiReferenceCategory;
+  /** Nama / Kepada / Nama Grup */
+  label: string;
+  /** Kolom lain (Jabatan, Unit Kerja / Instansi, Jenis Tujuan, Deskripsi, Jumlah Tujuan, …) */
+  fields?: Record<string, string>;
+  order?: number;
+  syncedAt?: string;
+}
+
+/** Tipe form Registrasi Naskah Keluar SRIKANDI: verifikasi & TTE di SRIKANDI, atau naskah sudah final di luar SRIKANDI. */
+export type SrikandiFormType = "keluar" | "final";
+
+/** Berkas di entri register (berkas LifeOS). `owned` = diunggah lewat register → ikut dihapus bersama entri. */
+export interface SrikandiOutgoingFile {
+  uploadId: string;
+  name: string;
+  mimeType?: string;
+  size?: number;
+  owned?: boolean;
+}
+
+/** Pilihan referensi SRIKANDI yang disalin ke entri (label tetap ada walau referensi diambil ulang / hilang). */
+export interface SrikandiPick {
+  id: string;
+  label: string;
+}
+
+/** Status yang disimpan; "belum lengkap / siap" dihitung dari isian (`registerStatus`). */
+export type SrikandiOutgoingStage = "draft" | "submitted" | "done";
+
+/**
+ * Register Naskah Keluar: gerbang LifeOS sebelum naskah didaftarkan ke SRIKANDI. Isian mengikuti formulir Registrasi
+ * Naskah Keluar SRIKANDI; berkas mentah berasal dari Approval atau Productivity; naskah final ditautkan lewat `letterId`.
+ */
+export interface SrikandiOutgoing extends Owned {
+  id: string;
+  formType: SrikandiFormType;
+  /** Dikirimkan melalui (unit kerja) */
+  unit?: string;
+  /** Jenis Naskah (mis. Nota Dinas) */
+  docType?: string;
+  /** Sifat Naskah (mis. Biasa) */
+  nature?: string;
+  /** Kode/nama klasifikasi arsip SRIKANDI (mis. KA.01 - Administrasi Persuratan) */
+  classification?: string;
+  /** Nomor naskah sementara; kosong + `autoNumber` = tombol Ambil Nomor di SRIKANDI */
+  number?: string;
+  autoNumber?: boolean;
+  /** Nomor naskah lain yang dirujuk (opsional) */
+  reference?: string;
+  /** Hal */
+  subject: string;
+  /** Isi Ringkas */
+  summary?: string;
+  /** File naskah (DOCX/PDF) — sama dengan `file.uploadId` agar bisa diindeks */
+  uploadId?: string;
+  file?: SrikandiOutgoingFile;
+  attachments?: SrikandiOutgoingFile[];
+  recipientGroups?: SrikandiPick[];
+  /** Utama (Internal / Eksternal SRIKANDI) */
+  recipients?: SrikandiPick[];
+  /** Utama Eksternal Non SRIKANDI */
+  recipientsExternal?: SrikandiPick[];
+  ccGroups?: SrikandiPick[];
+  cc?: SrikandiPick[];
+  ccExternal?: SrikandiPick[];
+  /** Hanya tipe "keluar" */
+  verifiers?: SrikandiPick[];
+  signer?: SrikandiPick;
+  signatureType?: "elektronik" | "konvensional";
+  visualTte?: "qr" | "spesimen";
+  status: SrikandiOutgoingStage;
+  /** Asal berkas mentah */
+  sourceType?: "request" | "file" | "upload";
+  /** ID pengajuan Approval (sourceType "request") */
+  sourceId?: string;
+  sourceTitle?: string;
+  /** Waktu entri didaftarkan ke SRIKANDI (ISO) — oleh user, nanti oleh robot */
+  submittedAt?: string;
+  /** Naskah final (`srikandi_letter.id`) dari Daftar Naskah Keluar */
+  letterId?: string;
+  /** PDF final juga ditautkan sebagai dokumen final dari file naskah DOCX (konsep ↔ final ONLYOFFICE) */
+  draftLinked?: boolean;
+  notes?: string;
+  createdAt?: string;
+}
+
 /** Riwayat arsip & pemulihan PARA (append-only). */
 export interface ParaArchiveLog extends Owned {
   id: string;

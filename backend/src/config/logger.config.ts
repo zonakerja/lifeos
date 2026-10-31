@@ -30,8 +30,10 @@ export function loggerConfig(config: ConfigService): Params {
         req: (req: { id: string; method: string; url: string }) => ({
           id: req.id,
           method: req.method,
-          // Token unduhan di query string tidak ikut tercatat
-          url: req.url.replace(/token=[^&]+/, "token=[redacted]"),
+          // Token unduhan di query string & token tautan publik di path tidak ikut tercatat
+          url: req.url
+            .replace(/token=[^&]+/, "token=[redacted]")
+            .replace(/\/public\/files\/[^/?]+/, "/public/files/[redacted]"),
         }),
         res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
       },

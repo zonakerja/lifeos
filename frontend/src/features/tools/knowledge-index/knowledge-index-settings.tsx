@@ -1,13 +1,30 @@
-import { AlertTriangle, DatabaseZap, FileSearch, Library, RefreshCw, Search, ShieldAlert } from "lucide-react";
+import {
+  AlertTriangle,
+  DatabaseZap,
+  FileSearch,
+  Library,
+  RefreshCw,
+  Search,
+  Settings2,
+  ShieldAlert,
+} from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
+import { PageLoader } from "@/components/common/page-loader";
+import { SectionCard } from "@/components/common/section-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { useAiIndexStatus, useRebuildAiIndex, useSearchAiIndex, useUpdateAiSettings } from "@/data/use-ai-settings";
+import {
+  useAiIndexStatus,
+  useAiSettings,
+  useRebuildAiIndex,
+  useSearchAiIndex,
+  useUpdateAiSettings,
+} from "@/data/use-ai-settings";
 import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { AiSettings } from "@/types/api";
@@ -38,11 +55,30 @@ const SOURCE_LABELS: Record<string, string> = {
 const formatTime = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }) : "belum pernah";
 
+const LINK_CLASS = "flex w-fit items-center gap-1 text-xs font-medium text-info underline-offset-2 hover:underline";
+
 /**
- * Indeks pengetahuan (RAG): data & isi berkas user di-embed dengan Gemini agar AI bisa menjawab dari seluruh data,
- * bukan hanya potongan daftar. Bisa dimatikan (indeks dihapus, tidak ada data dikirim untuk embedding).
+ * Tools → Indeks Pengetahuan (RAG): data & isi berkas user di-embed (Gemini/OpenAI) agar AI bisa menjawab dari seluruh
+ * data, bukan hanya potongan daftar. Bisa dimatikan (indeks dihapus, tidak ada data dikirim untuk embedding). API key &
+ * provider embedding tetap diatur di Pengaturan → Model AI.
  */
-export function AiIndexCard({ settings }: { settings: AiSettings }) {
+export function KnowledgeIndexSettings() {
+  const { data, isLoading, error } = useAiSettings();
+  if (isLoading) return <PageLoader />;
+  return (
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+      {data ? (
+        <AiIndexCard settings={data} />
+      ) : (
+        <SectionCard icon={DatabaseZap} title="Indeks Pengetahuan (RAG)">
+          <p className="text-sm text-destructive">Gagal memuat pengaturan AI: {errorMessage(error)}</p>
+        </SectionCard>
+      )}
+    </div>
+  );
+}
+
+function AiIndexCard({ settings }: { settings: AiSettings }) {
   const { data: status } = useAiIndexStatus();
   const update = useUpdateAiSettings();
   const rebuild = useRebuildAiIndex();
@@ -79,32 +115,33 @@ export function AiIndexCard({ settings }: { settings: AiSettings }) {
   const busy = !!status?.pendingJobs;
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="ai-index" className="flex items-center gap-2 font-semibold">
-            <DatabaseZap className="size-4" /> Indeks pengetahuan (RAG)
-          </label>
-          <p className="text-xs text-muted-foreground">
-            <b>Mesin pencari</b> untuk semua fitur AI: catatan, agenda, task, project, resource, arsip, isi berkas (PDF,
-            DOCX, XLSX; gambar & PDF scan dibaca lewat OCR) <b>dan</b> isi Basis Pengetahuan (vault Obsidian) dipotong
-            lalu di-embed dengan <b>{embeddingLabel}</b>
-            {status?.model ? ` (${status.model})` : ""} memakai API key Anda, agar AI bisa mencari berdasarkan makna.
-            Matikan bila data tidak boleh dikirim ke penyedia AI — indeks langsung dihapus.
-          </p>
-          <Link
-            to="/tools/knowledge"
-            className="flex w-fit items-center gap-1 text-xs font-medium text-info underline-offset-2 hover:underline"
-          >
-            <Library className="size-3.5" /> Isi pengetahuan yang Anda kurasi diatur di Tools → Basis Pengetahuan
-          </Link>
-        </div>
+    <SectionCard
+      icon={DatabaseZap}
+      title={<label htmlFor="ai-index">Indeks Pengetahuan (RAG)</label>}
+      description="Mesin pencari makna untuk semua fitur AI: chatbot LifeOS, My Notebook, Approval, dan bot WhatsApp."
+      action={
         <Switch
           id="ai-index"
           checked={settings.indexEnabled}
           disabled={update.isPending}
           onCheckedChange={(checked) => void toggle(checked)}
         />
+      }
+      contentClassName="flex flex-col gap-4"
+    >
+      <div className="flex flex-col gap-1">
+        <p className="text-xs text-muted-foreground">
+          Catatan, agenda, task, project, resource, arsip, isi berkas (PDF, DOCX, XLSX; gambar & PDF scan dibaca lewat
+          OCR) <b>dan</b> isi Basis Pengetahuan (vault Obsidian) dipotong lalu di-embed dengan <b>{embeddingLabel}</b>
+          {status?.model ? ` (${status.model})` : ""} memakai API key Anda, agar AI bisa mencari berdasarkan makna.
+          Matikan bila data tidak boleh dikirim ke penyedia AI — indeks langsung dihapus.
+        </p>
+        <Link to="/tools/knowledge" className={LINK_CLASS}>
+          <Library className="size-3.5" /> Isi pengetahuan yang Anda kurasi diatur di Tools → Basis Pengetahuan
+        </Link>
+        <Link to="/settings/api" className={LINK_CLASS}>
+          <Settings2 className="size-3.5" /> API key & provider embedding diatur di Pengaturan → Model AI
+        </Link>
       </div>
 
       {settings.indexEnabled && status && (
@@ -124,8 +161,8 @@ export function AiIndexCard({ settings }: { settings: AiSettings }) {
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <p>
                 Tanpa API key <b>Google Gemini</b> atau <b>OpenAI</b>, indeks hanya mendukung pencarian kata persis
-                (data tidak dikirim ke mana pun). Simpan salah satu key di atas agar AI juga bisa mencari berdasarkan
-                makna — embedding dilengkapi otomatis.
+                (data tidak dikirim ke mana pun). Simpan salah satu key di Pengaturan → Model AI agar AI juga bisa
+                mencari berdasarkan makna — embedding dilengkapi otomatis.
               </p>
             </div>
           )}
@@ -197,6 +234,6 @@ export function AiIndexCard({ settings }: { settings: AiSettings }) {
           )}
         </>
       )}
-    </div>
+    </SectionCard>
   );
 }

@@ -20,11 +20,12 @@ export function providerCandidates(
 
 /**
  * Pembagian tugas AI per user (`users.ai_routing`): provider untuk chat (asisten LifeOS & My Notebook), fitur AI umum
- * (ringkasan, Notes AI, ikon, AI di editor dokumen), OCR (gambar & PDF hasil scan), dan embedding indeks pengetahuan.
+ * (ringkasan, Notes AI, ikon, AI di editor dokumen), model agen Hermes (lewat proxy `agent/llm`), OCR (gambar & PDF hasil
+ * scan), dan embedding indeks pengetahuan.
  * Kosong = ikuti provider aktif (chat/umum) atau urutan bawaan (OCR, embedding).
  */
-export type AiTask = "chat" | "general" | "ocr";
-export const AI_TASKS: readonly AiTask[] = ["chat", "general", "ocr"];
+export type AiTask = "chat" | "general" | "agent" | "ocr";
+export const AI_TASKS: readonly AiTask[] = ["chat", "general", "agent", "ocr"];
 
 /** Provider embedding yang didukung (keduanya menghasilkan vektor 768 dimensi, kolom `ai_chunks.embedding`). */
 export type EmbeddingProvider = "gemini" | "openai";
@@ -33,6 +34,7 @@ export const EMBEDDING_PROVIDERS: readonly EmbeddingProvider[] = ["gemini", "ope
 export interface AiRouting {
   chat?: AiProvider | null;
   general?: AiProvider | null;
+  agent?: AiProvider | null;
   ocr?: AiProvider | null;
   embedding?: EmbeddingProvider | null;
 }
@@ -51,7 +53,7 @@ export function parseRouting(value: unknown): AiRouting {
   return routing;
 }
 
-/** Provider utama untuk tugas chat/umum: pilihan tugas bila key-nya ada, selain itu provider aktif. */
+/** Provider utama untuk tugas chat/umum/agen: pilihan tugas bila key-nya ada, selain itu provider aktif. */
 export function taskProvider(
   routing: AiRouting,
   task: Exclude<AiTask, "ocr">,

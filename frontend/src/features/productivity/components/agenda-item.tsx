@@ -26,6 +26,7 @@ import { seriesPosition } from "@/features/planner/lib/recurrence";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useSetSearchParams } from "@/hooks/use-search-param";
 import { cn } from "@/lib/utils";
+import { ActionPlanButton } from "./action-plan-dialog";
 import type { Schedule } from "@/types/entities";
 
 /** Tag pembeda jenis item di daftar & timeline Project/Area (sejalan dengan action/task). */
@@ -119,6 +120,20 @@ export function AgendaItem({
           )}
         </span>
       </button>
+      {!s.share && (
+        <span className="pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100">
+          <ActionPlanButton
+            source={{
+              type: "schedule",
+              id: s.id,
+              title: s.title,
+              description: s.outcome || s.description,
+              dates: [s.endDate, s.startDate, s.date],
+              resources: [...(s.results ?? []), ...(s.resources ?? [])],
+            }}
+          />
+        </span>
+      )}
       {canEdit && (
         <Button
           variant="ghost"

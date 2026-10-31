@@ -123,7 +123,7 @@ function IconPickerBody({
             variant="secondary"
             className="bg-module-soft text-module hover:bg-module/15"
             disabled={ai.loading || !aiSubject.trim()}
-            title={ai.isConfigured ? `Sarankan ikon untuk "${aiSubject}"` : "AI belum diatur di Pengaturan → AI"}
+            title={ai.isConfigured ? `Sarankan ikon untuk "${aiSubject}"` : "AI belum diatur di Pengaturan → Model AI"}
             onClick={async () => setSuggestions(await ai.suggest(aiSubject))}
           >
             {ai.loading ? <Spinner /> : <Sparkles />} Sarankan dengan AI
@@ -250,7 +250,7 @@ export function AiIconButton({
       size="icon"
       className="shrink-0 bg-module-soft text-module hover:bg-module/15"
       disabled={disabled || ai.loading || !subject.trim()}
-      title={ai.isConfigured ? "Pilih ikon otomatis dengan AI" : "AI belum diatur di Pengaturan → AI"}
+      title={ai.isConfigured ? "Pilih ikon otomatis dengan AI" : "AI belum diatur di Pengaturan → Model AI"}
       aria-label="Pilih ikon dengan AI"
       onClick={async () => {
         const [best] = await ai.suggest(subject);

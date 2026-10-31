@@ -23,8 +23,9 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
 - [ ] **A3** Isi basis pengetahuan (persyaratan, peraturan, FAQ)
 - [ ] **A4** Siapkan templat SK/surat dengan penanda `${…}` dan unggah
 - [ ] **A5** Atur profil layanan bot, grup & kontak WhatsApp, coba bot lewat Simulator
-- [ ] **A6** Coba satu alur Pengajuan sampai dokumen jadi
-- [ ] **A7** (opsional) Coba asisten pribadi Hermes lewat Telegram di laptop
+- [ ] **A6** Coba satu alur Approval (pengajuan) sampai dokumen jadi
+- [ ] **A7** Siapkan agen Hermes di laptop (model AI + token LifeOS) lalu coba **Asisten Agen** & **Kerjakan dengan agen**
+- [ ] **A8** Hubungkan SRIKANDI & e-Kinerja ke Konektor Robot, lalu rekam halaman yang ingin diotomasi
 
 ### B. Saat siap online (butuh biaya: VPS, domain, WhatsApp)
 
@@ -39,9 +40,11 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
 ### C. Hal lain yang menunggu Anda
 
 - [ ] **C1** Selesaikan prototipe OnTrack (API & MCP SIMAN/MyIntress) → serahkan finishing ke Claude
-- [ ] **C2** Putuskan kapan robot e-Kinerja & SRIKANDI dikerjakan (tahap 6)
+- [ ] **C2** Minta izin pengelola sistem untuk otomasi (admin SRIKANDI instansi; Biro SDM untuk e-Kinerja)
 - [ ] **C3** Uji tulisan tangan S Pen di HP Android (Catatan Bebas)
 - [ ] **C4** Push ke GitHub bila ingin cadangan kode (minta Claude, lalu cek tab Actions)
+- [ ] **C5** Siapkan contoh nyata (surat permohonan + lampiran + dokumen jadi yang sudah disetujui) untuk **PSP** dan
+  **panitia penghapusan** — bahan skill Hermes pertama (keputusan AG-22…25 sudah disetujui 31 Okt 2026)
 
 ---
 
@@ -56,7 +59,7 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
    manusia. Untuk surat/berkas kantor, aktifkan **billing** pada project Google Cloud key tersebut
    (<https://console.cloud.google.com/billing>) — setelah billing aktif, data tidak dipakai untuk pelatihan. Atau
    gunakan OpenAI untuk tugas yang menyentuh data kantor.
-4. Di LifeOS: **Pengaturan → AI** → tempel key OpenAI dan key Gemini masing-masing → **Simpan** → **Uji**.
+4. Di LifeOS: **Pengaturan → Model AI** → tempel key OpenAI dan key Gemini masing-masing → **Simpan** → **Uji**.
 5. Masih di halaman itu, kartu **Pembagian tugas AI** — saran untuk Anda:
    - Provider aktif & **Chat & telaah** → **OpenAI** (dipakai juga untuk analisis Pengajuan & bot WhatsApp)
    - **Fitur AI lain** → Gemini (hemat)
@@ -119,7 +122,7 @@ Arti properti:
 Yang perlu Anda tulis (prioritas):
 
 1. `50-Persyaratan/` — satu catatan per jenis: **PSP**, **Penghapusan**, **Pemanfaatan (sewa, KSP, pinjam pakai, …)**.
-   Ini dipakai fitur **Analisis kelengkapan** di Pengajuan.
+   Ini dipakai fitur **Analisis kelengkapan** di Approval.
 2. `10-Peraturan/` — ringkasan pasal penting per peraturan (boleh juga taruh PDF peraturan di folder ini; LifeOS
    membaca isinya).
 3. `40-FAQ/` — pertanyaan yang sering ditanyakan pengguna bot WhatsApp. Jawaban yang Anda kirim manual dari
@@ -146,7 +149,7 @@ LifeOS mengisi templat Word (DOCX) secara otomatis dari data pengajuan.
 **Grup** = kelompok pengguna bot (satker, instansi, masyarakat umum, unit layanan, …). Grup yang Anda pilih untuk sebuah
 nomor menentukan **data apa yang boleh diakses** nomor itu lewat bot.
 
-1. **Pengajuan → Grup & Kontak → Profil layanan bot** → isi **Nama layanan** (mis. *Layanan Informasi BMN Kantor X*)
+1. **Approval → Grup & Kontak → Profil layanan bot** → isi **Nama layanan** (mis. *Layanan Informasi BMN Kantor X*)
    dan **Topik yang dilayani** → **Simpan**. Pertanyaan di luar topik ditolak sopan oleh bot.
 2. **+ Grup** → isi:
    - **Kode** (untuk satker pakai kode satker SIMAN/SAKTI; untuk lainnya bebas, mis. `UMUM`) dan **Nama**,
@@ -156,7 +159,7 @@ nomor menentukan **data apa yang boleh diakses** nomor itu lewat bot.
      **matikan** untuk masyarakat umum (tiap orang hanya melihat pengajuannya sendiri).
 3. **+ Kontak** → nama, nomor WhatsApp (format bebas, mis. `0812-3456-7890`), jabatan/keterangan, pilih **grup**,
    centang **Terverifikasi** hanya bila Anda yakin nomor itu benar milik orang tersebut.
-4. **Pengajuan → Percakapan WA → Simulator** → pilih kontak → coba kirim:
+4. **Approval → Percakapan WA → Simulator** → pilih kontak → coba kirim:
    - pertanyaan, mis. *"Apa syarat PSP laptop?"* (dijawab dari catatan `publik: true` atau berproperti `grup` = kode
      grup kontak, dan `status: berlaku`),
    - `#status` (pengajuan seluruh grup atau milik sendiri, sesuai pengaturan grup),
@@ -165,9 +168,9 @@ nomor menentukan **data apa yang boleh diakses** nomor itu lewat bot.
    centang *Simpan juga sebagai FAQ*).
 6. Selama WhatsApp belum disambungkan (B6), semua balasan berstatus **Simulasi** — tidak terkirim ke siapa pun.
 
-## A6. Coba alur Pengajuan
+## A6. Coba alur Approval (pengajuan)
 
-1. **Pengajuan → Pengajuan Baru** → isi jenis, pemohon, nomor & tanggal surat, perihal, lampirkan berkas → **Simpan**.
+1. **Approval → Pengajuan Baru** → isi jenis, pemohon, nomor & tanggal surat, perihal, lampirkan berkas → **Simpan**.
 2. Di detail: **Analisis dengan AI** → periksa kelengkapan (Ada / Tidak ada / Perlu dicek).
 3. **Telaah dengan AI** → periksa telaah & konsep jawaban; ubah bila perlu (ikon pensil).
 4. **Buat dari templat** → pilih templat → **Isi dengan AI** → periksa isian → **Buat dokumen** → rapikan di
@@ -176,32 +179,129 @@ nomor menentukan **data apa yang boleh diakses** nomor itu lewat bot.
    alasan. Bila pengajuan datang dari WhatsApp, pemohon otomatis diberi kabar.
 6. Beri masukan ke Claude soal format telaah/konsep yang Anda inginkan.
 
-## A7. (Opsional) Asisten pribadi Hermes lewat Telegram di laptop
+## A7. Agen Hermes di laptop (Asisten Agen)
 
-Hermes = agen AI yang Anda ajak chat lewat Telegram; ia memakai LifeOS lewat **MCP** (mencari pengetahuan, melihat
-agenda/tugas, mencatat pengajuan). Untuk mencoba di laptop:
+Hermes sudah terpasang sebagai container `lifeos-hermes` dan sudah diatur memakai model **lewat LifeOS** — tidak ada
+terminal atau API key yang perlu diketik di Hermes. Yang perlu **Anda** lakukan sekali, semuanya di LifeOS:
 
-1. **Buat token LifeOS**: **Pengaturan → Integrasi → Buat token** → nama `Hermes laptop`, izin yang diperlukan
-   (mis. baca pengetahuan, baca data kerja, baca & catat pengajuan), masa berlaku 30 hari → **salin token** dan
-   **contoh konfigurasi Hermes** yang tampil.
-2. **Buat bot Telegram**: di Telegram cari **@BotFather** → kirim `/newbot` → isi nama & username berakhiran `bot` →
-   simpan token yang diberikan (rahasia).
-3. **Cari ID Telegram Anda**: kirim pesan ke **@userinfobot** → catat angka ID.
-4. **Pasang Hermes di WSL Ubuntu** — buka PowerShell, ketik `wsl`, lalu:
+1. **Pengaturan → Model AI**: pastikan API key **Google Gemini** tersimpan (key dari project Google Cloud yang billing-nya
+   aktif / memakai kredit — data tidak dipakai melatih model). Di kartu **Pembagian tugas AI**, baris **Agen (Hermes)**
+   boleh dibiarkan "Ikuti provider aktif"; model Flash (`gemini-3.8-flash`) disarankan karena agen boros token.
+2. **AI Agent → Asisten Agen → Status & Skill** → kartu **Siapkan agen** → tombol **Siapkan agen** → biarkan semua izin
+   tercentang → **Simpan izin**. Ketiga langkah di kartu harus hijau.
+3. Tab **Chat**: coba *"Pengajuan apa saja yang ada di Approval?"*. Bila muncul error "high demand" (503) dari Gemini, itu
+   gangguan sementara di Google — coba lagi beberapa menit kemudian.
+4. Buka **Approval** → pengajuan **[UJI] Permohonan PSP laptop Satker Contoh** → **Kerjakan dengan agen** →
+   `telaah-pengajuan` → **Jalankan** (beberapa menit) → periksa Catatan, Telaah, Konsep jawaban, Riwayat ("oleh agen AI").
+   Beri tahu Claude hasilnya (berhasil / pesan error).
+5. Setelah laptop dinyalakan ulang: `wsl -e sh /mnt/d/Development/Application/LifeOS/infra/hermes/up.sh` (PowerShell).
+6. Kredit Google: pantau pemakaian di Google Cloud Console → Billing (agen memakai jauh lebih banyak token daripada chat).
+7. (Opsional, nanti) Telegram ke Hermes pribadi dari HP: `docker compose --profile agent run --rm hermes gateway setup`.
 
-   ```bash
-   curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
-   source ~/.bashrc
-   hermes model            # pilih provider & model (pakai API key OpenAI/Gemini Anda)
-   hermes gateway setup    # pilih Telegram, isi token bot & ID Telegram Anda
+Catatan: API key model untuk Hermes disimpan di Hermes (volume Docker), terpisah dari Pengaturan → Model AI LifeOS. Biaya/kuota
+dipakai dari key itu.
+
+---
+
+## A8. Konektor Robot: SRIKANDI & e-Kinerja
+
+**Robot** = browser otomatis milik LifeOS. Robot mendaftarkan konsep naskah di SRIKANDI (Register Naskah Keluar), mengambil
+naskah ber-TTD, dan mengisi rencana aksi bulanan e-Kinerja. Agar bisa, robot butuh **sesi login Anda**. Ada dua cara:
+- **Login otomatis** (disarankan): simpan nama pengguna & kata sandi di **brankas terenkripsi** LifeOS; robot mengisinya
+  sendiri, Anda cukup mengetik **CAPTCHA** (gambar tampil di LifeOS) dan **kode OTP Authenticator** bila diminta
+  (SRIKANDI: saat login pertama, lalu ± sebulan sekali).
+- **Login manual**: Anda mengetik semuanya sendiri di tayangan browser robot.
+
+> **Penting — ganti kata sandi**: kata sandi SRIKANDI & e-Kinerja yang pernah Anda ketik di chat Claude sebaiknya **diganti
+> dulu** di masing-masing aplikasi, baru kata sandi baru disimpan ke brankas LifeOS. Jangan kirim kata sandi lewat chat.
+
+1. **Nyalakan service robot** (sekali per menyalakan laptop; atau minta Claude) — PowerShell:
+
+   ```powershell
+   wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose --profile robot up -d --wait robot"
    ```
 
-5. Tambahkan MCP LifeOS: buka `~/.hermes/config.yaml` (`nano ~/.hermes/config.yaml`) dan tempel bagian
-   `mcp_servers` dari contoh konfigurasi di langkah 1. Dari WSL, alamat LifeOS di laptop adalah
-   `http://<IP Windows>:4000/api/v1/mcp` (minta Claude membantu mengisi alamat ini).
-6. Jalankan `hermes gateway` → kirim pesan ke bot Telegram Anda, mis. *"Cari ketentuan PSP di basis pengetahuan saya"*.
-7. Hermes **pribadi** ini hanya untuk Anda (`TELEGRAM_ALLOWED_USERS` = ID Anda). Bot untuk pengguna layanan **bukan** Hermes,
-   melainkan bot WhatsApp bawaan LifeOS (B6).
+   Pertama kali butuh unduhan ± 2 GB. Kartu **Service robot aktif** di tab Connector (Laporan Kinerja / SRIKANDI) berwarna hijau bila siap.
+2. **Laporan Kinerja → Connector (kartu e-Kinerja; SRIKANDI di SRIKANDI → Connector)** → isi **Alamat sistem** (alamat e-Kinerja yang biasa Anda buka di browser,
+   mis. `https://…`) → **Simpan pengaturan**. SRIKANDI sudah terisi `https://srikandi.arsip.go.id`.
+   Bila halaman login e-Kinerja/SRIKANDI ada di alamat lain (SSO), isi alamat itu di **Host tambahan**.
+3. **Simpan kredensial** (sekali): di kartu sistem klik **Simpan kredensial** → isi nama pengguna (SRIKANDI: nama pengguna;
+   e-Kinerja: NIP), kata sandi, dan **kata sandi akun LifeOS Anda** sebagai konfirmasi → **Simpan ke brankas**. Setelah
+   tersimpan, kata sandi tidak bisa dilihat lagi dari aplikasi (hanya diganti/dihapus).
+4. Klik **Login otomatis** → tunggu ± 10–20 detik:
+   - muncul **gambar CAPTCHA** → ketik huruf/angkanya → **Kirim** (salah? robot menampilkan CAPTCHA baru),
+   - muncul **kotak OTP** → buka aplikasi Authenticator di HP → ketik 6 digit → **Kirim**,
+   - selesai → kartu berubah **Sesi aktif**. Bila formulir tidak dikenali, klik **Buka tayangan** dan lanjutkan manual.
+5. Alternatif **Login manual (tayangan)** → muncul tayangan halaman login di dalam LifeOS:
+   - klik kotak **Nama Pengguna** pada tayangan, lalu ketik seperti biasa; lanjut **Kata Sandi**, **CAPTCHA**, lalu **Masuk**,
+   - bila diminta kode authenticator/OTP, ketik juga di tayangan,
+   - setelah halaman beranda sistem tampil (lencana berubah **Sudah masuk**), klik **Selesai & simpan sesi**.
+6. Kartu berubah **Sesi aktif**. Tombol **Cek sesi** memeriksa apakah sesi masih berlaku; bila **Sesi kedaluwarsa**, ulangi
+   langkah 4.
+7. **Rekam halaman untuk dipetakan** (bahan untuk Claude membangun alur pengisian):
+   - SRIKANDI: ~~halaman membuat naskah keluar~~ — sudah dipetakan Claude 31 Okt 2026 (tidak perlu direkam),
+   - e-Kinerja: halaman **realisasi bulanan / rencana aksi** (form uraian, jumlah dokumen, link dokumen).
+   Cara merekam (halaman apa pun, termasuk formulir/modal **Tambah**): klik **Login manual (tayangan)** →
+   buka menu & klik tombolnya di tayangan sampai formulirnya tampil → klik **Rekam halaman ini** (bawah tayangan) →
+   **jangan klik Simpan/Kirim** di sistem → tutup dengan **Batal** atau **Selesai & simpan sesi**.
+   Lalu beri tahu Claude: *"halaman SRIKANDI/e-Kinerja sudah direkam, lanjut tahap 6b"*.
+
+   **e-Kinerja — Rencana Aksi (yang perlu direkam sekarang)**. Daftar SKP (`/skp`) sudah direkam: setiap SKP punya
+   tautan **Rencana Aksi** `/skp/renaksi/<nomor SKP>`. SKP 2026 masih **Draft** sehingga Rencana Aksi-nya belum bisa
+   dibuka. Sambil menunggu SKP 2026 disetujui, rekam contoh dari SKP yang sudah **Disetujui** (mis. periode
+   01-May-2025 s.d 31-Dec-2025) dengan cara merekam di atas:
+   - [ ] halaman Rencana Aksi SKP itu (daftar Rencana Hasil Kerja + rencana aksi per bulan),
+   - [ ] formulir **tambah/ubah rencana aksi** yang muncul setelah klik tombolnya (rekam saat formulir terbuka, lalu Batal),
+   - [ ] (bila ada) halaman **Detail SKP** SKP 2026 `/skp/detail/545406` — daftar Rencana Hasil Kerja yang nanti diisi aksinya.
+   Setelah SKP 2026 disetujui atasan, rekam juga Rencana Aksi 2026 agar Claude bisa memastikan formulirnya sama.
+
+   **Siapkan isi Renaksi di LifeOS** (bisa mulai sekarang):
+   - [ ] **AI Agent → Laporan Kinerja → kartu SKP & RHK** → **Ambil dari e-Kinerja** (robot membaca daftar SKP dan RHK
+     setiap SKP tahun itu; sesi e-Kinerja harus aktif). Ulangi bila RHK di e-Kinerja berubah atau SKP baru dibuat.
+     Satu tahun bisa beberapa SKP — LifeOS memilih SKP sesuai bulan rencana aksi.
+   - [ ] Setiap bulan: buka Project/Area → klik ikon **papan klip** pada Action/Task, Agenda, atau Kegiatan yang ingin
+     dilaporkan → pilih **bulan**, **RHK**, centang **indikator** (bawaan semua), tulis **rencana aksi** dan **realisasi**
+     (indikator waktu otomatis "Penyampaian tepat waktu"), pilih **bukti data dukung** — **Brankas digital** (bawaan): centang
+     berkas lampiran / unggah berkas lain → satu tautan untuk poin itu → **Simpan ke renaksi**.
+   - [ ] Pantau siapa membuka bukti: **Laporan Kinerja** → baris entri → **Brankas** → Log akses (waktu, IP, perkiraan lokasi).
+     Bila tautan tersebar ke pihak yang tidak berwenang → **Ganti tautan**, lalu **Kirim perubahan** ke e-Kinerja.
+   - [ ] Cek menu **AI Agent → Laporan Kinerja**: semua entri bulan itu berstatus **Siap diisikan** (yang *Belum lengkap* menyebut kekurangannya).
+     Entri yang dibuat sebelum 31 Okt 2026 perlu dilengkapi **realisasi**-nya.
+   - [ ] Klik **Isi ke e-Kinerja** → robot mencentang indikator & menambah butir sebagai **draf** (± 10–20 detik per butir).
+     Periksa di e-Kinerja, lalu tekan **Kirim Penilaian Ke Atasan sendiri** — robot tidak pernah mengirim. Butir di
+     e-Kinerja tidak bisa diubah satu per satu: periksa isian sebelum mengisi; salah ketik dihapus lewat **Edit Rencana Aksi
+     Kerja** (lepas centang indikator → isinya terhapus) lalu isi ulang.
+   - [ ] **Pantau e-Kinerja** (tombol di Laporan Kinerja, hanya membaca): keadaan tiap bulan — draf / sudah dikirim ke atasan
+     (tanggal & hari kerja) / sudah dinilai (predikat) — beserta isi per indikator & feedback. Isian yang Anda ketik langsung di
+     e-Kinerja ikut masuk ke LifeOS. Bulan yang sudah dikirim **terkunci** di LifeOS.
+   - [ ] Mengubah isian yang sudah terkirim: ubah entri di LifeOS → status **Berubah — perlu dikirim** (hapus → **Akan dihapus**) →
+     **Periksa** (lihat rencana robot tanpa mengubah) → **Kirim perubahan**. Karena e-Kinerja tidak punya ubah per butir, robot
+     melepas centang baris indikator itu, mencentang lagi, lalu mengisi ulang semua butirnya dari LifeOS. Kirim Penilaian tetap Anda.
+   Catatan: selama LifeOS masih di laptop, tautan publik berawalan `localhost` — penilai di e-Kinerja baru bisa membukanya
+   setelah LifeOS dipasang di VPS (B1–B3).
+8. **Tautan publik** (untuk link dokumen e-Kinerja): buka berkas bukti di LifeOS (pratinjau) → **Tautan publik** → pilih masa
+   berlaku → **Buat** → salin tautan (hanya tampil sekali). Tautan bisa dicabut kapan saja.
+
+**SRIKANDI → Daftar Naskah Keluar** (bisa dipakai sekarang):
+- [ ] Klik **Ambil dari SRIKANDI** (sesi SRIKANDI harus aktif di tab Connector). Naskah yang sudah ditandatangani diambil PDF-nya
+  **beserta lampirannya**, otomatis masuk **Resource Global** (tag *Dokumen Final*) dan **File Control → Gantung**. Tautan ke
+  konsep/dokumen mentahnya dibuat lewat **Register Naskah Keluar → Tautkan final**.
+- [ ] Buka **File Control → Gantung** → lengkapi klasifikasi & JRA naskah/lampiran tersebut (pemberkasan tetap oleh Anda).
+- [ ] **SRIKANDI → Referensi → Ambil referensi** (± 1–2 menit): penandatangan, tujuan, verifikator, tembusan & grup diambil
+  dari menu Pengguna SRIKANDI — dipakai nanti di **Register Naskah Keluar** (akan dibangun bersama Claude dengan panduan Anda).
+
+**SRIKANDI → Register Naskah Keluar** (bisa dipakai; robot sudah diuji ke SRIKANDI sungguhan 31 Okt 2026):
+- [ ] Ambil referensi dulu (tab Referensi), lalu **Register baru** — atau dari **Approval → dokumen → SRIKANDI**. Isi formulir
+  (sama dengan formulir SRIKANDI; ketik Jenis/Sifat/Klasifikasi/Unit **persis** seperti di SRIKANDI, mis. `Nota Dinas`,
+  `Biasa`, `KU.204 - Laporan Keuangan`, `Bagian Keuangan Setditjen Hubud`), pilih file naskah (maks. 5 MB) & lampiran → **Simpan**.
+- [x] **Referensi → Klasifikasi → Ambil klasifikasi** (sudah diambil 31 Okt 2026: 1.048 klasifikasi, ± 1 menit). Ulangi bila klasifikasi di SRIKANDI berubah.
+- [ ] (Opsional) menu ⋯ → **Periksa di SRIKANDI (tanpa simpan)** → lihat tangkapan layar formulir yang diisi robot.
+- [ ] **Daftarkan ke SRIKANDI** → robot menyimpan **konsep** di SRIKANDI → Log Naskah Keluar. Buka SRIKANDI, periksa konsepnya,
+  lalu tekan **Kirim Konsep sendiri** — robot tidak pernah mengirim. Setelah ditandatangani: **Daftar Naskah Keluar → Ambil
+  dari SRIKANDI**, lalu di Register klik **Tautkan final**.
+
+Catatan: rekaman halaman bisa memuat data kerja Anda (tersimpan hanya di LifeOS Anda). Hapus rekaman yang tidak perlu
+dari **Riwayat robot**.
 
 ---
 
@@ -259,7 +359,7 @@ Ikuti `docs/DEPLOYMENT.md` §0.4 → §1 → §1.2 → §2 (perintah bisa disali
    rahasia (`openssl rand -hex 32` untuk tiap rahasia). **Simpan salinan `.env` di password manager.**
 4. `docker compose -f docker-compose.prod.yml up -d --build`, lalu buat akun admin (§2).
 5. Buka `https://<domain>` → login → ganti password admin.
-6. ONLYOFFICE (bila VPS 8 GB): §9. Isi API key AI lagi di Pengaturan → AI (server baru).
+6. ONLYOFFICE (bila VPS 8 GB): §9. Isi API key AI lagi di Pengaturan → Model AI (server baru).
 
 Tidak yakin? Minta Claude memandu sambil Anda menjalankan perintah, satu per satu.
 
@@ -319,7 +419,7 @@ Nama menu Meta bisa sedikit berubah; ikuti yang paling mirip. Panduan resmi: <ht
 9. **Daftarkan webhook**: di aplikasi Meta → **WhatsApp → Configuration → Webhook → Edit** → Callback URL
    `https://<domain>/api/v1/whatsapp/webhook`, Verify token = isi langkah 7 → **Verify and save** → pada daftar
    *Webhook fields* **Subscribe** `messages`.
-10. Di LifeOS **Pengajuan → Percakapan WA** kartu status berubah menjadi **Bot WhatsApp aktif**. Dari HP lain yang
+10. Di LifeOS **Approval → Percakapan WA** kartu status berubah menjadi **Bot WhatsApp aktif**. Dari HP lain yang
     sudah didaftarkan sebagai kontak terverifikasi (A5), kirim pesan ke nomor bot → balasan muncul di WhatsApp dan di
     LifeOS.
 11. **Verifikasi bisnis** (Meta → Security Center) agar batas jumlah percakapan naik dan nama tampilan disetujui.
@@ -345,8 +445,9 @@ Telegram Anda yang diizinkan. Minta Claude menyiapkan service otomatis (systemd)
 
 - **C1 OnTrack**: selesaikan prototipe modul SIMAN/MyIntress + REST API ber-API key + MCP di repo OnTrack (port
   5174/3000/5433/6380). Setelah siap, minta Claude: *"lanjut tahap 5b konektor OnTrack"*.
-- **C2 Robot e-Kinerja & SRIKANDI** (tahap 6): dibahas setelah VPS & bot WhatsApp berjalan. LifeOS tidak akan
-  menyimpan password atau kode OTP akun pemerintah; login tetap Anda yang lakukan.
+- **C2 Izin otomasi**: sampaikan ke admin SRIKANDI instansi dan Biro SDM (e-Kinerja) bahwa Anda memakai alat bantu
+  pengisian dengan akun sendiri (login, CAPTCHA, OTP, dan tanda tangan tetap oleh Anda). Mintalah persetujuan tertulis
+  bila diperlukan. Server robot sebaiknya VPS di Indonesia (B1).
 - **C3 S Pen**: buka LifeOS di HP Android → Notes → Catatan Bebas → **Tulis tangan** → coba menulis & menghapus dengan
   tombol S Pen → laporkan hasilnya.
 - **C4 GitHub**: minta Claude *"push ke GitHub"*, lalu buka tab **Actions** di repo untuk memastikan centang hijau.
@@ -359,3 +460,23 @@ Telegram Anda yang diizinkan. Minta Claude menyiapkan service otomatis (systemd)
 |---|---|
 | 2026-10-24 | Dibuat: to-do AI (A1–A7), VPS & online (B1–B7, termasuk WhatsApp Cloud API), lain-lain (C1–C4) |
 | 2026-10-24 | A3 & A5 diperbarui: grup kontak umum (bukan hanya satker), profil layanan bot, properti `grup` |
+| 2026-10-25 | A8 baru (Konektor Robot SRIKANDI & e-Kinerja, rekam halaman, tautan publik); C2 = izin otomasi |
+| 2026-10-25 | A8: brankas kredensial + login otomatis (CAPTCHA & OTP diketik), peringatan ganti kata sandi |
+| 2026-10-25 | A8: "Rekam halaman ini" di tayangan (formulir/modal); daftar rekaman Rencana Aksi e-Kinerja |
+| 2026-10-25 | A8: isi RHK 2026 & pilih item Productivity ke Renaksi (bulan, RHK, uraian, link dokumen) |
+| 2026-10-25 | A8: RHK diambil robot (Ambil dari e-Kinerja), tab bernama Laporan Kinerja, beberapa SKP per tahun |
+| 2026-10-25 | Menu AI Agent (Approval, Laporan Kinerja, SRIKANDI); Eksplor halaman diganti Rekam halaman ini |
+| 2026-10-25 | Connector pindah ke Laporan Kinerja & SRIKANDI; SRIKANDI → Naskah Keluar → Ambil dari SRIKANDI (PDF ber-TTD) |
+| 2026-10-25 | Ambil dari SRIKANDI juga mengambil lampiran naskah |
+| 2026-10-25 | Naskah ber-TTD & lampiran otomatis ke Resource Global (Dokumen Final) + File Control (Gantung) — beri klasifikasi & JRA di File Control |
+| 2026-10-25 | Tab Daftar Naskah Keluar & Referensi SRIKANDI; tautan ke konsep menunggu Register Naskah Keluar |
+| 2026-10-31 | Laporan Kinerja per indikator (rencana aksi + realisasi + bukti) & tombol Isi ke e-Kinerja (draf, Anda yang mengirim) |
+| 2026-10-31 | Approval kembali ke Workspace; dokumen bertemplat akan ditangani skill Hermes — C5 (keputusan AG-22…25 & contoh dokumen) |
+| 2026-10-31 | A7 diganti: Hermes terpasang sebagai container — jalankan setup.sh (model + token), coba Asisten Agen & Kerjakan dengan agen |
+| 2026-10-31 | A7 disederhanakan: setup.sh dihapus — simpan key Gemini di Pengaturan → Model AI lalu tombol **Siapkan agen** di Asisten Agen |
+| 2026-10-31 | A8: rekam formulir Registrasi Naskah Keluar SRIKANDI + 3 pertanyaan untuk Register Naskah Keluar |
+| 2026-10-31 | A8: tab Register Naskah Keluar bisa dicoba (isi, Tandai terdaftar, Tautkan final); robot menyusul |
+| 2026-10-31 | A8: Pantau e-Kinerja (status bulan, isi, feedback) + ubah isian terkirim → Kirim perubahan |
+| 2026-10-31 | A8: Klasifikasi arsip SRIKANDI jadi referensi (Ambil klasifikasi) |
+| 2026-10-31 | A8: robot Daftarkan ke SRIKANDI (konsep, tanpa Kirim Konsep) + Periksa; tugas rekam formulir dihapus (sudah dipetakan Claude) |
+| 2026-10-31 | A8: bukti renaksi lewat Brankas digital (satu tautan per poin, log akses IP + lokasi, Ganti tautan) |

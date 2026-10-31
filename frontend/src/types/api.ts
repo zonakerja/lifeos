@@ -43,6 +43,7 @@ export interface AiSettings {
   effective: {
     chat: AiProviderId | null;
     general: AiProviderId | null;
+    agent: AiProviderId | null;
     ocr: AiProviderId | null;
     embedding: AiEmbeddingProvider | null;
   };
@@ -54,6 +55,7 @@ export type AiEmbeddingProvider = "gemini" | "openai";
 export interface AiRouting {
   chat?: AiProviderId | null;
   general?: AiProviderId | null;
+  agent?: AiProviderId | null;
   ocr?: AiProviderId | null;
   embedding?: AiEmbeddingProvider | null;
 }
@@ -98,7 +100,8 @@ export type ApiScope =
   | "workspace:write"
   | "ai:chat"
   | "requests:read"
-  | "requests:write";
+  | "requests:write"
+  | "ai:model";
 
 export interface ApiTokenInfo {
   id: string;
@@ -279,6 +282,13 @@ export const RECORD_TYPES = [
   "para_resource",
   "para_archive",
   "para_archive_log",
+  "skp",
+  "skp_target",
+  "action_plan_entry",
+  "action_plan_month",
+  "srikandi_letter",
+  "srikandi_reference",
+  "srikandi_outgoing",
   "archive_classification",
   "archive_jra",
   "archive_physical_reference",
@@ -548,7 +558,7 @@ export interface OfficeEditorConfig {
 }
 
 export interface OfficePreferences {
-  /** Tab AI di editor ONLYOFFICE aktif (memakai provider & key di Pengaturan → AI) */
+  /** Tab AI di editor ONLYOFFICE aktif (memakai provider & key di Pengaturan → Model AI) */
   ai: boolean;
   /** Provider AI aktif user punya API key */
   aiReady: boolean;
@@ -843,4 +853,129 @@ export interface WaConversation {
   contact: WaContact | null;
   lastMessage: { text: string; direction: "in" | "out"; createdAt: string; status: WaMessageStatus };
   needsReply: number;
+}
+
+// ---------------------------------------------------------------- Konektor robot (SRIKANDI, e-Kinerja) & tautan publik
+
+export type RobotSystem = "srikandi" | "ekinerja";
+export type RobotConnectorStatus = "none" | "active" | "expired" | "error";
+
+export interface RobotConnector {
+  system: RobotSystem;
+  label: string;
+  description: string;
+  defaultUrl: string;
+  plannedFlows: string[];
+  limits: string;
+  baseUrl: string;
+  extraHosts: string[];
+  loginMarkers: string[];
+  status: RobotConnectorStatus;
+  hasSession: boolean;
+  /** Kredensial tersimpan di brankas (nilainya tidak pernah dikirim ke browser) */
+  hasCredentials: boolean;
+  credentialHint: string | null;
+  credentialsUpdatedAt: string | null;
+  lastLoginAt: string | null;
+  lastCheckAt: string | null;
+  lastUrl: string | null;
+  lastError: string | null;
+}
+
+export interface RobotRun {
+  id: string;
+  system: RobotSystem;
+  kind: "login" | "check" | "capture" | "credentials";
+  status: "ok" | "failed";
+  url: string | null;
+  title: string | null;
+  note: string | null;
+  error: string | null;
+  hasScreenshot: boolean;
+  createdAt: string;
+  /** Hanya di detail */
+  aria?: string | null;
+}
+
+export interface RobotPageInfo {
+  url: string;
+  title: string;
+  loggedIn: boolean;
+}
+
+export type RobotInput =
+  | { type: "click" | "dblclick" | "move"; x: number; y: number }
+  | { type: "scroll"; x: number; y: number; dy: number }
+  | { type: "type"; text: string }
+  | { type: "key"; key: string }
+  | { type: "goto"; url: string }
+  | { type: "back" | "reload" };
+
+export type RobotLoginStage = "done" | "captcha" | "otp" | "credentials" | "unknown";
+
+export interface RobotLoginStep {
+  sessionId: string;
+  stage: RobotLoginStage;
+  url: string;
+  title: string;
+  /** Pesan dari situs (mis. CAPTCHA salah) */
+  message?: string;
+  /** PNG base64 */
+  captchaImage?: string;
+  connector?: RobotConnector;
+}
+
+export interface PublicLinkInfo {
+  id: string;
+  prefix: string;
+  label: string | null;
+  expiresAt: string | null;
+  accessCount: number;
+  lastAccessAt: string | null;
+  createdAt: string;
+  /** Hanya saat dibuat (token tampil sekali) */
+  path?: string;
+}
+
+/** Brankas digital: satu tautan publik baca-saja berisi beberapa berkas (bukti data dukung satu poin renaksi). */
+export interface VaultFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+}
+
+export interface VaultDetail {
+  id: string;
+  prefix: string;
+  title: string;
+  description: string | null;
+  entryId: string | null;
+  accessCount: number;
+  lastAccessAt: string | null;
+  createdAt: string;
+  files: VaultFile[];
+  /** Hanya saat dibuat / tautan diganti (token tampil sekali) */
+  path?: string;
+}
+
+export interface VaultAccess {
+  id: string;
+  at: string;
+  action: "open" | "view" | "download";
+  fileName: string | null;
+  ip: string | null;
+  location: string;
+  network: string | null;
+  browser: string | null;
+}
+
+/** Isi brankas untuk pengunjung publik + catatan akses pengunjung itu sendiri. */
+export interface PublicVaultView {
+  title: string;
+  description: string | null;
+  owner: string;
+  updatedAt: string;
+  files: VaultFile[];
+  visitor: { ip: string | null; location: string; browser: string | null; at: string };
 }

@@ -35,6 +35,7 @@ const SCOPE_SHORT: Record<ApiScope, string> = {
   "ai:chat": "Tanya asisten",
   "requests:read": "Baca pengajuan",
   "requests:write": "Catat & analisis pengajuan",
+  "ai:model": "Model AI agen",
 };
 
 /**

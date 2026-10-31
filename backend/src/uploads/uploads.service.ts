@@ -231,6 +231,13 @@ export class UploadsService {
     if (sourceCount > 0) {
       throw new ConflictException("Berkas masih dipakai sebagai sumber My Notebook. Lepaskan dari notebook dulu.");
     }
+    // Berkas bukti di brankas digital renaksi (tautan sudah diserahkan ke e-Kinerja) tidak dihapus diam-diam
+    const vaultCount = await this.prisma.publicVaultFile.count({ where: { assetId: asset.id } });
+    if (vaultCount > 0) {
+      throw new ConflictException(
+        "Berkas masih menjadi bukti di brankas digital renaksi. Keluarkan dari brankas dulu.",
+      );
+    }
     // Versi lama (editor ONLYOFFICE) ikut terhapus (cascade); objek storage-nya dihapus di bawah
     const versions = await this.prisma.assetVersion.findMany({
       where: { assetId: asset.id },

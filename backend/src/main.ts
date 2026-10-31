@@ -21,6 +21,8 @@ async function bootstrap() {
   app.use("/api/v1/office/ai/proxy", text({ type: () => true, limit: "30mb" }));
   // Webhook WhatsApp: isi mentah (Buffer) agar tanda tangan Meta bisa diverifikasi sebelum JSON dibaca
   app.use("/api/v1/whatsapp/webhook", raw({ type: () => true, limit: "2mb" }));
+  // Model agen Hermes: riwayat + hasil alat + gambar bisa jauh lebih besar dari body API biasa
+  app.use("/api/v1/agent/llm", json({ limit: "30mb" }));
   // Batas body JSON dinaikkan untuk logo (data URL) & payload record besar
   app.use(json({ limit: "5mb" }));
   const corsOrigins = corsOrigin.split(",").map((origin) => origin.trim());

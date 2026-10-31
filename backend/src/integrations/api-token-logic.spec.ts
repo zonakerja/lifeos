@@ -26,6 +26,10 @@ describe("token", () => {
     expect(bearerToken(`bearer   ${token}`)).toBe(token);
     expect(bearerToken("Bearer eyJhbGciOi.jwt.token")).toBeNull();
     expect(bearerToken(undefined)).toBeNull();
+    // Kunci agen Hermes (HERMES_API_KEY) juga berbentuk token; terlalu pendek / berkarakter asing ditolak
+    expect(bearerToken("Bearer lifeos-dev-hermes-key-0123456789abcdef")).toBe("lifeos-dev-hermes-key-0123456789abcdef");
+    expect(bearerToken("Bearer pendek")).toBeNull();
+    expect(bearerToken("Bearer abc+def/ghi=jkl+mno/pqr=stu")).toBeNull();
   });
 
   it("cakupan dinormalisasi, masa berlaku, sentuhan terakhir dipakai", () => {

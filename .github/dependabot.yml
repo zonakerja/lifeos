@@ -26,14 +26,28 @@ updates:
         versions: [">=0.19.0"]
     groups:
       minor-and-patch: { update-types: [minor, patch] }
+  - package-ecosystem: npm
+    directory: /robot
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
+      # Versi paket playwright HARUS sama dengan tag image mcr.microsoft.com/playwright di robot/Dockerfile →
+      # dinaikkan manual bersama (docs/UPGRADE-PLAN.md)
+      - dependency-name: playwright
+    groups:
+      minor-and-patch: { update-types: [minor, patch] }
   # Dockerfile aplikasi + image service backup (base = image postgres; versi major PostgreSQL ada di sufiks tag)
   - package-ecosystem: docker
-    directories: [/backend, /frontend, /infra/backup, /infra/onlyoffice]
+    directories: [/backend, /frontend, /infra/backup, /infra/onlyoffice, /robot]
     schedule: { interval: weekly }
     ignore:
       - dependency-name: "*"
         update-types: [version-update:semver-major]
       # nginx minor ganjil = cabang mainline; produksi memakai stable (minor genap)
+      # Image Playwright dinaikkan manual bersama paket npm playwright (robot/)
+      - dependency-name: mcr.microsoft.com/playwright
       - dependency-name: nginx
         versions: [">= 1.31, < 1.32", ">= 1.33, < 1.34", ">= 1.35, < 1.36"]
   # Image infra di docker-compose.yml & docker-compose.prod.yml (postgres/pgvector, redis, seaweedfs, caddy).

@@ -70,7 +70,7 @@ const EXTRACTION_REASONS: Record<string, string> = {
   unsupported_type: "Format berkas tidak bisa dibaca.",
   too_large: "Berkas lebih dari 20 MB tidak dibaca.",
   needs_gemini_key:
-    "Gambar/PDF hasil scan perlu dibaca AI (OCR) — simpan API key Gemini atau OpenAI di Pengaturan → AI.",
+    "Gambar/PDF hasil scan perlu dibaca AI (OCR) — simpan API key Gemini atau OpenAI di Pengaturan → Model AI.",
   empty: "Tidak ada teks yang terbaca dari berkas ini.",
 };
 

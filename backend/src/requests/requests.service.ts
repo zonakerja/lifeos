@@ -303,6 +303,59 @@ export class RequestsService {
     };
   }
 
+  /** Templat dokumen DOCX milik user (Tools → ONLYOFFICE → Templat) — pilihan agen untuk mengisi dokumen. */
+  async templates(userId: string) {
+    const rows = await this.prisma.asset.findMany({
+      where: { userId, context: OFFICE_TEMPLATE_CONTEXT, originalName: { endsWith: ".docx", mode: "insensitive" } },
+      select: { id: true, originalName: true, createdAt: true },
+      orderBy: { originalName: "asc" },
+    });
+    return rows.map((r) => ({ id: r.id, name: r.originalName.replace(/\.docx$/i, ""), createdAt: r.createdAt }));
+  }
+
+  /** Teks ekstraksi berkas pemohon untuk agen (masih dibaca → 409, sama seperti analisis). */
+  async fileTexts(userId: string, id: string) {
+    return this.readFiles(await this.own(userId, id));
+  }
+
+  /**
+   * Pembaruan oleh agen (MCP): hanya data surat, catatan, telaah, konsep jawaban; status hanya bisa **maju** ke
+   * Diproses / Menunggu verifikasi. Persetujuan, penolakan, dan pengiriman tetap hanya oleh pemilik di aplikasi.
+   */
+  async agentUpdate(
+    user: AuthUser,
+    id: string,
+    fields: Pick<
+      UpdateRequestDto,
+      "title" | "applicant" | "letterNumber" | "letterDate" | "subject" | "notes" | "review" | "draftReply"
+    >,
+    target?: "diproses" | "menunggu_verifikasi",
+    note?: string,
+  ) {
+    const current = await this.own(user.id, id);
+    if (!["baru", "diproses", "menunggu_verifikasi"].includes(current.status)) {
+      throw new BadRequestException("Pengajuan sudah diputuskan pemilik — agen tidak bisa mengubahnya.");
+    }
+    const data: Prisma.RequestUpdateInput = {};
+    for (const key of ["title", "applicant", "letterNumber", "subject", "notes", "review", "draftReply"] as const) {
+      const value = fields[key];
+      if (typeof value === "string" && value.trim()) (data as Record<string, unknown>)[key] = value.trim();
+    }
+    if (fields.letterDate) data.letterDate = fields.letterDate;
+    const status = target ? advanceStatus(current.status as RequestStatus, target) : (current.status as RequestStatus);
+    if (status !== current.status || note?.trim()) {
+      data.status = status;
+      data.history = withHistory(
+        current.history,
+        status,
+        "agen",
+        note?.trim() || undefined,
+      ) as unknown as Prisma.InputJsonValue;
+    }
+    await this.prisma.request.update({ where: { id }, data });
+    return this.get(user.id, id);
+  }
+
   /** Usulan nilai penanda & teks paragraf petunjuk dari AI (belum disimpan — disunting pengguna dulu). */
   async suggestValues(user: AuthUser, id: string, templateId: string) {
     const request = await this.own(user.id, id);
@@ -327,7 +380,7 @@ export class RequestsService {
   }
 
   /** Buat dokumen DOCX dari templat + nilai → berkas pengajuan (dibuka di ONLYOFFICE untuk diperiksa). */
-  async createDocument(user: AuthUser, id: string, dto: CreateRequestDocumentDto) {
+  async createDocument(user: AuthUser, id: string, dto: CreateRequestDocumentDto, by: "user" | "agen" = "user") {
     const request = await this.own(user.id, id);
     const { buffer, name: templateName } = await this.loadTemplate(user, dto.templateId);
     const values = Object.fromEntries(
@@ -354,7 +407,7 @@ export class RequestsService {
       data: {
         documents: documents as unknown as Prisma.InputJsonValue,
         status,
-        history: withHistory(request.history, status, "user") as unknown as Prisma.InputJsonValue,
+        history: withHistory(request.history, status, by) as unknown as Prisma.InputJsonValue,
       },
     });
     return { document: documents[documents.length - 1], request: await this.get(user.id, id) };
@@ -470,7 +523,9 @@ export class RequestsService {
       return fn();
     } catch (error) {
       this.logger.warn(`Jawaban AI pengajuan tidak bisa dibaca: ${error instanceof Error ? error.message : error}`);
-      throw new BadRequestException("Jawaban AI tidak sesuai format. Coba lagi (atau ganti model di Pengaturan → AI).");
+      throw new BadRequestException(
+        "Jawaban AI tidak sesuai format. Coba lagi (atau ganti model di Pengaturan → Model AI).",
+      );
     }
   }
 

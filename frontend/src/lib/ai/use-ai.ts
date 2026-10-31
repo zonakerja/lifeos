@@ -4,7 +4,7 @@ import { aiApi } from "@/lib/api/endpoints";
 import { useAuthStore } from "@/stores/auth-store";
 
 /** Pesan standar bila user belum memilih provider AI. */
-export const AI_NOT_CONFIGURED = "AI belum diatur. Pilih provider dan simpan API key di Pengaturan → AI.";
+export const AI_NOT_CONFIGURED = "AI belum diatur. Pilih provider dan simpan API key di Pengaturan → Model AI.";
 
 /**
  * Titik masuk tunggal fitur AI di frontend. Komponen tidak boleh memanggil provider secara langsung — cukup

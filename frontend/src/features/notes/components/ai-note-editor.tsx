@@ -722,7 +722,7 @@ export function AiNoteEditor({
                     </EmptyDescription>
                     {!ai.isConfigured && (
                       <p className="rounded-md bg-destructive/10 px-2 py-1 text-[11px] font-semibold text-destructive">
-                        AI belum diatur. Atur di Pengaturan → AI.
+                        AI belum diatur. Atur di Pengaturan → Model AI.
                       </p>
                     )}
                   </EmptyHeader>

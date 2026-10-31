@@ -60,7 +60,7 @@ TODO-USER = **to-do pemilik** langkah demi langkah — perbarui setiap ada peker
 - Folder kerja: `D:\Development\Application\LifeOS`. `.claude/launch.json` berisi konfigurasi `backend` & `frontend`
   untuk preview browser Claude. Panel browser Claude sering tersembunyi → uji UI lewat `javascript_tool`.
 - **Aturan port (semua thread sama, tidak boleh diganti)**: frontend 5173, backend 4000, PostgreSQL 5432, Redis 6379,
-  SeaweedFS 8333/8888, ONLYOFFICE 8080 (profile `office`) (opsional: Prisma Studio 5555, Vite preview 4173, stack prod uji 80/443).
+  SeaweedFS 8333/8888, ONLYOFFICE 8080 (profile `office`), robot 4100 (profile `robot`, hanya 127.0.0.1), Hermes 8642 (profile `agent`, hanya 127.0.0.1) (opsional: Prisma Studio 5555, Vite preview 4173, stack prod uji 80/443).
   Proyek user lain di laptop yang sama, **OnTrack Data Hub** (sumber data SIMAN/MyIntress, `docs/AI-AGENT.md` §16), memakai
   port sendiri (keputusan 2026-10-24): web 5174, API/MCP 3000, PostgreSQL 5433, Redis 6380 — jangan dipakai LifeOS. Satu komponen = satu
   proses: cek §2a dulu; bila port sudah dipakai (mis. user menjalankan dev server di terminalnya), **pakai yang ada**
@@ -84,6 +84,8 @@ ingatan percakapan.
 | Redis (Docker) | 6379 | … | Docker (WSL) | |
 | SeaweedFS S3 / filer (Docker) | 8333 / 8888 | … | Docker (WSL) | filer UI http://localhost:8888 |
 | ONLYOFFICE (Docker, opsional) | 8080 | … | Docker (WSL), profile `office` | http://localhost:8080/healthcheck |
+| Robot Playwright (Docker, opsional) | 4100 | … | Docker (WSL), profile `robot` | http://localhost:4100/health |
+| Hermes agen (Docker, opsional) | 8642 | … | Docker (WSL), profile `agent` | http://localhost:8642/health · nyala: `wsl -e sh …/infra/hermes/up.sh` |
 | WSL | — | berjalan / berhenti | — | proses penjaga `sleep infinity` milik Claude (bila ada) |
 
 Tambahkan baris lain bila relevan (mis. stack produksi uji `lifeos-*test` di port 80/443, proses latar belakang Claude).
@@ -93,7 +95,7 @@ Akhiri dengan satu kalimat: apa yang masih menyala dan apakah aman menutup lapto
 
 ```powershell
 # Port yang sedang dipakai + prosesnya (wslrelay.exe = port container Docker)
-Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 80,443,4000,5173,5432,6379,8080,8333,8888 } |
+Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 80,443,4000,4100,5173,5432,6379,8080,8333,8888 } |
   ForEach-Object { "{0} pid={1} {2}" -f $_.LocalPort, $_.OwningProcess, (Get-Process -Id $_.OwningProcess).ProcessName }
 # Proses node milik LifeOS (dev server frontend/backend, termasuk dari terminal user)
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*LifeOS*' } |
@@ -108,7 +110,7 @@ Claude terlihat di `preview_list`.
 **"Matikan semua"** (data tetap aman; urutan):
 1. Frontend & backend: `preview_stop` untuk server yang dijalankan Claude; yang dijalankan user di terminal → minta
    user menekan `Ctrl+C`, atau (dengan persetujuan) `Stop-Process -Id <pid>` untuk proses node LifeOS di atas.
-2. Docker: `wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose --profile office stop"` — **`stop`, bukan
+2. Docker: `wsl -e sh -c "cd /mnt/d/Development/Application/LifeOS && docker compose --profile office --profile robot --profile agent stop"` — **`stop`, bukan
    `down -v`** (volume/data tetap ada). Stack uji lain (`docker compose -p <nama> ...`) ikut dihentikan.
 3. Hentikan proses latar belakang Claude (mis. `wsl -e sh -c "sleep infinity"`) dengan TaskStop.
 4. Opsional (membebaskan RAM): `wsl --shutdown`.
@@ -133,7 +135,7 @@ Ke depan: **chatbot AI untuk bertanya tentang arsip & hasil pekerjaan** (RAG).
 | Frontend | TypeScript 6 strict, React 19, Vite 8, React Router 8, TanStack Query 5, Zustand 5, react-hook-form + zod 4 |
 | UI | shadcn/ui + Tailwind v4, tampilan colorful per modul lewat design token; dark mode via token |
 | Backend | NestJS 12 (CommonJS) + TypeScript 6 + Prisma 7 + PostgreSQL 18; Node 24 LTS (versi lengkap: `docs/ARCHITECTURE.md` §2) |
-| Database | 21 tabel domain terstruktur dari satu spesifikasi + kolom `extra` jsonb (lossless), snake_case, timestamptz |
+| Database | 28 tabel domain terstruktur dari satu spesifikasi + kolom `extra` jsonb (lossless), snake_case, timestamptz |
 | Auth | access JWT 15 menit di memori + refresh token di cookie httpOnly berotasi |
 | AI provider | Multi-provider dipilih user: Gemini, Claude, OpenAI — dipanggil **hanya dari backend** (SDK resmi), API key milik user terenkripsi AES-256-GCM, model bisa diganti user |
 | AI data/RAG | **pgvector** di PostgreSQL (embedding & semantic search); **Redis** untuk antrian BullMQ, cache, rate-limit, memori sesi chat |
@@ -156,6 +158,8 @@ LifeOS/
 │                             templates/knowledge-vault/ = templat vault Obsidian, test/smoke.mjs)
 ├── infra/knowledge-vaults/   vault Obsidian dev (KNOWLEDGE_VAULTS_DIR; isi tidak ikut git, hanya README)
 ├── frontend/                 React SPA (Dockerfile, nginx.conf, src/)
+├── agents/hermes/skills/     skill Hermes (SKILL.md) — dipasang baca-saja ke container hermes & dibaca backend
+├── robot/                    service robot Playwright (Dockerfile, src/server.ts, browser.ts, logic.ts) — konektor SRIKANDI/e-Kinerja
 └── docs/                     SETUP.md · DEPLOYMENT.md · ARCHITECTURE.md · UPGRADE-PLAN.md · FILE-CONTROL.md · ONLYOFFICE.md · AI-AGENT.md ·
                               TODO-USER.md (to-do pemilik)
 ```
@@ -169,6 +173,8 @@ LifeOS/
 | PostgreSQL 18 + pgvector 0.8.7 | lifeos-postgres | 5432 | db `lifeos`, `postgres/postgres`; DB tambahan `lifeos_shadow` (cek drift); volume `lifeos-postgres18-data` |
 | Redis 8.10 | lifeos-redis | 6379 | tanpa password |
 | SeaweedFS 4.48 (S3) | lifeos-storage | 8333 (S3), 8888 (filer UI) | `lifeos` / `lifeos-secret`, bucket `lifeos-assets` (dibuat otomatis) |
+| Hermes Agent 0.22.2 (opsional, profile `agent`) | lifeos-hermes | 127.0.0.1:8642 | image resmi `nousresearch/hermes-agent:v0.22.2`; `API_SERVER_KEY` dev di compose = `HERMES_API_KEY` backend/.env; volume `lifeos-hermes-data` (config.yaml, memori, sesi — **tanpa** API key model); skill repo di `/opt/data/skills/lifeos`; backend Windows = host `lifeos-api` (IP gateway WSL, diisi `infra/hermes/up.sh`); model = proxy LifeOS & MCP LifeOS ditulis `infra/hermes/configure.sh` (dijalankan up.sh); izin = tombol **Siapkan agen** di Asisten Agen |
+| Robot Playwright 1.63 (opsional, profile `robot`) | lifeos-robot | 127.0.0.1:4100 | image `lifeos-robot:1.63.0` dari `robot/Dockerfile` (± 3,5 GB, Chromium); token dev di compose = `ROBOT_TOKEN` backend/.env; tanpa volume (sesi disimpan backend terenkripsi); nyala: `docker compose --profile robot up -d --wait robot` |
 | ONLYOFFICE Docs 10.0 (opsional, profile `office`) | lifeos-onlyoffice | 8080 | image `lifeos-onlyoffice:10.0` dibangun dari `infra/onlyoffice/Dockerfile` (+ plugin AI resmi + jembatan AI + pemantau font); font tambahan diunggah admin ke `infra/onlyoffice/fonts` (`ONLYOFFICE_FONTS_DIR`, daftar font dibuat ulang otomatis); JWT secret dev di compose, header `AuthorizationJwt`; nyala: `docker compose --profile office up -d --wait onlyoffice` |
 
 Seed development: `admin@lifeos.com` / `123` (super_admin), `user@lifeos.com` / `123` (member, untuk uji berbagi).
@@ -277,7 +283,9 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   (`lifeos_pat_…`, hash SHA-256, cakupan `knowledge:read|knowledge:write|workspace:read|workspace:write|ai:chat|requests:read|requests:write`,
   kedaluwarsa; `/integrations/tokens|scopes|activity`) + **MCP server** `POST /api/v1/mcp` (Streamable HTTP stateless,
   Bearer token — JWT login ditolak; tools disaring izin: search/read knowledge, inbox, search workspace, agenda, task
-  terbuka, buat to-do lewat `RecordsService`, tanya asisten, daftar/buka/catat/analisis pengajuan) + log `agent_activity_logs`. Logika murni + test
+  terbuka, buat to-do lewat `RecordsService`, tanya asisten, daftar/buka/catat/analisis pengajuan, **alat skill agen**:
+  `read_request_files`, `list_templates`, `get_template_fields`, `update_request` (status hanya maju, tidak bisa
+  menyetujui), `create_request_document` — `docs/AI-AGENT.md` §22) + log `agent_activity_logs`. Logika murni + test
   `api-token-logic.ts`. Tool baru → `LifeosMcpService.createServer` (bungkus `run()` agar tercatat) + cakupan + smoke.
 - **Pengajuan & Antrian Verifikasi** (`src/requests/`, detail `docs/ARCHITECTURE.md` §3.8): tabel `requests` (milik user,
   bukan record type; jenis psp/penghapusan/pemanfaatan/surat/lainnya, data surat, status `baru → diproses →
@@ -301,10 +309,45 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   pertanyaan → pengetahuan `publicOnly` + `audienceGroup` (catatan `publik: true` atau properti `grup` = kode grup) +
   berlaku → jawaban JSON, ragu → `needs_reply`. **Jangan** menulis logika khusus satker: semua lewat grup. Tanpa kredensial / bukan pemilik = **mode simulasi** (`POST /whatsapp/simulate`, balasan
   `simulated`). Logika murni + test `whatsapp-logic.ts`.
-- **Database**: tabel & kolom snake_case (`@@map/@map`), timestamptz(3), FK `users` cascade. 21 tabel domain
+- **Asisten Agen / Hermes** (`src/agent/`, detail `docs/AI-AGENT.md` §23, DEPLOYMENT §14): env opsional `HERMES_URL`,
+  `HERMES_API_KEY` (= `API_SERVER_KEY` container), `HERMES_OWNER_EMAIL` (**hanya akun ini** yang boleh memakai agen — Hermes
+  memakai token MCP milik satu akun; akun lain 403), `HERMES_SKILLS_DIR` (bawaan `../agents/hermes/skills`). Backend ↔ API
+  server Hermes (OpenAI-compatible, Bearer): `GET /agent/status|skills|runs`, `POST /agent/chat` (run di sesi Hermes
+  `lifeos-<userId>-<percakapan>`), `POST /agent/requests/:id/run { skill }` (perintah skill atas satu pengajuan, ditolak bila
+  sudah diputuskan), `GET /agent/runs/:id`, `POST /agent/runs/:id/stop`. Tugas = **run asinkron** `/v1/runs` yang di-poll;
+  run dipetakan ke user di memori (hilang saat backend restart). Error Hermes → 422/404 (bukan 5xx/401). Daftar skill LifeOS
+  dibaca dari **folder repo** (`parseSkillFile`), bukan `/v1/skills` (bug Hermes 0.22.x). Logika murni + test `agent-logic.ts`.
+  **Siapkan agen tanpa terminal** (`docs/AI-AGENT.md` §23.1): Hermes tidak menyimpan API key model — `model.provider: custom`
+  → `AgentLlmController` `/agent/llm/v1/{models,chat/completions}` (OpenAI-compatible, streaming diteruskan) → endpoint
+  OpenAI-compatible resmi provider user (`OPENAI_COMPAT_BASE`) dengan key tersimpan; provider = tugas routing **`agent`**
+  (`ai_routing.agent`, kosong = provider aktif; `AiService.agentCredential`). Kunci Hermes → LifeOS = `HERMES_API_KEY`
+  (`${API_SERVER_KEY}` di config Hermes) yang dikenali sebagai token akses biasa: `POST /agent/setup { scopes? }` membuat token
+  "Agen Hermes (otomatis)" milik pemilik agen dengan hash kunci itu (cakupan baru `ai:model` untuk model). `bearerToken`
+  menerima `[A-Za-z0-9_-]{24,128}` (JWT bertitik tetap ditolak). Logika murni + test `agent-llm.ts`.
+- **Konektor robot** (`src/robot/` + service `robot/`, detail `docs/ARCHITECTURE.md` §3.10, DEPLOYMENT §13): env opsional
+  `ROBOT_URL`, `ROBOT_TOKEN`. Tabel `robot_connectors` (sesi browser `storageState` **terenkripsi**, kunci = HMAC turunan
+  `AI_ENCRYPTION_KEY`, `robotSessionKey`) & `robot_runs` (tangkapan layar di object storage `robot/<userId>/…`, bukan
+  Asset). Login = **browser jarak jauh**: `/robot/connectors/:system/login` → frame JPEG + input (klik/ketik/tombol terbatas)
+  → `finish` simpan sesi; `check`, `capture` (eksplor: screenshot + `ariaSnapshot`). **Brankas kredensial** (keputusan user
+  2026-10-25) `credential-vault.ts`: AES-256-GCM, env `CREDENTIAL_ENCRYPTION_KEY` khusus (tanpa fallback), AAD
+  user+sistem+kolom, simpan wajib kata sandi akun LifeOS, tidak pernah dikembalikan ke browser. **Login otomatis**
+  (`auto-login` → `answer`): robot mengisi kredensial (`robot/src/login-form.ts` mengenali kolom), CAPTCHA & OTP **diketik
+  user** (tanpa OCR; rahasia TOTP tidak disimpan). Modal "berhasil" setelah login ditutup robot (`infoDialogButton`: hanya
+  teks berhasil/sukses + tombol OK/Tutup; modal keputusan tidak pernah). Robot hanya membuka host konektor dan tidak pernah
+  menandatangani / mengirim hasil akhir — tugas agent sampai draf, keputusan kirim di tangan user. Alur pengisian (tahap 6b) dibangun dari
+  rekaman eksplor + **Rekam halaman ini** di tayangan (`POST /robot/sessions/:id/capture`, untuk formulir/modal yang muncul
+  setelah klik); peta e-Kinerja: `/skp` → SKP per periode → `/skp/renaksi/<id>` (`docs/AI-AGENT.md` §21.2). **Job robot**
+  (tabel lengkap `docs/ARCHITECTURE.md` §3.10): SKP/RHK & Renaksi e-Kinerja, naskah ber-TTD SRIKANDI, referensi (+ klasifikasi
+  `categories`), **Register** `POST /robot/srikandi/register/:id { dryRun? }` → `registerSrikandiOutgoing` (berkas dari object
+  storage → robot `/jobs/srikandi/register`, body ≤ 40 MB) → konsep di Log Naskah Keluar, entri `submitted`. **Tautan publik berkas** `src/uploads/public-links.ts` (`public_links`, token hash, `/api/v1/public/files/:token`).
+  **Brankas digital** `src/uploads/public-vaults.ts` (+ `vault-logic.ts` + test; `public_vaults`, `public_vault_files`,
+  `public_vault_accesses`): satu tautan publik `/brankas/bv_<token>` per poin renaksi berisi beberapa berkas terisolasi; `/vaults*`
+  (pemilik: buat/ubah berkas — tautan tetap/ganti tautan/hapus/log akses), publik `/public/vaults/:token[/files/:id]`; setiap
+  buka/lihat/unduh dicatat (IP, perkiraan lokasi via env `GEOIP_PROVIDER` ipapi|none, peramban); berkas brankas → `DELETE /uploads` 409.
+- **Database**: tabel & kolom snake_case (`@@map/@map`), timestamptz(3), FK `users` cascade. 28 tabel domain
   (agenda_types, schedules, routines, todos, routine_completions, free_notes, ai_notes, note_lists, areas, projects,
   activities, tasks, resources, para_archives, para_archive_logs, archive_classifications, archive_retention_schedules,
-  archive_locations, archive_borrowings, archive_dispositions, archive_move_logs) dengan kolom sistem
+  archive_locations, archive_borrowings, archive_dispositions, archive_move_logs, skps, skp_targets, action_plan_entries, action_plan_months, srikandi_references, srikandi_letters, srikandi_outgoings) dengan kolom sistem
   `id, user_id, client_id, extra, created_at, updated_at, deleted_at` + `UNIQUE(user_id, client_id)`.
   - **Sumber tunggal** `src/records/record-schema.ts` (type → model/tabel, field & jenis
     string|int|float|bool|ymd|dateKey|timestamp|json, indeks, `audit`). Blok model di `schema.prisma` antara marker
@@ -326,7 +369,13 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `knowledge_vault`, `ai_conversations`, `ai_messages`, `knowledge_notes`, `knowledge_links`) +
   `20261024130000_ai_routing` (`users.ai_routing`) + `20261024140000_api_tokens_mcp` (`api_tokens`, `agent_activity_logs`) +
   `20261024150000_requests` (Pengajuan) + `20261024160000_whatsapp_bot` (grup kontak, kontak & pesan WhatsApp, profil
-  bot; `requests.satker`/`satker_code` → `applicant`/`group_code`). Migrasi baru → lihat docs/SETUP.md §10
+  bot; `requests.satker`/`satker_code` → `applicant`/`group_code`) + `20261025120000_robot_connectors` (konektor robot,
+  log run, tautan publik berkas) + `20261025130000_robot_credentials` (brankas kredensial) + `20261025140000_action_plans` (record type `skp_target` &
+  `action_plan_entry` — RHK & rencana aksi e-Kinerja) + `20261025150000_skp_sync` (record type `skp`, RHK per SKP) +
+  `20261025160000_srikandi_letters` (record type `srikandi_letter`) + `20261025170000_srikandi_references` (record type
+  `srikandi_reference`) + `20261031120000_srikandi_outgoing` (record type `srikandi_outgoing` — Register Naskah Keluar) + `20261031130000_action_plan_months`
+  (record type `action_plan_month` — potret bulan Rencana Aksi e-Kinerja) + `20261031140000_public_vaults` (brankas digital + log
+  akses). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
@@ -439,8 +488,11 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   record → `recordSourcePath`); "Simpan ke Inbox" (`answerForInbox`: `[n]` → `[[judul]]`). **Tools → Basis Pengetahuan**
   (`features/tools/knowledge/knowledge-settings.tsx`, hook `data/use-knowledge.ts`): profil kerja, vault (pakai folder /
   buat dari templat / pindai / lepas, catatan bermasalah, tautan tak ditemukan), daftar catatan (`filterKnowledgeNotes`),
-  cara memakai + peringatan kuota gratis Gemini (juga di kartu indeks Pengaturan → AI). Pengaturan → AI juga punya
-  kartu **Pembagian tugas AI** (`ai-routing-card.tsx`) & tautan dua arah Indeks ↔ Basis Pengetahuan. **Pengaturan →
+  cara memakai + peringatan kuota gratis Gemini (juga di Tools → Indeks Pengetahuan). **Tools → Indeks Pengetahuan**
+  (tab `index`, `features/tools/knowledge-index/knowledge-index-settings.tsx`; keputusan user 2026-10-31, dulu kartu di
+  Pengaturan → AI): sakelar indeks, statistik, Indeks ulang, uji pencarian. **Pengaturan → Model AI** (tab URL tetap
+  `api`; dulu "AI"): provider, API key, model, cadangan otomatis, kartu **Pembagian tugas AI** (`ai-routing-card.tsx`);
+  tautan silang Model AI ↔ Indeks Pengetahuan ↔ Basis Pengetahuan. **Pengaturan →
   Integrasi** (`integrations-tab.tsx`, hook `data/use-integrations.ts`, helper `integrations-utils.ts` + test): token
   akses agen (dialog buat → token tampil sekali + contoh konfigurasi Hermes/JSON, cabut) + Aktivitas agen.
 - **Editor dengan simpan eksplisit** (mis. Notes AI): cegah perubahan hilang dengan `useBlocker` (React Router; abaikan
@@ -688,9 +740,9 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
     Rutinitas: judul + pola frekuensi. Referensi: nama tipe + label ikon. Mengetik → halaman paginasi kembali ke 1.
   - Form agenda: mengubah Tanggal Mulai menggeser Tanggal Selesai (durasi tetap); konten form di-`key` per sesi buka &
     per agenda (`useOpenSession`).
-- **Layout & Pengaturan** (keputusan user 2026-10-15): sidebar = modul Workspace + grup Sistem berisi **Tools** dan **Pengaturan**
+- **Layout & Pengaturan** (keputusan user 2026-10-15): sidebar = modul Workspace (… Productivity, **Approval**, File Control) + grup **AI Agent** khusus modul agen (Laporan Kinerja, SRIKANDI — `sidebarGroup: "agent"`; keputusan user 2026-10-25, Approval kembali ke Workspace 2026-10-31) + grup Sistem berisi **Tools** dan **Pengaturan**
   (`ModuleDef.sidebarGroup: "system"`, keduanya menu ber-sub-menu `SubmenuModuleItem`); Pengaturan
-  (sub menu berurutan **Aplikasi, Manajemen User, Berbagi, AI** — urutan tab di `navigation.ts` sama dengan sub menu).
+  (sub menu berurutan **Aplikasi, Manajemen User, Berbagi, Model AI, Integrasi** — urutan tab di `navigation.ts` sama dengan sub menu).
   **Profil Saya bukan bagian Pengaturan**: halaman sendiri `/profile` (`features/profile/`, modul `profile` dengan
   `hiddenInSidebar`, warna = Pengaturan) dibuka dari menu user kiri bawah. **Tema** hanya diatur dari tombol tema di header
   (dropdown Terang / Gelap / Ikuti sistem). Tombol sidebar saat diciutkan = 32 px: logo ikut 32 px, ikon modul memakai
@@ -721,7 +773,9 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `DocumentLinksButton` di header pratinjau & editor (popover + dialog unggah final → Resource Global tag asal "Dokumen
   Final" + File Control, tautkan berkas/konsep), `DocumentLinkBadge` + `useOfficeLinkBadges` di tabel lampiran & Resources.
   Editor selalu `mobile: false` (editor seluler Community hanya melihat).
-- **Pengajuan** (`features/requests/`, modul `requests` di Workspace, warna `--mod-requests`): tab **Antrian Verifikasi**
+- **Approval** (dulu Pengajuan; `features/requests/`, modul `requests` di Workspace setelah Productivity, path tetap `/requests`, warna `--mod-requests`;
+  **arah 2026-10-31**: dokumen bertemplat dikerjakan agen Hermes lewat skill, Approval = antrian verifikasi keluaran agen —
+  `docs/AI-AGENT.md` §22): tab **Antrian Verifikasi**
   (baru/diproses/menunggu verifikasi; menunggu verifikasi di atas) & **Selesai**; `?request=<id>` detail, `?request=new`
   formulir (berkas diunggah saat Simpan, gagal → dibuang). Detail: data surat (ubah), berkas pemohon (pratinjau + status
   baca), Analisis & kelengkapan, Telaah & konsep jawaban (Markdown bisa disunting/disalin, sitasi `CitationChip` dari
@@ -733,6 +787,87 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   petugas / simpan FAQ / tandai selesai, Simulator) & **Grup & Kontak** (`whatsapp/contacts-tab.tsx`: profil layanan
   bot, grup + jenis + hak akses, kontak); pemohon pengajuan = `applicant` + `groupCode` (bukan satker); hook
   `data/use-whatsapp.ts` (percakapan dipantau berkala), logika murni `whatsapp/whatsapp-utils.ts` (+ test).
+- **Asisten Agen** (grup AI Agent paling atas, `/agent`, `features/agent/`, warna `--mod-agent` violet): tab **Chat**
+  (`agent-page.tsx`: pesan → `agentApi.chat` → `useAgentRunWatcher` poll 1,5 dtk; percakapan = sesi Hermes, ID di
+  localStorage, riwayat tampilan hanya di memori tab; Hentikan) & **Status & Skill** (status, skill LifeOS + jumlah skill
+  bawaan, tugas terakhir; kartu **Siapkan agen** `agent-setup-card.tsx`: Hermes menyala · model dari Pengaturan → Model AI ·
+  izin agen (dialog cakupan → `agentApi.setup`) · panggilan model terakhir). Bukan pemilik / Hermes mati → keterangan cara
+  menyalakan. Pembagian tugas AI punya baris **Agen (Hermes)**. Detail Approval: `AgentRunPanel`
+  (`agent-run-panel.tsx`, hanya bila agen siap & ada skill LifeOS) — pilih skill (bawaan `telaah-pengajuan`) → **Jalankan**
+  → selesai = muat ulang pengajuan. Hook `data/use-agent.ts`.
+- **Konektor robot** = tab **Connector** di menu Laporan Kinerja (e-Kinerja) & SRIKANDI (keputusan user 2026-10-25; dulu Tools →
+  Konektor Robot) — komponen `RobotSettings systems=[…]` (`features/tools/robot/`, hook `data/use-robot.ts`): kartu status service robot + kartu per
+  sistem (alamat, host SSO, penanda login, Login/Cek/Lupakan sesi, alur rencana & batas, riwayat run +
+  dialog rekaman). `remote-browser-dialog.tsx` = tayangan JPEG yang di-poll ± 0,9 dtk; klik dipetakan ke 1280×800
+  (`toViewportPoint`), keyboard lewat `keyToInput`, **masukan dikirim berurutan** (antrian promise — ketikan cepat tidak
+  hilang), tutup tanpa "Selesai" = sesi robot dibatalkan; bisa melanjutkan sesi yang sudah dibuka (`sessionId`, dari Login
+  otomatis). `credentials-dialog.tsx` (simpan kredensial + konfirmasi kata sandi LifeOS), `auto-login-dialog.tsx` (gambar
+  CAPTCHA / kotak OTP / Buka tayangan; dimulai sekali per dialog — StrictMode). Logika murni `robot-utils.ts` (+ test). Tombol **Tautan publik**
+  (`features/sharing/public-link-button.tsx`) di header pratinjau berkas.
+- **Laporan Kinerja / Renaksi e-Kinerja** (Productivity, keputusan user 2026-10-25): user **memilih sendiri** item yang masuk rencana aksi
+  bulanan — tombol ikon `ClipboardList` (`ActionPlanButton`, `components/action-plan-dialog.tsx`) di baris Action/Task,
+  baris Agenda (`agenda-item.tsx`), dan header Kegiatan/Sub Kegiatan (`task-manager.tsx`; Project & Sub Area = wadah, tidak);
+  hanya item milik sendiri. Dialog: bulan (bawaan tanggal selesai → tenggat → bulan ini), **RHK** (record type `skp_target`
+  per tahun, bisa ditambah di tempat), **indikator** RHK yang dicentang (bawaan semua), **rencana aksi** (`description`),
+  **realisasi** (`realization`; indikator aspek WAKTU memakai `timeRealization`, bawaan "Penyampaian tepat waktu"), **bukti
+  data dukung** (`documentUrl`: **Brankas digital** = pilihan bawaan bila item punya berkas — beberapa berkas (lampiran item +
+  unggah, context `renaksi-vault`) di balik satu tautan `/brankas/<token>`, `entry.vaultId`; ubah berkas = tautan & pengenal
+  perubahan tetap; `VaultFilePicker`, `VaultButton` + dialog log akses / ganti tautan di baris Laporan Kinerja
+  (`features/vault/`, hook `data/use-vaults.ts`); atau web link lampiran, berkas tunggal → tautan publik, ketik sendiri). Entri = record type `action_plan_entry` (`period` YYYY-MM, `skpId`, `targetId`, `indicators`,
+  `source*`, `status` draft/ready/filled; field baru di `extra`). Status **dihitung ulang** di tampilan
+  (`entryStatus(entry, target)`: entri lama tanpa realisasi = belum lengkap); entri terisi yang tidak diubah tetap terisi. Modul **Laporan Kinerja** (grup AI Agent, `/kinerja`, `features/kinerja/` — `kinerja-page.tsx` + `action-plan-board.tsx`; item asal dibuka lewat `links.task/schedule/area`): per bulan, dikelompokkan per RHK,
+  ubah/hapus, kartu **SKP & RHK** tahun itu + tombol **Ambil dari e-Kinerja** (robot membaca `/skp` + Detail SKP tiap SKP
+  tahun itu → record `skp` (`ekin-<nomor>`) & `skp_target` (ID stabil dari bagian+nama RHK, `skpId`, bagian
+  UTAMA/TAMBAHAN, RHK pimpinan, indikator); RHK yang hilang tapi dipakai → `stale`). **Satu tahun bisa beberapa SKP**: bulan
+  entri memilih SKP yang periodenya mencakup bulan itu (`skpsForPeriod`; SKP dipecah di tengah bulan → user memilih), RHK =
+  milik SKP itu (`targetOptions`); kartu RHK manual per tahun hanya cadangan bila SKP belum tersinkron. Logika murni + test `lib/action-plan.ts`.
+  **Isi ke e-Kinerja** (tombol per bulan + konfirmasi) → `POST /robot/ekinerja/renaksi/fill { period, dryRun? }`
+  (`RobotService.fillEkinerjaRenaksi`; logika murni + test `backend/src/robot/ekinerja-renaksi.ts`: entri siap → baris per
+  indikator per SKP, butir sama digabung; entri yang semua butirnya terbaca → `filled`) → robot `POST /jobs/ekinerja/renaksi`
+  (`robot/src/ekinerja-renaksi.ts` + test, `BrowserPool.ekinerjaRenaksi`): blok bulan ditandai lewat **node teks** yang
+  **terlihat** (nama bulan = teks lepas; halaman memuat templat rating & tab Perilaku tersembunyi), centang indikator yang
+  belum menjadi baris (tidak pernah melepas centang), tambah butir yang belum ada (**idempoten** — butir e-Kinerja tidak bisa
+  diubah/dihapus satu per satu), `safeClick` menolak tombol kirim/ajukan/hapus, bulan tanpa tombol Isi/Edit = sudah
+  diajukan → berhenti. `dryRun` = baca isi bulan + rencana langkah tanpa klik (dipakai untuk memeriksa).
+  Robot e-Kinerja **tidak pernah** menekan "Kirim Penilaian Ke Atasan". **Pemantauan & sinkron dua arah** (2026-10-31,
+  `docs/AI-AGENT.md` §21.10a): **Pantau e-Kinerja** (`POST /robot/ekinerja/renaksi/sync { year }` → robot `/jobs/ekinerja/renaksi/read`)
+  → record `action_plan_month` per bulan (status draft/submitted/rated, tanggal pengajuan, rating, isi + feedback) + impor butir
+  yang hanya ada di e-Kinerja (`importCandidates`); entri menyimpan pengenal perubahan `pushedSignature` + `pushed` (`entrySignature`
+  backend = frontend `lib/action-plan.ts`, ubah keduanya bersamaan) dan `deleted` (hapus tertunda); `displayStatus` = Berubah /
+  Akan dihapus / Tidak ada di e-Kinerja / Terkunci (bulan diajukan → ubah & hapus ditolak). **Kirim perubahan** = fill `mode: "sync"`:
+  baca + impor dulu, lalu `syncPlan` (centang baru, lepas yang tidak diminta & berisi, **tulis ulang** baris berubah = lepas →
+  centang → isi ulang; indikator sementara bila bulan akan kosong, `modalPasses`; baris kosong tidak pernah dilepas). Backend sinkron: `POST
+  /robot/ekinerja/skp/sync { year }` (`RobotService.syncEkinerjaSkp` menulis lewat `RecordsService`; logika murni + test
+  `ekinerja-sync.ts`), robot `POST /jobs/ekinerja/skp` (`robot/src/ekinerja.ts` + test).
+- **SRIKANDI** (grup AI Agent, `/srikandi/:tab`, `features/srikandi/srikandi-page.tsx`): tab **Register Naskah Keluar** (id `register`, tab pertama; `register-board.tsx` + `register-dialog.tsx` + `register-file-picker.tsx`, logika murni + test `register-logic.ts`; record `srikandi_outgoing`, `?register=<id>|new` + `&request=&doc=` dari Approval = `links.srikandiRegister*`; detail `docs/AI-AGENT.md` §21.11–§21.12; **Daftarkan ke SRIKANDI** = `robotApi.registerOutgoing` → `POST /robot/srikandi/register/:id` (backend `registerSrikandiOutgoing` + logika murni `srikandi-register.ts`) → robot `POST /jobs/srikandi/register` (`robot/src/srikandi-register.ts` + test): isi formulir → **Simpan** = konsep di Log Naskah Keluar, draf berhal sama tidak dibuat ulang, `dryRun` = **Periksa di SRIKANDI** (dialog `RunDialog` dari `robot-settings.tsx`); robot tidak pernah Kirim Konsep), tab **Daftar Naskah Keluar** (id `outgoing`; record
+  `srikandi_letter`, cari + paginasi, Lihat PDF lewat `previewFile`, tombol **Ambil dari SRIKANDI** → `POST
+  /robot/srikandi/letters/sync`) & **Connector** (`<RobotSettings systems={["srikandi"]} />`). Sinkron: robot `POST
+  /jobs/srikandi/outgoing` (`robot/src/srikandi.ts` + test) membaca Daftar Naskah Keluar, untuk naskah ber-TTD (`isSigned`)
+  yang belum dikenal (kunci = nomor naskah; `id` alamat detail terenkripsi acak) membuka detail dan **menangkap respons PDF**
+  yang dimuat penampil (tanpa klik; maks. 5/sinkron) → backend `syncSrikandiLetters` (`srikandi-sync.ts` + test) menyimpan
+  berkas `UploadsService.createFromBuffer` context `srikandi` + record. PDF SRIKANDI menyimpan teks penanda `${nomor_naskah}`
+  di lapisan teks (nomor/TTE ditempel di atasnya) — wajar. **Lampiran**: robot hanya mengklik teks persis "Lihat" pada butir
+  daftar lampiran yang berupa nama berkas (`attachmentName`), menangkap berkas dari respons / **unduhan** (Chromium headless
+  menjadikan PDF di tab/iframe unduhan → job ini satu-satunya yang `acceptDownloads`, berkas sementara langsung dihapus) /
+  ambil ulang alamat berkas di domain yang sama (`sameSite`: `s3.arsip.go.id` untuk SRIKANDI), lalu Esc. Record menyimpan
+  `attachments` [{name, uploadId?}] + `attachmentsComplete`; naskah yang belum lengkap diambil lampirannya saja pada sinkron
+  berikutnya (`haveMain`). **Finalisasi** (`finalizeSrikandiLetters`, keputusan user 2026-10-25): setiap berkas naskah &
+  lampiran → Resource Global `res-sk-<uploadId>` (tag "Dokumen Final", `archivalStatus: "pending"` = File Control Gantung;
+  sekali per berkas — dicatat di `letter.resources`, dihapus user = tidak dibuat ulang). **Tautan naskah final ↔ dokumen
+  mentah** dibuat lewat **Register Naskah Keluar** (gerbang wajib sebelum push ke SRIKANDI, sumbernya Approval atau konsep
+  Productivity — keputusan user 2026-10-25; dibangun 2026-10-31: **Tautkan final** di tab Register), **bukan** ditebak dari isi dokumen (pencocokan hal ke
+  dokumen Approval sempat dibuat lalu dicabut). Detail Approval tetap menandai konsep yang punya final (`DocumentLinkBadge`).
+  Tab **Referensi** (`references-board.tsx`, record `srikandi_reference`: kategori signer/recipient/recipient_group/verifier/
+  cc/cc_group/disposition_group, `label` + `fields`): **Ambil referensi** → `POST /robot/srikandi/references/sync` → robot
+  `POST /jobs/srikandi/references` (`robot/src/srikandi-reference.ts` + test) membaca 7 tabel menu Pengguna SRIKANDI (+ kategori `classification` = Klasifikasi
+  Arsip lewat **Ambil klasifikasi** / `POST /robot/srikandi/classifications/sync`, job dengan `categories`) semua
+  halaman: klik **Hitung Total** (tunggu "Mohon Tunggu" hilang → total pembanding), lalu tombol `chevron_right` di
+  `nav[aria-label='Table navigation']` (tunggu aktif) sampai jumlah = total / 2 halaman tanpa data baru; judul kolom
+  dinormalkan (`headerName`, innerText ikut huruf kapital CSS). ID `sr-<hash kategori|label|jabatan>`; entri hilang dihapus
+  kecuali kategori terbaca kosong (`staleReferences`). Blok "Eksplor halaman" di kartu
+  konektor dihapus (keputusan user) — rekaman halaman lewat **Rekam halaman ini** di tayangan; endpoint
+  `/connectors/:system/capture` tetap untuk pemetaan oleh Claude & smoke. RHK dari robot menyimpan **RHK pimpinan yang
+  diintervensi** (`leader`) + indikatornya (`leaderIndicator`); tombol Edit/Hapus RHK di sel SKP draft dibuang saat membaca.
 - **Komponen umum**: `ConfirmDialog`, `SectionCard`, `RenameDialog`, `SearchableSelect`, `PaginationControl`+`paginate()`,
   `Markdown`, `PriorityBadge`, `PageLoader`, `DateRangeFilter`, `SearchInput`.
 - **Paginasi daftar**: `usePagination(items, ukuranAwal)` (`hooks/use-pagination.ts`) → `{ pageItems, setPage,
@@ -840,8 +975,10 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Pengaturan & Layout: Profil Saya keluar dari Pengaturan (`/profile`), urutan sub menu, satu pengatur tema, sidebar ciut simetris, tombol tutup pencarian global, form tanpa sinkronisasi `useEffect`, logo lewat endpoint ber-cache | ✅ 2026-10-15 — unit backend & frontend, smoke (+7 skenario logo), lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Layout lanjutan: popover notifikasi panjang bisa digulir (footer tidak tertimpa), judul Mode Fokus sesuai sesi | ✅ 2026-10-16 — lint, typecheck, unit test, build, UI diuji di browser (layar 768 & 460 px) |
 | Perbaikan Overview (proyek berjalan, tugas mendesak + terlambat, to-do & rutinitas hari ini bisa dicentang, status & Gabung agenda, label Indonesia, notifikasi tugas terlambat & baru dibagikan) | ✅ 2026-10-15 — unit test (`overview-logic.test.ts`: 9), lint, typecheck, build, UI diuji di browser (desktop + HP; centang rutinitas/todo/task, tambah agenda, popover notifikasi) |
-| Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); **tahap 3 ✅ 2026-10-16** (revisi user: AI satu pintu = tab AI bawaan ONLYOFFICE memakai provider & key Pengaturan → AI lewat proxy backend; templat diunggah di Tools; impor berkas saat Buat Dokumen; unit + smoke lulus, UI diuji termasuk Summarization dengan Gemini sungguhan) + **lanjutan ✅** (Tools per role, font diunggah admin + pemantau, tautan konsep ↔ dokumen final) + **tahap 4 produksi ✅ 2026-10-16** (compose profile `office`, Caddy `/office/`, smoke penuh lewat stack produksi lokal); berikutnya agen SRIKANDI & agen pembuat dokumen di Tools (teknologi dibahas user) |
-| Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🚧 riset (2026-10-17/18, revisi OnTrack 2026-10-24; `docs/AI-AGENT.md` §9–§16, keputusan AG-18…AG-20 ✅, AG-21 ditunda) + **tahap 1 fondasi pengetahuan ✅ & tahap 2 konektor Obsidian ✅ 2026-10-24** (`POST /ai/chat` RAG + riwayat + sitasi, koleksi/metadata indeks, pemotongan per BAB/Pasal, profil kerja, vault Obsidian + graf tautan + Inbox, Tools → Basis Pengetahuan; unit backend +22 & frontend +7, smoke +20, skrip API vault 15/15, chat Gemini sungguhan, UI desktop & HP). **Pembagian tugas AI + embedding OpenAI + OCR multi-provider ✅** dan **tahap 3 token akses + MCP server ✅ 2026-10-24** (unit +8, klien MCP SDK 16/16, smoke +19, UI; embedding OpenAI belum diuji dengan key sungguhan). **Tahap 4 Pengajuan + mesin templat + Antrian Verifikasi + konsep jawaban ✅ 2026-10-24** (menu Pengajuan, MCP `requests:*`; unit backend +14 & frontend +4, smoke +20, UI desktop & HP dengan Gemini sungguhan: analisis, telaah, isi templat Surat Dinas → ONLYOFFICE). **Tahap 5 bot WhatsApp ✅ 2026-10-24** (bot di LifeOS lewat Cloud API resmi + Simulator, grup kontak umum + hak akses + pengetahuan khusus grup + profil layanan, kontak, kabar status, MCP `list_whatsapp_followups`; unit +13, smoke +26, UI dengan Gemini sungguhan; webhook Meta sungguhan menunggu VPS/domain/akun Meta) + dokumen `docs/TODO-USER.md`. Berikutnya 5b (OnTrack) / pesan templat WA / tahap 6 robot |
+| Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); **tahap 3 ✅ 2026-10-16** (revisi user: AI satu pintu = tab AI bawaan ONLYOFFICE memakai provider & key Pengaturan → Model AI lewat proxy backend; templat diunggah di Tools; impor berkas saat Buat Dokumen; unit + smoke lulus, UI diuji termasuk Summarization dengan Gemini sungguhan) + **lanjutan ✅** (Tools per role, font diunggah admin + pemantau, tautan konsep ↔ dokumen final) + **tahap 4 produksi ✅ 2026-10-16** (compose profile `office`, Caddy `/office/`, smoke penuh lewat stack produksi lokal); berikutnya agen SRIKANDI & agen pembuat dokumen di Tools (teknologi dibahas user) |
+| Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🚧 riset (2026-10-17/18, revisi OnTrack 2026-10-24; `docs/AI-AGENT.md` §9–§16, keputusan AG-18…AG-20 ✅, AG-21 ditunda) + **tahap 1 fondasi pengetahuan ✅ & tahap 2 konektor Obsidian ✅ 2026-10-24** (`POST /ai/chat` RAG + riwayat + sitasi, koleksi/metadata indeks, pemotongan per BAB/Pasal, profil kerja, vault Obsidian + graf tautan + Inbox, Tools → Basis Pengetahuan; unit backend +22 & frontend +7, smoke +20, skrip API vault 15/15, chat Gemini sungguhan, UI desktop & HP). **Pembagian tugas AI + embedding OpenAI + OCR multi-provider ✅** dan **tahap 3 token akses + MCP server ✅ 2026-10-24** (unit +8, klien MCP SDK 16/16, smoke +19, UI; embedding OpenAI belum diuji dengan key sungguhan). **Tahap 4 Pengajuan + mesin templat + Antrian Verifikasi + konsep jawaban ✅ 2026-10-24** (menu Pengajuan, MCP `requests:*`; unit backend +14 & frontend +4, smoke +20, UI desktop & HP dengan Gemini sungguhan: analisis, telaah, isi templat Surat Dinas → ONLYOFFICE). **Tahap 5 bot WhatsApp ✅ 2026-10-24** (bot di LifeOS lewat Cloud API resmi + Simulator, grup kontak umum + hak akses + pengetahuan khusus grup + profil layanan, kontak, kabar status, MCP `list_whatsapp_followups`; unit +13, smoke +26, UI dengan Gemini sungguhan; webhook Meta sungguhan menunggu VPS/domain/akun Meta) + dokumen `docs/TODO-USER.md`. **Laporan Kinerja (Renaksi) e-Kinerja di Productivity ✅ 2026-10-25** (pilih item → bulan, SKP, RHK, uraian, link dokumen; SKP & RHK diambil robot, beberapa SKP per tahun; unit +16, UI & sinkron e-Kinerja sungguhan diuji). **Tahap 6b robot pengisian Renaksi ✅ 2026-10-31** (per indikator: renaksi + realisasi + bukti; Isi ke e-Kinerja idempoten, tidak pernah mengirim; unit robot +7, backend +3, frontend +2; diuji ke e-Kinerja sungguhan dengan data uji Oktober, data uji sudah dibersihkan lewat Edit Rencana Aksi Kerja atas izin user). **Pemantauan & sinkron dua arah Renaksi ✅ 2026-10-31** (Pantau e-Kinerja: status bulan draf/diajukan/dinilai + isi + feedback, impor isian e-Kinerja, kunci bulan diajukan, pengenal perubahan, Kirim perubahan dengan tulis ulang baris; unit robot +3, backend +4, frontend +3; diuji isi → ubah → hapus ke draf Oktober sungguhan, Oktober dipulihkan). **Tahap 6a mesin robot SRIKANDI & e-Kinerja ✅ 2026-10-25** (service Playwright, browser jarak jauh, sesi terenkripsi, brankas kredensial + login otomatis dengan CAPTCHA/OTP diketik user, eksplor halaman, tautan publik berkas; unit +12, smoke +28, UI dengan tayangan SRIKANDI sungguhan — login CAPTCHA/OTP oleh user). **Revisi 2026-10-31**: dokumen bertemplat dipindah ke skill agen Hermes (`docs/AI-AGENT.md` §22, AG-22…25 ✅; tool MCP skill agen ✅, smoke +7). **Tahap pertama integrasi Hermes ✅ 2026-10-31** (container profile `agent`, skrip `infra/hermes/up.sh`, backend `src/agent/`, menu Asisten Agen + Kerjakan dengan agen di Approval, skill uji `telaah-pengajuan`, compose produksi + DEPLOYMENT §14; unit +6, smoke +4; Hermes menyala & membaca skill, jaringan Hermes → LifeOS 200). **Siapkan agen tanpa terminal ✅ 2026-10-31** (proxy model lewat key Pengaturan → Model AI,
+  token agen otomatis, kartu Siapkan agen, `configure.sh`; unit +7, smoke +6; Hermes → proxy & MCP terbukti, **jawaban model
+  sungguhan belum terlihat** karena Gemini 503 high demand saat uji). **Brankas digital bukti renaksi ✅ 2026-10-31** (satu tautan per poin, beberapa berkas, pemberitahuan PDP, log akses IP + lokasi; unit backend +3, frontend +2, smoke +11, UI diuji: halaman publik, dialog brankas, ubah berkas, hapus entri → tautan mati). **Register Naskah Keluar SRIKANDI — bagian LifeOS ✅ 2026-10-31** (riset formulir resmi, tab Register, tautan final; unit +9, smoke +2, UI diuji desktop & HP; **robot pendaftaran ✅** — diuji ke SRIKANDI sungguhan: simpan konsep, anti-ganda, konsep uji dihapus; unit robot +4, backend +3, smoke +1). Berikutnya skill `penetapan-psp` (menunggu contoh dokumen user, C5) / 5b OnTrack / Register: Naskah Banyak & E-Form / pesan templat WA |
 | Productivity lanjutan: modal Project/Area lega, kartu ringkas, File Control opt-in, tag bebas Resource Global & lampiran | ✅ 2026-10-12–15 — unit test, lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Audit celah Productivity (8 temuan + 2 temuan saat uji): arsip yang sudah diberkaskan dikunci dari tab Resources, sumber My Notebook dilindungi di dialog hapus, item Area berlampiran & berdeskripsi, ubah lampiran, agenda berulang digabung per seri, form Area di-`key`, tag terhapus tidak kembali, filter & Kelola Tag, tag Musnah/Statis terkunci, tanggal bawaan lokal | ✅ 2026-10-18 — unit test (frontend 190+), lint, typecheck, build, UI diuji di browser dengan data `UJI-AUDIT` (dibersihkan) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
@@ -927,7 +1064,7 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   `@google/genai`, `@anthropic-ai/sdk`, `openai`; API key per user per provider di tabel `ai_credentials` terenkripsi
   AES-256-GCM (`AI_ENCRYPTION_KEY`), kolom `users.api_key` dihapus (key lama tidak dimigrasi — user memasukkan ulang),
   provider aktif `users.ai_provider`. Model default `gemini-3.8-flash`, `claude-opus-5-5`, `gpt-6.1-sol`, tetapi model
-  **bisa diganti user** di Pengaturan → AI agar penghentian model berikutnya tidak butuh rilis. Gemini memakai
+  **bisa diganti user** di Pengaturan → Model AI agar penghentian model berikutnya tidak butuh rilis. Gemini memakai
   `generateContent` (masih didukung penuh, stateless) — bukan Interactions API yang secara default menyimpan interaksi
   di server Google. Saran model Gemini juga memuat `gemini-3.1-pro-preview` (Pro hanya ada versi preview; 2.5 Pro
   tertutup untuk pengguna baru) dan `gemini-3.5-flash-lite`; default tetap Flash stabil. Audio hanya Gemini.
@@ -1239,7 +1376,7 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   Templat**; font = **folder font di server**. Image ONLYOFFICE dev kini dibangun sendiri (`infra/onlyoffice/Dockerfile` =
   image resmi + plugin AI). Konversi DOCX → PDF untuk File Control belum dikerjakan (menunggu keputusan alur).
   **Revisi user (hari yang sama)**: tab AI bawaan tidak muncul saat memakai plugin panel sendiri → AI dibuat **satu pintu**:
-  tab AI bawaan ONLYOFFICE apa adanya (semua fiturnya) dengan provider & key Pengaturan → AI lewat proxy backend, tanpa
+  tab AI bawaan ONLYOFFICE apa adanya (semua fiturnya) dengan provider & key Pengaturan → Model AI lewat proxy backend, tanpa
   pengaturan AI di editor (plugin panel & pilihan "key di editor" dihapus; `office_ai` jadi boolean). Templat **diunggah
   di Tools → ONLYOFFICE** (tag Resource tidak dipakai). Ditambah **Impor berkas** DOCX/XLSX/PPTX/… saat Buat Dokumen.
 - 2026-10-16 — **ONLYOFFICE lanjutan + tahap 4** (keputusan user): Tools → ONLYOFFICE per role (user: AI, Templat, Cara
@@ -1352,6 +1489,91 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   `@modelcontextprotocol/sdk` 1.32.1 (dipilih atas 1.32.2 yang baru rilis sehari) + `zod` 4. Ditemukan saat audit: advisory
   baru `body-parser`, `multer` (via NestJS/Express) & `fast-uri` (via ajv) diumumkan 19–22 Okt — ditangani terpisah
   (pemeliharaan dependensi), bukan di thread ini.
+- 2026-10-25 — **Brankas kredensial + login otomatis robot** (permintaan user, merujuk OnTrack: OCR CAPTCHA MyIntress & dialog
+  OTP SIMAN; user mengirim kredensial asli di chat — tidak disalin ke file/DB/memori, user diminta mengganti kata sandi).
+  Keputusan: kredensial disimpan terenkripsi (revisi prinsip lama "tidak menyimpan kata sandi") dengan kunci khusus +
+  AAD + konfirmasi kata sandi LifeOS; **CAPTCHA tidak dipecahkan otomatis** (OCR menembus pengamanan anti-bot sistem
+  pemerintah) → gambar CAPTCHA ditampilkan untuk diketik user; OTP diketik user, rahasia TOTP tidak disimpan. Ditemukan
+  saat uji: StrictMode menutup sesi yang diserahkan ke tayangan (cleanup efek) → pembatalan ditunda; dialog login otomatis
+  membuka dua sesi → penanda sekali jalan.
+- 2026-10-25 — **Tahap 6a: mesin robot SRIKANDI & e-Kinerja + AG-21** (permintaan user: siapkan teknologinya, pengujian
+  nanti oleh user). AG-21 diputuskan: mesin dibangun **di LifeOS** (OnTrack belum punya mesin Playwright). Desain: service
+  `robot/` terpisah (container Playwright resmi, arm64/amd64) **tanpa penyimpanan** — sesi `storageState` disimpan backend
+  terenkripsi; login oleh user lewat **browser jarak jauh** berbasis tangkapan layar + masukan (bukan VNC: tidak perlu port/
+  aplikasi tambahan, tetap di balik login LifeOS). Ditemukan saat uji: login SRIKANDI memakai **CAPTCHA** → robot tidak
+  pernah mengisinya; ketikan cepat sempat hilang satu huruf → masukan diantrekan. Alur pengisian sengaja belum dibuat
+  (struktur halaman belum diketahui) — diganti **Eksplor halaman** untuk merekam form bersama user. Tautan publik berkas
+  dibangun sekarang karena dibutuhkan "link dokumen" e-Kinerja. Playwright 1.63.0 (bukan 1.64 yang baru rilis < 3 minggu).
+- 2026-10-25 — **Renaksi e-Kinerja dari Productivity** (keputusan user): rencana aksi diisi tiap bulan dari data Productivity,
+  tetapi **user yang memilih** item mana yang masuk (tidak semua) — agen menerima "produk jadi": bulan, pemetaan RHK, uraian,
+  link dokumen. Desain: dua record type baru (bukan tabel khusus) agar memakai sinkronisasi `useCollection` dan backup yang
+  sama; entri menyimpan salinan judul asal (tetap ada walau item dihapus); RHK diketik user dulu (nanti bisa diambil robot
+  dari Detail SKP); link berkas = tautan publik tanpa kedaluwarsa (penilai e-Kinerja membuka kapan saja; bisa dicabut). Di
+  dev tautan berawalan localhost — baru bisa dibuka penilai setelah VPS. Ditambah juga **Rekam halaman ini** di browser
+  jarak jauh (formulir/modal setelah klik). Rekaman daftar SKP: SKP 2026 masih Draft → Rencana Aksi belum bisa dibuka.
+- 2026-10-25 — **Connector pindah ke menu masing-masing + naskah ber-TTD dari SRIKANDI** (permintaan user): Tools → Konektor
+  Robot dihapus; tab **Connector** ada di Laporan Kinerja (e-Kinerja) & SRIKANDI. SKP 2026 belum disubmit → renaksi ditunda,
+  lanjut SRIKANDI: halaman `/pembuatan-naskah-keluar/naskah-keluar` direkam (tabel 10 kolom + detail dengan penampil PDF,
+  tombol Unduh PDF, lampiran). Desain: robot menangkap PDF dari respons jaringan saat detail dimuat — tidak mengklik Unduh/
+  tombol lain; naskah ber-TTD disimpan sebagai berkas LifeOS. Diuji: 182/SDJ.KEU/X/2026 terambil (PDF 2 halaman, nomor &
+  tanggal & QR TTE tampil, footer BSrE), sinkron ulang tidak mengunduh ganda. Lampiran naskah diambil juga
+  (Laporan Hasil Studi 4,7 MB & Tesis 4,6 MB, teks terbaca); sinkron ulang tanpa unduhan ganda. Lanjutan (keputusan user):
+  naskah & lampiran otomatis Resource Global (Dokumen Final) + File Control, ditautkan ke konsep Approval bila ditemukan
+  (diuji dengan pengajuan [UJI] berkonsep Nota Dinas berhal sama → tertaut, penanda Final, riwayat; data uji dihapus).
+- 2026-10-25 — **Grup menu AI Agent** (keputusan user): sidebar punya grup baru **AI Agent** berisi **Approval** (Pengajuan
+  berganti nama, path & data tetap), **Laporan Kinerja** (dipindah dari tab Productivity menjadi modul `/kinerja`), dan
+  **SRIKANDI** (`/srikandi`: sesi robot SRIKANDI; alur naskah menunggu rekaman). "Eksplor halaman" di Tools → Konektor Robot
+  dihapus dari UI (diganti Rekam halaman ini). RHK pimpinan yang diintervensi + indikatornya ikut disimpan & ditampilkan;
+  teks tombol Edit RHK / Hapus RHK pada SKP draft tidak lagi ikut narasi (diuji: SKP 2026 draft → 6 RHK bersih).
+- 2026-10-31 — **Integrasi Hermes tahap pertama** (permintaan user: UI/UX untuk Hermes, persiapan laptop & VPS). Keputusan:
+  pemakaian harian lewat **UI LifeOS** (menu Asisten Agen + tombol di Approval) yang berbicara ke **API server Hermes** dari
+  backend (kunci tidak sampai ke browser); dashboard bawaan Hermes / Open WebUI tidak dipakai; pengaturan model & skill
+  sesekali (berkas repo; `setup.sh` diganti tombol Siapkan agen, lihat entri berikutnya). Hermes = **container Docker** image resmi (sama dengan VPS), versi v0.22.2 (≥ 2 minggu;
+  bug `/v1/skills` ada sampai 0.22.5 → daftar skill dari repo). Satu pemilik agen (`HERMES_OWNER_EMAIL`) karena Hermes memakai
+  token MCP satu akun. API key model diketik user di wizard Hermes (tidak lewat Claude). Produksi: tanpa port publik, backend
+  beralias `lifeos-api` agar konfigurasi MCP sama dengan dev, volume `hermes-data` wajib ikut backup.
+- 2026-10-31 — **Dokumen bertemplat → agen Hermes; Approval kembali ke Workspace** (keputusan user): menu Approval pindah
+  ke Workspace setelah Productivity; grup AI Agent hanya modul agen (Laporan Kinerja, SRIKANDI). Penanganan permintaan
+  dokumen bertemplat (PSP, panitia penghapusan, pemanfaatan BMN, …) yang dibangun sebagai fitur & alur tetap (tahap 4) akan
+  ditangani **Hermes lewat skill/workflow**; LifeOS menyediakan alat MCP (pengajuan, berkas, pengetahuan, templat), Approval
+  sebagai antrian verifikasi, dan log. OnTrack = sumber kebenaran SIMAN (master aset, terutama PSP) & MyIntress (akuntansi,
+  laporan keuangan) lewat MCP **dan** API Service. AG-22…25 disetujui user (skill di `agents/hermes/skills/`, Analisis/Telaah
+  bawaan dihapus setelah skill teruji, Hermes laptop → VPS). Langkah (1) selesai: tool MCP skill agen + `agentUpdate`.
+- 2026-10-31 — **Riset Register Naskah Keluar SRIKANDI** (thread AI Agent → SRIKANDI dimulai): alur & isian formulir Registrasi
+  Naskah Keluar (tipe Naskah Keluar / Naskah Final, batas lampiran, Kirim Konsep/Kirim Naskah) dari Buku Panduan SRIKANDI V3
+  Kemenko PMK 2026 → `docs/AI-AGENT.md` §21.11 + usulan rancangan. Titik aman robot = **SIMPAN** (draf di Log Naskah Keluar);
+  Kirim Konsep/Kirim Naskah/TTE di tangan user. Formulir di akun user belum direkam (TODO-USER A8). Atas pilihan user ("rancang
+  dulu") bagian LifeOS dibangun lebih dulu: record type `srikandi_outgoing` + tab **Register Naskah Keluar** (isian formulir,
+  berkas dari Approval/berkas LifeOS/unggah, referensi, status, tandai terdaftar manual, tautkan naskah final + konsep DOCX ↔
+  PDF final) + tombol SRIKANDI di dokumen Approval. Robot pendaftaran menyusul setelah rekaman.
+- 2026-10-31 — **Robot Register Naskah Keluar diuji ke SRIKANDI** (izin user: boleh simpan konsep & Ambil Nomor, tidak boleh
+  Ajukan/Kirim Konsep, hapus konsep setelah uji). Formulir di akun user dipetakan Claude lewat browser jarak jauh (rekaman oleh
+  user tidak diperlukan): ada Mode Registrasi, Naskah Banyak, Diberkaskan Oleh Unit Pengolah, ukuran QR; Ambil Nomor hanya
+  penanda `XXX/KEU/ND/2026`. Desain: robot mengklik opsi react-select (Enter tanpa opsi mengirim formulir), draf dikenali dari hal
+  (ID detail terenkripsi acak), berhenti di Simpan. Uji: dryRun → simpan → anti-ganda → konsep dihapus lewat aksi Hapus Log.
+- 2026-10-31 — **Pemantauan & sinkron dua arah Rencana Aksi e-Kinerja** (permintaan user: pantau isian sampai penilaian dikirim,
+  LifeOS & e-Kinerja tidak boleh berbeda, isian terkirim bisa diubah dengan pengenal perubahan). Desain: potret bulan sebagai
+  record type baru `action_plan_month`; LifeOS = sumber isi untuk bulan draf tetapi butir yang diketik langsung di e-Kinerja
+  diimpor dulu agar tidak hilang; bulan diajukan/dinilai dikunci; pengenal perubahan = tanda tangan isi saat terkirim; ubah =
+  tulis ulang baris indikator (satu-satunya cara di e-Kinerja). Diuji ke draf Oktober (izin user): isi → ubah → hapus,
+  Oktober dipulihkan.
+- 2026-10-31 — **Klasifikasi arsip SRIKANDI menjadi referensi** (permintaan user): kategori `classification` di
+  `srikandi_reference` dari `/klasifikasi-arsip/klasifikasi` (1.048 baris, label "KODE - Nama"), tombol **Ambil klasifikasi**
+  terpisah dari Ambil referensi (lama), dipakai sebagai pilihan Klasifikasi (hanya Aktif) di formulir Register.
+- 2026-10-30/31 — **Robot pengisian Renaksi e-Kinerja (tahap 6b)** (permintaan user, SKP 2026 sudah disetujui; aturan
+  user: centang indikator sesuai pemetaan LifeOS, uji boleh pakai narasi & link dummy lalu dihapus, **tidak boleh** Kirim
+  Penilaian Ke Atasan). Desain: entri = satu butir di setiap indikator RHK terpilih (pola isian user: satu baris per
+  indikator, indikator WAKTU berrealisasi "Penyampaian tepat waktu"); `description` tetap kolom "rencana aksi", realisasi &
+  indikator di `extra` (tanpa migrasi). Robot idempoten (baca dulu, tambah yang belum ada) karena e-Kinerja tidak punya
+  ubah/hapus per butir; menghapus = Edit Rencana Aksi Kerja → lepas centang (baris & isinya hilang, min. 1 indikator) — robot
+  tidak pernah melakukannya. Ditemukan saat uji: nama bulan berupa node teks lepas & templat rating tersembunyi membuat bulan
+  terbaca "sudah diajukan"; pembacaan butir via saudara `<ol>` gagal (akan menggandakan butir bila diulang) → penelusuran
+  node + mode `dryRun` untuk memeriksa sebelum mengisi.
+- 2026-10-25 — **SKP & RHK diambil robot + tab Laporan Kinerja** (permintaan user): RHK tidak diketik manual tetapi
+  diambil robot dari e-Kinerja (daftar SKP + tabel Hasil Kerja Detail SKP; hanya membaca, tombol Tambah RHK/Ajukan SKP
+  tidak disentuh); tab Renaksi berganti nama **Laporan Kinerja**; **satu tahun bisa beberapa SKP** (mis. Jan–Apr & Mei–Des
+  2025) → SKP menjadi record sendiri dan RHK melekat ke SKP, bulan entri menentukan SKP-nya. Diuji ke e-Kinerja sungguhan:
+  7 SKP terbaca, RHK SKP 1 Mei–31 Des 2025 = 3 RHK × 2 indikator sesuai halaman; sinkron ulang tanpa data ganda.
 - 2026-10-24 — **Pengajuan & bot dibuat umum** (permintaan user sebelum commit tahap 5: hari ini satker, kelak bisa
   masyarakat umum / unit pelayanan). Desain: "satker" diganti **grup kontak** berjenis (satker, instansi, masyarakat,
   internal, lainnya) dengan hak akses eksplisit (kirim pengajuan; lihat status seluruh grup vs milik sendiri) + properti
@@ -1379,6 +1601,26 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   — `notebook-utils.test.ts` belum diformat Prettier → diformat; (2) Dependabot docker-compose error sejak service
   ONLYOFFICE dev memakai `image: lifeos-onlyoffice:10.0` (dicari di Docker Hub) → tag lewat variabel
   `${LIFEOS_ONLYOFFICE_TAG:-10.0}` (nama image tetap sama) + `ignore: lifeos-*` di dependabot.yml.
+- 2026-10-31 — **Indeks Pengetahuan pindah ke Tools; menu AI → Model AI** (permintaan user): kartu Indeks pengetahuan
+  (RAG) keluar dari Pengaturan → AI menjadi sub menu **Tools → Indeks Pengetahuan** (`/tools/index`, setelah Basis
+  Pengetahuan) karena indeks = alat kerja yang dipakai semua fitur AI, sedangkan Pengaturan hanya provider/key/model.
+  Sub menu Pengaturan "AI" berganti nama **Model AI** (path `/settings/api` tetap agar tautan lama tidak putus); semua
+  teks "Pengaturan → AI" (UI, pesan error backend, dokumen) ikut diganti. Tanpa perubahan backend/API.
+- 2026-10-31 — **Brankas digital bukti renaksi** (permintaan user sebelum commit): link bukti yang dibuka atasan / pejabat
+  pembina kepegawaian = **satu tautan per poin renaksi** berisi beberapa berkas terisolasi (tabel sendiri, bukan folder S3 —
+  berkas tetap Asset dan bisa dipakai bersama tanpa disalin; isolasi = token hanya membuka berkas yang terdaftar di brankasnya).
+  Halaman publik memuat pemberitahuan PDP (UU 27/2022) dan pemberitahuan pencatatan; setiap buka/lihat/unduh dicatat dengan IP
+  + perkiraan lokasi dari IP (ipapi.co tanpa key, bisa dimatikan `GEOIP_PROVIDER=none`; lokasi = perkiraan kota ISP). Ganti
+  berkas tidak mengubah tautan (tidak perlu kirim ulang ke e-Kinerja); ganti tautan = isi entri berubah → Kirim perubahan.
+  Berkas brankas dilindungi dari penghapusan fitur lain.
+- 2026-10-31 — **Siapkan agen tanpa terminal** (permintaan user: `setup.sh` jangan wajib terminal; key yang ada hanya Google
+  Gemini dengan kredit Google Cloud). Keputusan: "satu pintu" seperti AI di ONLYOFFICE — Hermes memakai model lewat proxy
+  OpenAI-compatible LifeOS dengan key di Pengaturan → Model AI (key tidak pernah disimpan di Hermes, ganti key/model tanpa
+  menyentuh Hermes), baris Pembagian tugas **Agen (Hermes)**. Kunci Hermes ↔ LifeOS memakai `HERMES_API_KEY` yang sudah
+  dipegang kedua pihak, didaftarkan sebagai token akses "Agen Hermes" lewat tombol **Siapkan agen** (cakupan bisa dipilih,
+  dicabut di Integrasi) — tidak perlu menyalin token. `setup.sh` dihapus; `configure.sh` (tanpa rahasia) dijalankan `up.sh`.
+  OpenClaw tidak ditambahkan (Hermes cukup untuk pekerjaan saat ini). Langganan Claude Pro tidak bisa dipakai Hermes (hanya
+  API key); Claude Code/Desktop dengan Pro bisa memakai MCP LifeOS secara interaktif.
 
 ## 13. Konvensi Kode
 
@@ -1461,20 +1703,20 @@ DTO class-validator), daftarkan di `app.module.ts`, guard `JwtAuthGuard` + `Role
    lama project uji.
 6. Volume dev lama boleh dihapus setelah verifikasi (data dev dummy); volume produksi lama baru dihapus setelah stabil.
 
-**Menambah provider/model AI**: model baru dari provider yang sama cukup diganti user di Pengaturan → AI; ubah default
+**Menambah provider/model AI**: model baru dari provider yang sama cukup diganti user di Pengaturan → Model AI; ubah default
 di `backend/src/ai/ai-providers.ts` (`defaultModel`, `suggestedModels`) saat generasi model berganti. Provider baru:
 nilai enum `AiProvider` di `schema.prisma` + migrasi, entri katalog `AI_PROVIDERS`, klien `providers/<nama>.client.ts`
 (SDK resmi, petakan error ke `AiProviderError`), daftarkan di `CLIENTS` (`ai.service.ts`), tipe `AiProviderId` di
 frontend `types/api.ts`; tambah kasus di `ai.spec.ts` & smoke test.
 
 **Menambah tipe data ke indeks RAG**: tambah record type + labelnya di `INDEXED_TYPES`
-(`backend/src/ai/index/index-text.ts`) dan label sumber di `frontend/src/features/settings/ai-index-card.tsx`; field
-payload otomatis ikut (kecuali key berakhiran `Id`, lihat `KEEP_KEYS`). Lalu "Indeks ulang" di Pengaturan → AI.
+(`backend/src/ai/index/index-text.ts`) dan label sumber di `frontend/src/features/tools/knowledge-index/knowledge-index-settings.tsx`; field
+payload otomatis ikut (kecuali key berakhiran `Id`, lihat `KEEP_KEYS`). Lalu "Indeks ulang" di Tools → Indeks Pengetahuan.
 Mengganti model/dimensi embedding = migrasi kolom `vector(N)` + indeks HNSW baru + bangun ulang semua indeks.
 
 **Menambah sumber ke basis pengetahuan / chat AI**: sumber baru dengan koleksi sendiri → `SourceDocument.collection`
 + `metadata` di `AiIndexService` (`loadSource` & `loadAllSources`), jenis pemotongan di `chunkSource`, label sumber di
-`ai-index-card.tsx` & `citationTarget` (`knowledge-utils.ts`) agar sitasi bisa dibuka. Aturan menjawab / bagian prompt →
+`knowledge-index-settings.tsx` & `citationTarget` (`knowledge-utils.ts`) agar sitasi bisa dibuka. Aturan menjawab / bagian prompt →
 `buildAssistantPrompt` (+ test). Status yang tidak boleh dipakai menjawab → `EXCLUDED_STATUSES`.
 
 **Menambah tool MCP** (agen AI): tool baru di `LifeosMcpService.createServer` (`src/integrations/lifeos-mcp.service.ts`)
@@ -1483,9 +1725,34 @@ dengan zod (batasi panjang/rentang), aksi lewat service aplikasi (jangan query l
 Cakupan baru → `API_SCOPES` + `SCOPE_LABELS` (backend) & `SCOPE_SHORT` (frontend `integrations-tab.tsx`); label log di
 `TOOL_LABELS`. Tambah skenario smoke (JSON-RPC `tools/call`).
 
+**Menambah alur robot pengisi** (pelajaran Renaksi e-Kinerja): baca halaman per **node teks terlihat** (bukan per elemen —
+judul bisa teks lepas, templat tersembunyi ikut di DOM), sediakan `dryRun` (baca + rencana tanpa klik) dan uji dulu, buat
+langkah idempoten (baca isi → tambah yang belum ada), klik lewat `safeClick` (pola tombol terlarang), dan jangan pernah
+menekan tombol kirim/ajukan.
+
+**Menambah alur robot** (tahap 6b, mis. konsep naskah SRIKANDI): minta user merekam halaman lewat Eksplor halaman →
+baca `robot_runs.aria` (struktur) + tangkapan layar → tulis langkah di service robot (`robot/src/`, endpoint job baru
+berisi input terstruktur, locator berbasis role/label dari snapshot, tangkapan layar tiap langkah) + endpoint backend yang
+menyimpan run & meminta konfirmasi user sebelum langkah "kirim". Jangan pernah: menandatangani, mengisi CAPTCHA/OTP,
+menyimpan kata sandi. Versi `playwright` npm = tag image di `robot/Dockerfile`.
+
+**Mengubah isian sistem tanpa ubah/hapus per butir** (pelajaran e-Kinerja): simpan tanda tangan isi saat terkirim (pengenal
+perubahan), baca & impor isi sistem sebelum menulis, tulis ulang satu unit terkecil yang bisa dihapus (baris indikator) lalu isi
+ulang dari LifeOS; jangan pernah melepas baris kosong / mengosongkan unit yang wajib ada; selalu sediakan `dryRun`.
+
+**Mengisi formulir react-select** (pelajaran Registrasi SRIKANDI): tandai kolom lewat teks label → `input[role=combobox]`
+berikutnya, ketik istilah pendek (`searchTerm`), tunggu opsi dari server, **klik** opsi (`pickOption`) — jangan Enter (bisa
+mengirim formulir); kenali hasil simpan dari isi tabel (ID terenkripsi bisa acak per muat).
+
 **Menambah hak akses grup bot WhatsApp** (mis. data OnTrack per grup): kolom boolean baru di `ContactGroup` + migrasi,
 DTO `GroupDto`, `groupAccessSummary` & form grup (frontend), lalu periksa hak itu di `WhatsappService.process` — data
 selalu disaring dengan `contact.group.code` dari database, **jangan** dari isi pesan/argumen model.
+
+**Menambah skill Hermes**: folder `agents/hermes/skills/<nama-skill>/SKILL.md` (frontmatter `name` = nama folder, huruf
+kecil + tanda hubung, `description` = kapan dipakai) → langkah kerja memakai alat MCP `lifeos` (lihat
+`agents/hermes/skills/README.md`: hasil lewat `update_request`/`create_request_document`, `submitForReview`, tidak pernah
+memutuskan) → `docker restart lifeos-hermes` → muncul di Asisten Agen & panel Approval. Alat MCP baru yang dibutuhkan skill →
+resep "Menambah tool MCP".
 
 **Menambah jenis pengajuan / templat**: jenis baru → `REQUEST_KINDS` + `KIND_LABELS` (backend `request-logic.ts`) & frontend
 `request-utils.ts` (label sama). Templat baru cukup diunggah user (Tools → ONLYOFFICE → Templat) dengan penanda
@@ -1685,6 +1952,33 @@ utama tetap < 500 kB (cek output `npm run build`).
   — tanpa catatan seperti itu semua pertanyaan "diteruskan ke petugas" (bukan bug).
 - Skrip Node yang ditulis lewat heredoc Bash berisi template literal: `\\d` di dalam template menjadi `\d` lalu dimakan
   lagi → regex rusak diam-diam (`/^d{5}$/`). Untuk regex di kode sumber pakai tool Edit/Write langsung, lalu `grep`.
+- Service robot: paket npm `playwright` dan image `mcr.microsoft.com/playwright:v…` **wajib versi sama** (Chromium dibundel di
+  image; berbeda versi = gagal launch). Image ± 3,5 GB. Robot hanya bisa diuji bila container menyala — smoke melewati
+  bagian browser bila `/robot/status` tidak reachable (CI). Uji browser jarak jauh tanpa menyentuh sistem pemerintah: arahkan
+  konektor e-Kinerja ke https://example.com (dipakai smoke; tidak ada login → dianggap "sudah masuk").
+- SRIKANDI & e-Kinerja login memakai CAPTCHA → tidak dipecahkan mesin; login otomatis berhenti di CAPTCHA/OTP dan menunggu
+  ketikan user. Uji tanpa akun: nilai palsu boleh diisi karena robot berhenti di CAPTCHA **tanpa mengirim** — jangan pernah
+  mengirim jawaban CAPTCHA saat menguji (itu percobaan login ke sistem pemerintah).
+- Dialog yang membuka sumber daya eksternal di `useEffect` (sesi robot): StrictMode dev menjalankan efek → cleanup → efek
+  lagi. Gunakan penanda sekali-jalan (`useRef`) untuk membuka, dan tunda pembatalan di cleanup (`setTimeout` yang
+  dibatalkan pemasangan ulang) agar sesi tidak tertutup/terbuka ganda.
+- Klik di sistem pemerintah lewat sesi tayangan robot (`/robot/sessions/:id/input`) bisa **ditahan pengaman otomatis Claude**
+  ("Unrequested Commit in a Connected App") walau user sudah mengizinkan uji — minta izin eksplisit user di chat untuk aksi
+  itu (mis. "Izinkan robot") lalu ulangi.
+- Hermes 0.22.2–0.22.5: `GET /v1/skills` selalu 500 (`_find_all_skills() got an unexpected keyword argument
+  'include_editorial'`) → daftar skill dibaca backend dari folder repo. Cek ulang saat upgrade Hermes.
+- Mount skill `./agents/hermes/skills:/opt/data/skills/lifeos` membuat Docker membuat `/opt/data/skills` milik root di volume
+  → skill bawaan Hermes gagal disalin ("Permission denied"). `infra/hermes/up.sh` meng-`chown 10000` sekali lalu restart.
+- Hermes tanpa model/izin belum bisa menjalankan tugas walau `/health` = ok (`readiness.model` tetap "ok") → kartu Siapkan
+  agen. MCP Hermes yang ditolak saat start "diparkir" sampai ada run berikutnya (lalu tersambung sendiri) — bila tidak,
+  `docker restart lifeos-hermes`. `hermes config set` menulis nilai jadi; nilai `${ENV}` di config.yaml ditulis lewat `sed`
+  (`configure.sh`) agar rahasia tidak tersalin ke berkas. Gemini 503 "high demand" diteruskan proxy apa adanya; Hermes
+  mencoba ulang sendiri (3× lalu siklus pemulihan 61 dtk).
+- SRIKANDI: Enter di kotak cari react-select tanpa opsi cocok **mengirim formulir** ("The klasifikasi id field is required");
+  ID `?id=U2Fsd…` di Log/Daftar Naskah acak per muat halaman; kolom Aksi Log di luar layar (klik sel Hal lalu Tab agar
+  bergeser saat lewat tayangan robot). Job register membawa berkas base64 → batas body robot 40 MB khusus rute itu.
+- Dev: request lewat proxy Vite → `req.ip` = `::1` (log brankas "Jaringan lokal / privat"). Lokasi IP sungguhan hanya terlihat
+  di produksi (Caddy + `TRUST_PROXY=true`).
 - Tes AI sungguhan lewat `javascript_tool` (panel tersembunyi): satu panggilan maks. ± 45 detik → tunggu bertahap
   (beberapa panggilan `await` 30–40 detik), jangan satu loop panjang.
 

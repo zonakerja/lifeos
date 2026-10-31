@@ -4,6 +4,10 @@
  * Halaman tujuan membaca query param (?edit=, ?project=, ...) untuk membuka item.
  */
 export const links = {
+  /** Register Naskah Keluar SRIKANDI: `id` = entri, atau entri baru dari dokumen pengajuan Approval */
+  srikandiRegister: (id: string) => `/srikandi/register?register=${encodeURIComponent(id)}`,
+  srikandiRegisterFromRequest: (requestId: string, uploadId: string) =>
+    `/srikandi/register?register=new&request=${encodeURIComponent(requestId)}&doc=${encodeURIComponent(uploadId)}`,
   /** Tampilan lihat agenda (link meeting, dasar pelaksanaan, hasil agenda) */
   schedule: (id: string) => `/planner/schedule?agenda=${encodeURIComponent(id)}`,
   /** Seri agenda berulang → tampilan lihat pertemuan terdekat */

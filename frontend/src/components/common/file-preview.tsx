@@ -9,6 +9,7 @@ import { uploadsApi } from "@/lib/api/endpoints";
 import { useOfficeStatus } from "@/data/use-office";
 import { OFFICE_KIND_ICON, openOfficeEditor } from "@/features/tools/onlyoffice/office-editor-host";
 import { isOfficeEditable, officeKindOf, OFFICE_KIND_LABELS } from "@/features/tools/onlyoffice/office-formats";
+import { PublicLinkButton } from "@/features/sharing/public-link-button";
 import { DocumentLinksButton } from "@/features/tools/onlyoffice/document-links";
 
 // Penampil dokumen kantor (DOCX/XLSX/PPTX, …) = editor ONLYOFFICE mode lihat, dimuat malas
@@ -184,6 +185,7 @@ function PreviewBody({ file: input }: { file: PreviewableFile }) {
           </Button>
         )}
         <DocumentLinksButton uploadId={file.uploadId} name={file.name} />
+        <PublicLinkButton uploadId={file.uploadId} name={file.name} />
         <Button variant="ghost" size="xs" onClick={() => void download()}>
           <Download /> <span className="hidden sm:inline">Unduh</span>
         </Button>

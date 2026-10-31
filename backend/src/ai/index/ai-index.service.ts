@@ -144,7 +144,7 @@ export class AiIndexService {
     await this.prisma.aiChunk.deleteMany({ where: { userId } });
   }
 
-  /** Catat error terakhir agar terlihat di Pengaturan → AI. */
+  /** Catat error terakhir agar terlihat di Tools → Indeks Pengetahuan. */
   async markError(userId: string, error: unknown) {
     const message =
       error instanceof AiProviderError

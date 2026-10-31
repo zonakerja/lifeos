@@ -65,8 +65,25 @@ export function AppSidebar() {
   const closeMobile = () => setOpenMobile(false);
 
   const visible = MODULES.filter((m) => !m.hiddenInSidebar);
-  const mainModules = visible.filter((m) => m.sidebarGroup !== "system");
+  const mainModules = visible.filter((m) => !m.sidebarGroup || m.sidebarGroup === "workspace");
+  const agentModules = visible.filter((m) => m.sidebarGroup === "agent");
   const systemModules = visible.filter((m) => m.sidebarGroup === "system");
+
+  // Render function (bukan komponen bersarang) agar item tidak di-remount tiap render
+  const renderItem = (module: (typeof MODULES)[number]) => {
+    if (module.sidebarSubmenu) return <SubmenuModuleItem key={module.key} module={module} />;
+    const active = isModuleActive(module, pathname);
+    return (
+      <SidebarMenuItem key={module.key}>
+        <SidebarMenuButton asChild isActive={active} tooltip={module.label} className={COLLAPSIBLE_ITEM_CLASS}>
+          <NavLink to={module.path} end={module.path === "/"} onClick={closeMobile}>
+            <ModuleIcon module={module} active={active} />
+            <span>{module.label}</span>
+          </NavLink>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  };
 
   return (
     <Sidebar collapsible="icon" variant="inset">
@@ -101,27 +118,14 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel>Workspace</SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu className="gap-1">
-              {mainModules.map((module) => {
-                if (module.sidebarSubmenu) return <SubmenuModuleItem key={module.key} module={module} />;
-                const active = isModuleActive(module, pathname);
-                return (
-                  <SidebarMenuItem key={module.key}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={active}
-                      tooltip={module.label}
-                      className={COLLAPSIBLE_ITEM_CLASS}
-                    >
-                      <NavLink to={module.path} end={module.path === "/"} onClick={closeMobile}>
-                        <ModuleIcon module={module} active={active} />
-                        <span>{module.label}</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
+            <SidebarMenu className="gap-1">{mainModules.map(renderItem)}</SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>AI Agent</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-1">{agentModules.map(renderItem)}</SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 

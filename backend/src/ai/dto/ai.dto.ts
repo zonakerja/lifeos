@@ -48,6 +48,12 @@ export class AiRoutingDto {
   @IsEnum(AiProvider, { message: "Provider AI tidak dikenal." })
   general?: AiProvider | null;
 
+  @ApiPropertyOptional({ enum: AiProvider, nullable: true, description: "Model agen Hermes (lewat proxy LifeOS)" })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsEnum(AiProvider, { message: "Provider AI tidak dikenal." })
+  agent?: AiProvider | null;
+
   @ApiPropertyOptional({ enum: AiProvider, nullable: true, description: "Baca gambar & PDF hasil scan (OCR)" })
   @IsOptional()
   @ValidateIf((_, value) => value !== null)

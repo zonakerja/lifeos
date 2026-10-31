@@ -53,7 +53,7 @@ export class OfficeConfigDto {
 }
 
 export class OfficePreferencesDto {
-  /** AI di editor (tab AI ONLYOFFICE memakai provider & key di Pengaturan → AI). */
+  /** AI di editor (tab AI ONLYOFFICE memakai provider & key di Pengaturan → Model AI). */
   @IsBoolean()
   ai: boolean;
 }

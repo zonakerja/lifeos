@@ -328,7 +328,7 @@ export function ChatPanel({
               <EmptyTitle>Tanyakan apa saja tentang sumber Anda</EmptyTitle>
               <EmptyDescription>
                 {!ai.isConfigured
-                  ? "AI belum diatur. Atur provider & API key di Pengaturan → AI."
+                  ? "AI belum diatur. Atur provider & API key di Pengaturan → Model AI."
                   : ready.length
                     ? "Jawaban hanya berdasarkan sumber notebook dan menyertakan rujukan [1], [2] ke sumbernya."
                     : "Tambahkan dan aktifkan minimal satu sumber terlebih dahulu."}

@@ -1,6 +1,8 @@
 import { useCollection } from "@/data/use-collection";
 import {
   completionId,
+  type ActionPlanEntry,
+  type ActionPlanMonth,
   type Activity,
   type ArchiveBorrowing,
   type ArchiveClassification,
@@ -21,6 +23,11 @@ import {
   type Resource,
   type Routine,
   type Schedule,
+  type Skp,
+  type SkpTarget,
+  type SrikandiLetter,
+  type SrikandiOutgoing,
+  type SrikandiReference,
   type Todo,
 } from "@/types/entities";
 
@@ -49,6 +56,13 @@ export const useActivities = () => useCollection<Activity>("para_activity");
 export const useResources = () => useCollection<Resource>("para_resource");
 export const useParaArchives = () => useCollection<ParaArchive>("para_archive");
 export const useParaArchiveLogs = () => useCollection<ParaArchiveLog>("para_archive_log");
+export const useSkps = () => useCollection<Skp>("skp", { ownOnly: true });
+export const useSkpTargets = () => useCollection<SkpTarget>("skp_target", { ownOnly: true });
+export const useSrikandiLetters = () => useCollection<SrikandiLetter>("srikandi_letter", { ownOnly: true });
+export const useSrikandiReferences = () => useCollection<SrikandiReference>("srikandi_reference", { ownOnly: true });
+export const useSrikandiOutgoings = () => useCollection<SrikandiOutgoing>("srikandi_outgoing", { ownOnly: true });
+export const useActionPlanEntries = () => useCollection<ActionPlanEntry>("action_plan_entry", { ownOnly: true });
+export const useActionPlanMonths = () => useCollection<ActionPlanMonth>("action_plan_month", { ownOnly: true });
 
 // File Control (kearsipan)
 /**

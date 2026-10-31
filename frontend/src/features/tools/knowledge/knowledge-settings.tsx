@@ -1,6 +1,7 @@
 import {
   BookOpenCheck,
   CircleAlert,
+  DatabaseZap,
   FolderOpen,
   FolderPlus,
   Info,
@@ -461,10 +462,17 @@ function GuideCard() {
         memakai data untuk meningkatkan produk dan reviewer manusia dapat membacanya.
       </p>
       <Link
-        to="/settings/api"
+        to="/tools/index"
         className="mt-2 flex w-fit items-center gap-1 text-xs font-medium text-info underline-offset-2 hover:underline"
       >
-        <Settings2 className="size-3.5" /> Mesin indeks, provider embedding & pembagian tugas AI: Pengaturan → AI
+        <DatabaseZap className="size-3.5" /> Mesin indeks (nyala/mati, indeks ulang, uji pencarian): Tools → Indeks
+        Pengetahuan
+      </Link>
+      <Link
+        to="/settings/api"
+        className="mt-1 flex w-fit items-center gap-1 text-xs font-medium text-info underline-offset-2 hover:underline"
+      >
+        <Settings2 className="size-3.5" /> API key, provider embedding & pembagian tugas AI: Pengaturan → Model AI
       </Link>
     </SectionCard>
   );

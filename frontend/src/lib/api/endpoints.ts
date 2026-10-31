@@ -3,6 +3,16 @@ import { useAuthStore } from "@/stores/auth-store";
 import type {
   AddNotebookSourceInput,
   RequestDetail,
+  PublicLinkInfo,
+  PublicVaultView,
+  VaultAccess,
+  VaultDetail,
+  RobotConnector,
+  RobotInput,
+  RobotLoginStep,
+  RobotPageInfo,
+  RobotRun,
+  RobotSystem,
   ContactGroup,
   ContactGroupInput,
   WaBotProfile,
@@ -411,4 +421,207 @@ export const whatsappApi = {
     request<{ resolved: number }>(`/whatsapp/conversations/${phone}/resolve`, { method: "POST" }),
   simulate: (input: { phone: string; text?: string; uploadIds?: string[] }) =>
     request<WaMessage>("/whatsapp/simulate", { method: "POST", body: input }),
+};
+
+const authHeader = () => ({ Authorization: `Bearer ${useAuthStore.getState().accessToken ?? ""}` });
+
+/** Penyiapan agen tanpa terminal: izin (token "Agen Hermes"), model lewat LifeOS, panggilan model terakhir. */
+export interface AgentSetupState {
+  /** HERMES_API_KEY di server berbentuk valid (huruf/angka/_/-, 24–128 karakter) */
+  keyValid: boolean;
+  token: { id: string; scopes: ApiScope[]; lastUsedAt: string | null; createdAt: string } | null;
+  model: { provider: AiProviderId; model: string } | null;
+  lastModelCall: { at: string; ok: boolean; provider: string; model: string; error?: string } | null;
+}
+
+export interface AgentStatus {
+  configured: boolean;
+  owner: boolean;
+  reachable: boolean;
+  setup?: AgentSetupState;
+  health?: string;
+  model?: string | null;
+  skills?: number;
+  lifeosSkills?: number;
+  error?: string;
+}
+export interface AgentSkill {
+  name: string;
+  description: string;
+  category: string;
+  lifeos: boolean;
+}
+export interface AgentRun {
+  runId: string;
+  status: string;
+  done: boolean;
+  output: string | null;
+  error: string | null;
+  requestId?: string;
+  skill?: string;
+}
+export interface AgentRunSummary {
+  runId: string;
+  kind: "chat" | "skill";
+  skill: string | null;
+  requestId: string | null;
+  input: string | null;
+  startedAt: string;
+  status: string;
+}
+
+/** Asisten Agen (Hermes lewat backend; docs/AI-AGENT.md §23). */
+export const agentApi = {
+  status: () => request<AgentStatus>("/agent/status"),
+  skills: () => request<AgentSkill[]>("/agent/skills"),
+  runs: () => request<AgentRunSummary[]>("/agent/runs"),
+  setup: (scopes?: ApiScope[]) => request<AgentStatus>("/agent/setup", { method: "POST", body: { scopes } }),
+  run: (runId: string) => request<AgentRun>(`/agent/runs/${encodeURIComponent(runId)}`),
+  stop: (runId: string) =>
+    request<{ stopping: boolean }>(`/agent/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" }),
+  chat: (message: string, conversation?: string) =>
+    request<{ runId: string; status: string }>("/agent/chat", { method: "POST", body: { message, conversation } }),
+  runSkill: (requestId: string, skill: string) =>
+    request<{ runId: string; status: string }>(`/agent/requests/${requestId}/run`, { method: "POST", body: { skill } }),
+};
+
+export const robotApi = {
+  status: () => request<{ configured: boolean; reachable: boolean; vault: boolean }>("/robot/status"),
+  setCredentials: (system: RobotSystem, input: { username: string; password: string; accountPassword: string }) =>
+    request<RobotConnector>(`/robot/connectors/${system}/credentials`, { method: "POST", body: input }),
+  deleteCredentials: (system: RobotSystem) =>
+    request<RobotConnector>(`/robot/connectors/${system}/credentials`, { method: "DELETE" }),
+  autoLogin: (system: RobotSystem) =>
+    request<RobotLoginStep>(`/robot/connectors/${system}/auto-login`, { method: "POST" }),
+  answer: (sessionId: string, kind: "captcha" | "otp", value: string) =>
+    request<RobotLoginStep>(`/robot/sessions/${sessionId}/answer`, { method: "POST", body: { kind, value } }),
+  connectors: () => request<RobotConnector[]>("/robot/connectors"),
+  update: (system: RobotSystem, input: { baseUrl?: string; extraHosts?: string[]; loginMarkers?: string[] }) =>
+    request<RobotConnector>(`/robot/connectors/${system}`, { method: "PATCH", body: input }),
+  forget: (system: RobotSystem) => request<RobotConnector>(`/robot/connectors/${system}/session`, { method: "DELETE" }),
+  check: (system: RobotSystem) => request<RobotConnector>(`/robot/connectors/${system}/check`, { method: "POST" }),
+  capture: (system: RobotSystem, url: string) =>
+    request<RobotRun>(`/robot/connectors/${system}/capture`, { method: "POST", body: { url } }),
+  startLogin: (system: RobotSystem) =>
+    request<RobotPageInfo & { sessionId: string }>(`/robot/connectors/${system}/login`, { method: "POST" }),
+  /** Tayangan browser jarak jauh (JPEG + info halaman dari header). */
+  frame: async (sessionId: string) => {
+    const response = await fetch(apiUrl(`/robot/sessions/${sessionId}/frame`), {
+      headers: authHeader(),
+      credentials: "include",
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { message?: string } | null;
+      throw new Error(body?.message ?? `Tayangan gagal dimuat (status ${response.status}).`);
+    }
+    const decode = (name: string) => decodeURIComponent(response.headers.get(name) ?? "");
+    return {
+      blob: await response.blob(),
+      url: decode("x-robot-url"),
+      title: decode("x-robot-title"),
+      loggedIn: response.headers.get("x-robot-logged-in") === "true",
+    };
+  },
+  input: (sessionId: string, input: RobotInput) =>
+    request<RobotPageInfo>(`/robot/sessions/${sessionId}/input`, { method: "POST", body: input }),
+  syncLetters: () =>
+    request<{
+      letters: number;
+      signed: number;
+      imported: number;
+      attachments: number;
+      resources: number;
+      missed: string[];
+    }>("/robot/srikandi/letters/sync", {
+      method: "POST",
+    }),
+  /** Daftarkan entri Register ke SRIKANDI (SIMPAN = konsep di Log Naskah Keluar); `dryRun` = isi tanpa menyimpan. */
+  registerOutgoing: (id: string, dryRun = false) =>
+    request<{
+      status: "saved" | "exists" | "preview";
+      filled: string[];
+      draft: { number: string; subject: string; sendStatus: string } | null;
+      runId: string;
+    }>(`/robot/srikandi/register/${encodeURIComponent(id)}`, { method: "POST", body: { dryRun } }),
+  /** Klasifikasi arsip SRIKANDI (±1.000 baris, beberapa menit) → referensi kategori classification */
+  syncClassifications: () =>
+    request<{ counts: Record<string, number>; totals: Record<string, number>; pages: Record<string, number> }>(
+      "/robot/srikandi/classifications/sync",
+      { method: "POST" },
+    ),
+  syncReferences: () =>
+    request<{ counts: Record<string, number>; totals: Record<string, number>; pages: Record<string, number> }>(
+      "/robot/srikandi/references/sync",
+      { method: "POST" },
+    ),
+  syncSkp: (year: number) =>
+    request<{ year: number; skps: number; detailed: number; rhk: number }>("/robot/ekinerja/skp/sync", {
+      method: "POST",
+      body: { year },
+    }),
+  /** Isi Rencana Aksi bulan itu ke e-Kinerja (draf; robot tidak pernah mengirim ke atasan). */
+  /** Samakan Rencana Aksi bulan itu dengan LifeOS (baca → impor → tambah / tulis ulang); `dryRun` = rencana saja. */
+  fillRenaksi: (period: string, dryRun = false) =>
+    request<{
+      period: string;
+      added: number;
+      filled: number;
+      imported: number;
+      results: {
+        skp: string;
+        status: "filled" | "partial" | "submitted" | "preview";
+        added: number;
+        rewritten: number;
+        planned?: number;
+        missing: string[];
+      }[];
+    }>("/robot/ekinerja/renaksi/fill", { method: "POST", body: { period, dryRun } }),
+  /** Baca semua bulan Rencana Aksi tahun itu dari e-Kinerja (status, isi, feedback) → potret + impor. */
+  syncRenaksi: (year: number) =>
+    request<{
+      year: number;
+      skps: number;
+      imported: number;
+      months: { skp: string; period: string; status: string; submittedAt?: string }[];
+    }>("/robot/ekinerja/renaksi/sync", { method: "POST", body: { year } }),
+  captureSession: (sessionId: string) => request<RobotRun>(`/robot/sessions/${sessionId}/capture`, { method: "POST" }),
+  finish: (sessionId: string) => request<RobotConnector>(`/robot/sessions/${sessionId}/finish`, { method: "POST" }),
+  cancel: (sessionId: string) => request<{ closed: boolean }>(`/robot/sessions/${sessionId}`, { method: "DELETE" }),
+  runs: (system?: RobotSystem) => request<RobotRun[]>("/robot/runs", { query: system ? { system } : undefined }),
+  run: (id: string) => request<RobotRun>(`/robot/runs/${id}`),
+  screenshot: async (id: string) => {
+    const response = await fetch(apiUrl(`/robot/runs/${id}/screenshot`), {
+      headers: authHeader(),
+      credentials: "include",
+    });
+    if (!response.ok) throw new Error(`Tangkapan layar tidak tersedia (status ${response.status}).`);
+    return response.blob();
+  },
+  removeRun: (id: string) => request<{ success: boolean }>(`/robot/runs/${id}`, { method: "DELETE" }),
+};
+
+export const publicLinksApi = {
+  list: (uploadId: string) => request<PublicLinkInfo[]>(`/uploads/${uploadId}/public-links`),
+  create: (uploadId: string, input: { days?: number | null; label?: string }) =>
+    request<PublicLinkInfo>(`/uploads/${uploadId}/public-links`, { method: "POST", body: input }),
+  revoke: (id: string) => request<{ success: boolean }>(`/public-links/${id}`, { method: "DELETE" }),
+};
+
+/** Brankas digital bukti renaksi (pemilik). Isi tautan = `window.location.origin + path`. */
+export const vaultsApi = {
+  create: (input: { title: string; description?: string; entryId?: string; assetIds: string[] }) =>
+    request<VaultDetail>("/vaults", { method: "POST", body: input }),
+  get: (id: string) => request<VaultDetail>(`/vaults/${id}`),
+  update: (id: string, input: { title?: string; description?: string; assetIds?: string[] }) =>
+    request<VaultDetail>(`/vaults/${id}`, { method: "PATCH", body: input }),
+  rotate: (id: string) => request<VaultDetail>(`/vaults/${id}/rotate`, { method: "POST" }),
+  remove: (id: string) => request<{ success: boolean }>(`/vaults/${id}`, { method: "DELETE" }),
+  accesses: (id: string) => request<VaultAccess[]>(`/vaults/${id}/accesses`),
+};
+
+/** Halaman publik brankas (tanpa login): setiap pembukaan & unduhan dicatat server. */
+export const publicVaultApi = {
+  open: (token: string) => request<PublicVaultView>(`/public/vaults/${encodeURIComponent(token)}`, { auth: false }),
+  fileUrl: (token: string, fileId: string, download = false) =>
+    apiUrl(`/public/vaults/${encodeURIComponent(token)}/files/${fileId}${download ? "?download=1" : ""}`),
 };

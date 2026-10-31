@@ -23,6 +23,12 @@ const ROWS: { key: RoutingKey; label: string; hint: string; defaultLabel: string
     defaultLabel: "Ikuti provider aktif",
   },
   {
+    key: "agent",
+    label: "Agen (Hermes)",
+    hint: "Model untuk Asisten Agen & skill di Approval, lewat LifeOS (key tidak disimpan di Hermes). Agen memakai banyak token — model Flash/hemat disarankan.",
+    defaultLabel: "Ikuti provider aktif",
+  },
+  {
     key: "ocr",
     label: "Baca gambar & PDF scan (OCR)",
     hint: "Dipakai saat berkas diunggah agar isinya bisa dicari & diringkas. Gagal/kuota habis → provider lain dicoba.",

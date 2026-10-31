@@ -5,23 +5,31 @@ import {
   ArrowRightLeft,
   BookOpen,
   BookOpenText,
+  BookUser,
+  Bot,
+  BotMessageSquare,
   CalendarDays,
   CalendarRange,
+  CheckCheck,
+  ClipboardList,
+  Contact,
+  DatabaseZap,
   FilePen,
+  FilePlus2,
+  FileSignature,
   FileX,
   FolderTree,
   Grid2x2,
   HardDrive,
+  Hourglass,
   Inbox,
+  Layers,
+  LayoutGrid,
+  Library,
+  ListChecks,
   ListTodo,
   MessageCircle,
-  Contact,
-  CheckCheck,
-  Hourglass,
-  Layers,
-  Library,
-  LayoutGrid,
-  ListChecks,
+  MessagesSquare,
   NotebookPen,
   Package,
   Plug,
@@ -31,15 +39,26 @@ import {
   Sparkles,
   StickyNote,
   Tag,
-  type LucideIcon,
   UserRound,
   Users,
   Wrench,
+  type LucideIcon,
 } from "lucide-react";
 import type { UserRole } from "@/types/api";
 
 export type ModuleKey =
-  "overview" | "planner" | "notes" | "productivity" | "files" | "requests" | "tools" | "settings" | "profile";
+  | "overview"
+  | "planner"
+  | "notes"
+  | "productivity"
+  | "files"
+  | "requests"
+  | "agent"
+  | "kinerja"
+  | "srikandi"
+  | "tools"
+  | "settings"
+  | "profile";
 
 export interface ModuleTab {
   id: string;
@@ -60,8 +79,8 @@ export interface ModuleDef {
   hiddenInSidebar?: boolean;
   /** Di sidebar tampil sebagai menu yang bisa dibuka berisi sub menu (= tab), seperti Pengaturan. */
   sidebarSubmenu?: boolean;
-  /** Kelompok sidebar: `workspace` (default) atau `system` (Tools, Pengaturan). */
-  sidebarGroup?: "workspace" | "system";
+  /** Kelompok sidebar: `workspace` (default), `agent` (AI Agent) atau `system` (Tools, Pengaturan). */
+  sidebarGroup?: "workspace" | "agent" | "system";
 }
 
 /** Sumber tunggal navigasi: sidebar, router, breadcrumb, hero halaman. */
@@ -114,6 +133,20 @@ export const MODULES: ModuleDef[] = [
     ],
   },
   {
+    key: "requests",
+    label: "Approval",
+    description:
+      "Pengajuan & surat dari satker, instansi, atau masyarakat — lewat aplikasi, agen, atau bot WhatsApp: analisis kelengkapan, telaah, konsep jawaban, dan dokumen dari templat — semua menunggu persetujuan Anda.",
+    path: "/requests",
+    icon: Inbox,
+    tabs: [
+      { id: "queue", label: "Antrian Verifikasi", icon: ListTodo },
+      { id: "done", label: "Selesai", icon: CheckCheck },
+      { id: "whatsapp", label: "Percakapan WA", icon: MessageCircle },
+      { id: "contacts", label: "Grup & Kontak", icon: Contact },
+    ],
+  },
+  {
     key: "files",
     label: "File Control",
     description: "Manajemen kearsipan: pemberkasan, penataan, sirkulasi, dan penyusutan.",
@@ -132,24 +165,51 @@ export const MODULES: ModuleDef[] = [
     ],
   },
   {
-    key: "requests",
-    label: "Pengajuan",
+    key: "agent",
+    label: "Asisten Agen",
     description:
-      "Pengajuan & surat dari satker, instansi, atau masyarakat — lewat aplikasi, agen, atau bot WhatsApp: analisis kelengkapan, telaah, konsep jawaban, dan dokumen dari templat — semua diverifikasi Anda.",
-    path: "/requests",
-    icon: Inbox,
+      "Agen AI Hermes yang bekerja dengan data LifeOS: chat, skill dokumen bertemplat, dan tugas atas pengajuan — hasilnya selalu Anda periksa di Approval.",
+    path: "/agent",
+    icon: BotMessageSquare,
+    sidebarGroup: "agent",
     tabs: [
-      { id: "queue", label: "Antrian Verifikasi", icon: ListTodo },
-      { id: "done", label: "Selesai", icon: CheckCheck },
-      { id: "whatsapp", label: "Percakapan WA", icon: MessageCircle },
-      { id: "contacts", label: "Grup & Kontak", icon: Contact },
+      { id: "chat", label: "Chat", icon: MessagesSquare },
+      { id: "status", label: "Status & Skill", icon: Activity },
+    ],
+  },
+  {
+    key: "kinerja",
+    label: "Laporan Kinerja",
+    description:
+      "Rencana aksi bulanan e-Kinerja yang Anda pilih dari Productivity, dipetakan ke RHK SKP yang diambil robot — robot hanya mengisikan draf.",
+    path: "/kinerja",
+    icon: ClipboardList,
+    sidebarGroup: "agent",
+    tabs: [
+      { id: "plan", label: "Rencana Aksi", icon: ClipboardList },
+      { id: "connector", label: "Connector", icon: Bot },
+    ],
+  },
+  {
+    key: "srikandi",
+    label: "SRIKANDI",
+    description:
+      "Register naskah keluar sebelum didaftarkan ke SRIKANDI, lalu naskah ber-TTD diambil robot kembali ke LifeOS — tanda tangan & pengiriman tetap oleh Anda.",
+    path: "/srikandi",
+    icon: FileSignature,
+    sidebarGroup: "agent",
+    tabs: [
+      { id: "register", label: "Register Naskah Keluar", icon: FilePlus2 },
+      { id: "outgoing", label: "Daftar Naskah Keluar", icon: FileSignature },
+      { id: "references", label: "Referensi", icon: BookUser },
+      { id: "connector", label: "Connector", icon: Bot },
     ],
   },
   {
     key: "tools",
     label: "Tools",
     description:
-      "Alat bantu kerja yang dipakai di seluruh aplikasi: editor dokumen ONLYOFFICE dan basis pengetahuan AI.",
+      "Alat bantu kerja yang dipakai di seluruh aplikasi: editor dokumen ONLYOFFICE, basis pengetahuan, dan indeks pengetahuan AI (RAG).",
     path: "/tools",
     icon: Wrench,
     sidebarSubmenu: true,
@@ -157,12 +217,13 @@ export const MODULES: ModuleDef[] = [
     tabs: [
       { id: "onlyoffice", label: "ONLYOFFICE", icon: FilePen },
       { id: "knowledge", label: "Basis Pengetahuan", icon: Library },
+      { id: "index", label: "Indeks Pengetahuan", icon: DatabaseZap },
     ],
   },
   {
     key: "settings",
     label: "Pengaturan",
-    description: "Branding aplikasi, pengguna, berbagi, API key AI, dan integrasi agen AI.",
+    description: "Branding aplikasi, pengguna, berbagi, model & API key AI, dan integrasi agen AI.",
     path: "/settings",
     icon: Settings,
     sidebarSubmenu: true,
@@ -171,7 +232,7 @@ export const MODULES: ModuleDef[] = [
       { id: "app", label: "Aplikasi", icon: Settings2, roles: ["super_admin", "admin"] },
       { id: "users", label: "Manajemen User", icon: Users, roles: ["super_admin", "admin"] },
       { id: "sharing", label: "Berbagi", icon: Share2 },
-      { id: "api", label: "AI", icon: Sparkles },
+      { id: "api", label: "Model AI", icon: Sparkles },
       { id: "integrations", label: "Integrasi", icon: Plug },
     ],
   },

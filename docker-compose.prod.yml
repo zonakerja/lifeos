@@ -62,6 +62,7 @@ services:
       NODE_OPTIONS: --max-old-space-size=${BACKEND_HEAP_MB:-512}
       PORT: 4000
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      GEOIP_PROVIDER: ${GEOIP_PROVIDER:-}
       DATABASE_URL: postgresql://lifeos:${POSTGRES_PASSWORD}@postgres:5432/lifeos?schema=public
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Set JWT_ACCESS_SECRET di .env}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set JWT_REFRESH_SECRET di .env}
@@ -98,10 +99,26 @@ services:
       WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
       WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
       WHATSAPP_OWNER_EMAIL: ${WHATSAPP_OWNER_EMAIL:-}
+      # Konektor robot SRIKANDI & e-Kinerja (opsional, COMPOSE_PROFILES=robot, DEPLOYMENT §13)
+      ROBOT_URL: ${ROBOT_TOKEN:+http://robot:4100}
+      ROBOT_TOKEN: ${ROBOT_TOKEN:-}
+      # Brankas kredensial SRIKANDI/e-Kinerja (64 hex, terpisah dari AI_ENCRYPTION_KEY; kosong = nonaktif)
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+      # Asisten Agen Hermes (opsional, COMPOSE_PROFILES=agent, DEPLOYMENT §14; docs/AI-AGENT.md §23)
+      HERMES_URL: ${HERMES_API_KEY:+http://hermes:8642}
+      HERMES_API_KEY: ${HERMES_API_KEY:-}
+      HERMES_OWNER_EMAIL: ${HERMES_OWNER_EMAIL:-}
+      HERMES_SKILLS_DIR: /app/agent-skills
     volumes:
       # Font tambahan yang diunggah admin (Tools → ONLYOFFICE); dibaca container onlyoffice
       - onlyoffice-fonts:/app/office-fonts
       - ./knowledge-vaults:/app/knowledge-vaults
+      # Skill Hermes dari repo (daftar skill di Asisten Agen; folder sama dipasang ke container hermes)
+      - ./agents/hermes/skills:/app/agent-skills:ro
+    networks:
+      default:
+        # Alamat backend yang dipakai MCP Hermes (sama dengan dev: infra/hermes/lifeos-mcp.yaml)
+        aliases: [lifeos-api]
     deploy: { resources: { limits: { memory: "${BACKEND_MEM_LIMIT:-768m}" } } }
     logging: *logging
 
@@ -209,6 +226,44 @@ services:
     deploy: { resources: { limits: { memory: "${ONLYOFFICE_MEM_LIMIT:-2560m}" } } }
     logging: *logging
 
+  robot:
+    # Browser otomatis (Playwright) untuk konektor SRIKANDI & e-Kinerja (Tools → Konektor Robot).
+    # Opsional: hanya menyala dengan COMPOSE_PROFILES=robot. Tidak membuka port & tidak menyimpan data (sesi login
+    # disimpan backend terenkripsi). Hanya backend yang memanggilnya lewat jaringan internal Docker.
+    build: ./robot
+    image: lifeos-robot:${APP_VERSION:-latest}
+    restart: unless-stopped
+    profiles: ["robot"]
+    environment:
+      # = ROBOT_TOKEN backend (openssl rand -hex 32)
+      ROBOT_TOKEN: ${ROBOT_TOKEN:-}
+    shm_size: 512m
+    init: true
+    deploy: { resources: { limits: { memory: "${ROBOT_MEM_LIMIT:-1024m}" } } }
+    logging: *logging
+
+  hermes:
+    # Agen AI Hermes (Asisten Agen LifeOS, skill dokumen bertemplat; docs/AI-AGENT.md §23, DEPLOYMENT §14).
+    # Opsional: COMPOSE_PROFILES=agent. Tanpa port publik — hanya backend yang memanggil API server-nya, dan Hermes
+    # memanggil MCP & model LifeOS lewat http://lifeos-api:4000 (configure.sh; API key model tetap di LifeOS, §14).
+    image: nousresearch/hermes-agent:${HERMES_TAG:-v0.22.2}
+    restart: unless-stopped
+    profiles: ["agent"]
+    command: gateway run
+    environment:
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: 0.0.0.0
+      # = HERMES_API_KEY backend (openssl rand -hex 32); juga kunci Hermes → LifeOS (MCP + model)
+      API_SERVER_KEY: ${HERMES_API_KEY:-}
+    volumes:
+      # config.yaml, memori, sesi — dicadangkan terpisah (DEPLOYMENT §14)
+      - hermes-data:/opt/data
+      - ./agents/hermes/skills:/opt/data/skills/lifeos:ro
+      - ./infra/hermes:/opt/lifeos:ro
+    shm_size: 1g
+    deploy: { resources: { limits: { memory: "${HERMES_MEM_LIMIT:-1536m}" } } }
+    logging: *logging
+
   backup:
     # Backup berkala: dump database tervalidasi + cermin object storage (API S3) ke ./backups, salinan terenkripsi
     # ke S3 luar server (opsional), heartbeat pemantauan. Panduan: docs/DEPLOYMENT.md §4.
@@ -261,3 +316,4 @@ volumes:
   onlyoffice-data:
   onlyoffice-logs:
   onlyoffice-fonts:
+  hermes-data:

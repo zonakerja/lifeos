@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { diskStorage } from "multer";
 import { ExtractionModule } from "../extraction/extraction.module";
 import { SharingModule } from "../sharing/sharing.module";
+import { PublicLinksController, PublicLinksService } from "./public-links";
+import { PublicVaultsController, PublicVaultsService } from "./public-vaults";
 import { UploadsController } from "./uploads.controller";
 import { UploadsService } from "./uploads.service";
 
@@ -32,8 +34,8 @@ import { UploadsService } from "./uploads.service";
       }),
     }),
   ],
-  controllers: [UploadsController],
-  providers: [UploadsService],
+  controllers: [UploadsController, PublicLinksController, PublicVaultsController],
+  providers: [UploadsService, PublicLinksService, PublicVaultsService],
   exports: [UploadsService],
 })
 export class UploadsModule {}

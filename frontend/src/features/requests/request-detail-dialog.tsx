@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { previewFile } from "@/components/common/file-preview";
@@ -29,18 +30,23 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { useSrikandiOutgoings } from "@/data/collections";
 import { useRequest, useRequestMutations } from "@/data/use-requests";
+import { AgentRunPanel } from "@/features/agent/agent-run-panel";
 import { CitationChip } from "@/features/assistant/floating-chatbot";
 import { stripCitations } from "@/features/notes/notebook/notebook-utils";
 import { openOfficeEditor } from "@/features/tools/onlyoffice/office-editor-host";
 import { useRetained } from "@/hooks/use-retained";
 import { errorMessage } from "@/lib/api/client";
+import { links as deepLinks } from "@/lib/deep-links";
 import { formatDateTime, formatShortDate, parseLocalYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
 import type { RequestDetail, RequestStatus, RequestUpdate } from "@/types/api";
 import { CHECK_LABELS, CHECK_TONE, KIND_LABELS, STATUS_LABELS, STATUS_TONE } from "./request-utils";
 import { TemplateFillDialog } from "./template-fill-dialog";
+import { useOfficeLinkBadges } from "@/data/use-office";
+import { DocumentLinkBadge } from "@/features/tools/onlyoffice/document-links";
 
 const EXTRACTION_LABEL: Record<string, string> = {
   pending: "Sedang dibaca",
@@ -186,9 +192,12 @@ function RequestDetailBody({ request: r, onDeleted }: { request: RequestDetail; 
         )}
       </Section>
 
+      <AgentRunPanel requestId={r.id} decided={["disetujui", "dikirim", "ditolak"].includes(r.status)} />
+
       {!aiReady && (
         <p className="rounded-lg border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
-          AI belum diatur. Simpan API key di Pengaturan → AI untuk memakai analisis, telaah, dan isi templat otomatis.
+          AI belum diatur. Simpan API key di Pengaturan → Model AI untuk memakai analisis, telaah, dan isi templat
+          otomatis.
         </p>
       )}
 
@@ -276,6 +285,7 @@ function RequestDetailBody({ request: r, onDeleted }: { request: RequestDetail; 
               <li key={d.uploadId} className="flex items-center gap-2 text-sm">
                 <FileText className="size-4 shrink-0 text-module" />
                 <span className="min-w-0 flex-1 truncate">{d.name}</span>
+                <FinalMark uploadId={d.uploadId} />
                 <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
                   {formatDateTime(d.createdAt)}
                 </span>
@@ -286,6 +296,7 @@ function RequestDetailBody({ request: r, onDeleted }: { request: RequestDetail; 
                 >
                   <Pencil /> Buka
                 </Button>
+                <RegisterDocButton requestId={r.id} uploadId={d.uploadId} />
                 <Button
                   size="icon-xs"
                   variant="ghost"
@@ -610,5 +621,38 @@ function RejectForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (n
         </Button>
       </div>
     </div>
+  );
+}
+
+/** Penanda "Final" bila konsep ini sudah punya dokumen final (mis. naskah ber-TTD yang diambil dari SRIKANDI). */
+function FinalMark({ uploadId }: { uploadId: string }) {
+  const links = useOfficeLinkBadges([uploadId]);
+  return <DocumentLinkBadge link={links?.[uploadId]} />;
+}
+
+/** Dokumen pengajuan → Register Naskah Keluar SRIKANDI (entri baru terisi, atau buka entri yang sudah memakainya). */
+function RegisterDocButton({ requestId, uploadId }: { requestId: string; uploadId: string }) {
+  const navigate = useNavigate();
+  const { items } = useSrikandiOutgoings();
+  const existing = items.find((e) => e.file?.uploadId === uploadId);
+  return (
+    <Button
+      size="xs"
+      variant="outline"
+      title={
+        existing
+          ? "Buka entri Register Naskah Keluar dokumen ini"
+          : "Daftarkan dokumen ini ke SRIKANDI lewat Register Naskah Keluar"
+      }
+      onClick={() =>
+        navigate(
+          existing
+            ? deepLinks.srikandiRegister(existing.id)
+            : deepLinks.srikandiRegisterFromRequest(requestId, uploadId),
+        )
+      }
+    >
+      <Send /> {existing ? "Register" : "SRIKANDI"}
+    </Button>
   );
 }
