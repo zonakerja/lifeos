@@ -30,6 +30,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { fileHeaders } from "./file-headers";
 import { hashPublicToken } from "./public-links";
+import { UploadsService } from "./uploads.service";
 import {
   type GeoInfo,
   isPrivateIp,
@@ -39,6 +40,7 @@ import {
   parseGeo,
   shortUserAgent,
   VAULT_PATH,
+  vaultFilesToRelease,
 } from "./vault-logic";
 import { randomBytes } from "node:crypto";
 
@@ -100,6 +102,9 @@ export class UpdateVaultDto {
   assetIds?: string[];
 }
 
+/** Jumlah IP yang lokasinya diingat di memori. */
+const GEO_CACHE_MAX = 1000;
+
 interface Visitor {
   ip: string | null;
   userAgent: string | null;
@@ -114,7 +119,33 @@ export class PublicVaultsService {
     private readonly prisma: PrismaService,
     private readonly storage: ObjectStorageService,
     private readonly config: ConfigService,
+    private readonly uploads: UploadsService,
   ) {}
+
+  /**
+   * Unggahan khusus brankas yang tidak lagi ada di brankas mana pun ikut dihapus dari storage (tanpa ini berkas bukti
+   * yang dikeluarkan / brankas yang dihapus menjadi sampah). Lampiran item tidak disentuh. Gagal hapus = dicatat saja.
+   */
+  private async releaseFiles(user: AuthUser, assetIds: string[]) {
+    if (!assetIds.length) return;
+    const [assets, used] = await Promise.all([
+      this.prisma.asset.findMany({
+        where: { id: { in: assetIds } },
+        select: { id: true, userId: true, context: true },
+      }),
+      this.prisma.publicVaultFile.findMany({ where: { assetId: { in: assetIds } }, select: { assetId: true } }),
+    ]);
+    for (const id of vaultFilesToRelease(assets, user.id, new Set(used.map((u) => u.assetId)))) {
+      await this.uploads
+        .remove(id, user)
+        .catch((error) => this.logger.warn(`Berkas brankas ${id} tidak dihapus: ${(error as Error).message}`));
+    }
+  }
+
+  private async fileIds(vaultId: string) {
+    const rows = await this.prisma.publicVaultFile.findMany({ where: { vaultId }, select: { assetId: true } });
+    return rows.map((r) => r.assetId);
+  }
 
   /** Berkas brankas harus milik pemilik brankas (bukan berkas bersama milik orang lain). */
   private async ownAssets(userId: string, assetIds: string[]) {
@@ -150,9 +181,11 @@ export class PublicVaultsService {
     return { ...(await this.detail(userId, vault.id)), path: `${VAULT_PATH}${token}` };
   }
 
-  async update(userId: string, id: string, dto: UpdateVaultDto) {
+  async update(user: AuthUser, id: string, dto: UpdateVaultDto) {
+    const userId = user.id;
     await this.ownVault(userId, id);
     const ids = dto.assetIds ? await this.ownAssets(userId, dto.assetIds) : null;
+    const before = ids ? await this.fileIds(id) : [];
     await this.prisma.$transaction(async (tx) => {
       await tx.publicVault.update({
         where: { id },
@@ -166,6 +199,11 @@ export class PublicVaultsService {
         await tx.publicVaultFile.createMany({ data: ids.map((assetId, order) => ({ vaultId: id, assetId, order })) });
       }
     });
+    if (ids)
+      await this.releaseFiles(
+        user,
+        before.filter((assetId) => !ids.includes(assetId)),
+      );
     return this.detail(userId, id);
   }
 
@@ -180,10 +218,21 @@ export class PublicVaultsService {
     return { ...(await this.detail(userId, id)), path: `${VAULT_PATH}${token}` };
   }
 
-  async remove(userId: string, id: string) {
-    await this.ownVault(userId, id);
+  async remove(user: AuthUser, id: string) {
+    await this.ownVault(user.id, id);
+    const files = await this.fileIds(id);
     await this.prisma.publicVault.delete({ where: { id } });
+    await this.releaseFiles(user, files);
     return { success: true };
+  }
+
+  /** Brankas milik satu entri renaksi (entri dihapus setelah butirnya dihapus dari e-Kinerja). */
+  async removeForEntry(user: AuthUser, entryId: string, vaultId?: string) {
+    const vaults = await this.prisma.publicVault.findMany({
+      where: { userId: user.id, OR: [{ entryId }, ...(vaultId ? [{ id: vaultId }] : [])] },
+      select: { id: true },
+    });
+    for (const vault of vaults) await this.remove(user, vault.id);
   }
 
   async list(userId: string) {
@@ -291,6 +340,8 @@ export class PublicVaultsService {
     } catch (error) {
       this.logger.warn(`Lokasi IP tidak tersedia: ${(error as Error).message}`);
     }
+    // Cache dibatasi (pengunjung berbeda tak terbatas): entri tertua dibuang lebih dulu
+    if (this.geoCache.size >= GEO_CACHE_MAX) this.geoCache.delete(this.geoCache.keys().next().value!);
     this.geoCache.set(ip, { at: Date.now(), geo });
     return geo;
   }
@@ -388,7 +439,7 @@ export class PublicVaultsController {
   @UseGuards(JwtAuthGuard)
   @Patch("vaults/:id")
   update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateVaultDto) {
-    return this.vaults.update(user.id, id, dto);
+    return this.vaults.update(user, id, dto);
   }
 
   @ApiBearerAuth()
@@ -403,7 +454,7 @@ export class PublicVaultsController {
   @UseGuards(JwtAuthGuard)
   @Delete("vaults/:id")
   remove(@CurrentUser() user: AuthUser, @Param("id") id: string) {
-    return this.vaults.remove(user.id, id);
+    return this.vaults.remove(user, id);
   }
 
   @ApiBearerAuth()

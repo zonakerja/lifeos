@@ -1146,7 +1146,9 @@ halaman brankas.
 
 - Dialog renaksi → Bukti data dukung **Brankas digital** (bawaan bila item punya berkas): centang lampiran berkas item /
   unggah berkas baru → Simpan → tautan `<domain>/brankas/bv_<token>` menjadi `documentUrl` entri. Ubah berkas kemudian =
-  tautan sama (tidak perlu kirim ulang ke e-Kinerja). Batal = unggahan baru dibuang.
+  tautan sama (tidak perlu kirim ulang ke e-Kinerja). Batal = unggahan baru dibuang. Unggahan brankas yang dilepas centangnya,
+  berkas yang dikeluarkan dari brankas, dan isi brankas yang dihapus (entri dihapus / bukti diganti) ikut dihapus dari storage
+  bila tidak dipakai brankas lain; lampiran item tetap utuh (2026-11-01).
 - Laporan Kinerja → baris entri **Brankas · n berkas · dibuka n×** → dialog: tautan (salin/buka), berkas (pratinjau), **log akses**
   (waktu, aksi, berkas, IP, perkiraan lokasi, jaringan/ISP, peramban; jumlah IP berbeda), **Ganti tautan** (tautan lama mati;
   entri terkirim → status Berubah → Kirim perubahan).

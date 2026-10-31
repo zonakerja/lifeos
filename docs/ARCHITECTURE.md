@@ -520,7 +520,9 @@ Playwright, dan pola "sesi tersimpan + login manusia" dipakai bersama kedua sist
   `GEOIP_PROVIDER` = `ipapi` bawaan — layanan ipapi.co tanpa key, IP pengunjung dikirim ke sana, cache 24 jam, timeout 2,5 dtk,
   IP lokal/privat tidak dicari; `none` = hanya IP), peramban. Berkas brankas tidak bisa dihapus dari fitur lain
   (`DELETE /uploads/:id` → 409). Entri renaksi yang dihapus menghapus brankasnya (frontend; entri ber-tanda hapus dihapus server
-  setelah Kirim perubahan). Halaman publik SPA `/brankas/:token` (`features/vault/public-vault-page.tsx`) memuat
+  setelah Kirim perubahan, `removeForEntry`). Brankas dihapus / berkas dikeluarkan (`PATCH assetIds`) → unggahan khusus brankas
+  (context `renaksi-vault`) milik pemilik yang tidak dipakai brankas lain ikut dihapus (`vaultFilesToRelease` + test); lampiran
+  item dan berkas lain tidak disentuh. Cache lokasi IP maks. 1.000 IP. Halaman publik SPA `/brankas/:token` (`features/vault/public-vault-page.tsx`) memuat
   **Pemberitahuan Pelindungan Data Pribadi** (UU 27/2022 Pasal 65 jo. 67, hanya untuk atasan/penilai/PPK) + pemberitahuan
   pencatatan akses beserta IP/lokasi/peramban pengunjung itu.
 

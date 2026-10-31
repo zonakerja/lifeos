@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { isPrivateIp, locationLabel, normalizeIp, parseGeo, shortUserAgent } from "./vault-logic";
+import {
+  isPrivateIp,
+  locationLabel,
+  normalizeIp,
+  parseGeo,
+  shortUserAgent,
+  VAULT_UPLOAD_CONTEXT,
+  vaultFilesToRelease,
+} from "./vault-logic";
 
 describe("brankas digital — log akses", () => {
   it("IP dirapikan; IP lokal/privat/CGNAT dikenali", () => {
@@ -30,5 +38,19 @@ describe("brankas digital — log akses", () => {
       shortUserAgent("Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/139.0 Mobile Safari/537.36 Edg/139.0"),
     ).toBe("Edge 139 · Android");
     expect(shortUserAgent(null)).toBeNull();
+  });
+});
+
+describe("brankas digital — berkas yang dilepas", () => {
+  it("hanya unggahan khusus brankas milik pemilik yang tidak dipakai brankas lain", () => {
+    const removed = [
+      { id: "a", userId: "u1", context: VAULT_UPLOAD_CONTEXT },
+      { id: "b", userId: "u1", context: "schedule" },
+      { id: "c", userId: "u1", context: VAULT_UPLOAD_CONTEXT },
+      { id: "d", userId: "u2", context: VAULT_UPLOAD_CONTEXT },
+      { id: "e", userId: "u1", context: null },
+    ];
+    expect(vaultFilesToRelease(removed, "u1", new Set(["c"]))).toEqual(["a"]);
+    expect(vaultFilesToRelease([], "u1", new Set())).toEqual([]);
   });
 });

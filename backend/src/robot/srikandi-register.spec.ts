@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildRegisterFields, cleanAttachmentName, registerBlockers, type OutgoingEntry } from "./srikandi-register";
+import {
+  buildRegisterFields,
+  cleanAttachmentName,
+  registerBlockers,
+  registerSizeError,
+  type OutgoingEntry,
+} from "./srikandi-register";
 
 const entry: OutgoingEntry = {
   id: "reg-1",
@@ -40,5 +46,15 @@ describe("register SRIKANDI", () => {
     expect(fields.number).toBeUndefined();
     expect(fields.subject).toBe("Hal uji");
     expect(buildRegisterFields({ ...entry, formType: "final" }, []).verifiers).toEqual([]);
+  });
+});
+
+describe("register SRIKANDI — batas berkas", () => {
+  const MB = 1024 * 1024;
+  it("naskah & lampiran ≤ 5 MB, total lampiran ≤ 20 MB", () => {
+    expect(registerSizeError(5 * MB, [5 * MB, 5 * MB, 5 * MB, 5 * MB])).toBeNull();
+    expect(registerSizeError(5 * MB + 1, [])).toMatch(/naskah/);
+    expect(registerSizeError(1, [5 * MB + 1])).toMatch(/lampiran lebih/);
+    expect(registerSizeError(1, [5 * MB, 5 * MB, 5 * MB, 5 * MB, 1])).toMatch(/Total/);
   });
 });

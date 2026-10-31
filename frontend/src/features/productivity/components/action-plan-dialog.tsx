@@ -175,6 +175,12 @@ function ActionPlanForm({
   const { items: months } = useActionPlanMonths();
   // Bulan yang sudah diajukan / dinilai di e-Kinerja: entri yang ada tidak boleh diubah (data harus sama dengan e-Kinerja)
   const locked = !!entry && isLockedMonth(monthOf(months, entry.period, entry.skpId));
+  const savedStatus = entry
+    ? entryStatus(
+        entry,
+        targets.find((t) => t.id === entry.targetId),
+      )
+    : undefined;
 
   const year = isPeriod(period) ? periodYear(period) : today.getFullYear();
   // Bulan → SKP yang berlaku (bisa dua bila SKP dipecah di tengah bulan) → RHK-nya; tanpa SKP tersinkron → RHK manual
@@ -245,7 +251,12 @@ function ActionPlanForm({
       const id = entry?.id ?? generateId("renaksi");
       const resolved = await resolveDocument(id);
       const documentUrl = resolved.url;
-      for (const file of uploaded) untrackPendingUpload(file.id);
+      // Unggahan brankas yang tidak dipakai (dilepas centangnya / bukti bukan brankas) dibuang agar tidak jadi sampah
+      const kept = docChoice === VAULT ? vaultSelected : [];
+      for (const file of uploaded) {
+        untrackPendingUpload(file.id);
+        if (!kept.includes(file.id)) void uploadsApi.remove(file.id).catch(() => undefined);
+      }
       // Brankas lama yang tidak dipakai lagi (bukti diganti ke link lain) dihapus agar tautannya tidak lagi berlaku
       if (entry?.vaultId && resolved.vaultId !== entry.vaultId)
         void vaultsApi.remove(entry.vaultId).catch(() => undefined);
@@ -301,8 +312,8 @@ function ActionPlanForm({
       <FieldGroup className="grid grid-cols-1 gap-4">
         {entry?.status === "filled" && (
           <p className="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
-            Sudah terisi di e-Kinerja. Butir di e-Kinerja tidak bisa diubah: bila isi entri ini diubah lalu diisikan
-            lagi, robot menambah butir baru (butir lama dihapus lewat Edit Rencana Aksi Kerja di e-Kinerja).
+            Sudah terisi di e-Kinerja. Bila isinya diubah, entri ditandai Berubah dan baris indikatornya ditulis ulang
+            di e-Kinerja saat Anda menekan Kirim perubahan di Laporan Kinerja.
           </p>
         )}
         {source && (
@@ -506,7 +517,10 @@ function ActionPlanForm({
         </p>
       )}
       <DialogFooter>
-        {entry && <Badge className={STATUS_STYLE[entry.status]}>{STATUS_LABELS[entry.status]}</Badge>}
+        {entry && (
+          // Status dihitung ulang seperti di Laporan Kinerja (status tersimpan bisa tertinggal, mis. RHK baru tersinkron)
+          <Badge className={STATUS_STYLE[savedStatus!]}>{STATUS_LABELS[savedStatus!]}</Badge>
+        )}
         <Button variant="outline" onClick={cancel} disabled={saving}>
           Batal
         </Button>

@@ -87,6 +87,17 @@ export function registerBlockers(entry: OutgoingEntry): string[] {
   ].filter((v): v is string => !!v);
 }
 
+const MB = 1024 * 1024;
+
+/** Batas berkas formulir Registrasi SRIKANDI: naskah ≤ 5 MB, tiap lampiran ≤ 5 MB, total lampiran ≤ 20 MB. */
+export function registerSizeError(mainBytes: number, attachmentBytes: number[]) {
+  if (mainBytes > 5 * MB) return "File naskah lebih dari 5 MB (batas SRIKANDI).";
+  if (attachmentBytes.some((b) => b > 5 * MB)) return "Ada lampiran lebih dari 5 MB (batas SRIKANDI).";
+  if (attachmentBytes.reduce((sum, b) => sum + b, 0) > 20 * MB)
+    return "Total lampiran lebih dari 20 MB (batas SRIKANDI).";
+  return null;
+}
+
 /** Isian formulir tanpa berkas (berkas ditambahkan service setelah dibaca dari object storage). */
 export function buildRegisterFields(entry: OutgoingEntry, references: ReferenceLite[]) {
   const refs = new Map(references.map((r) => [r.id, r]));

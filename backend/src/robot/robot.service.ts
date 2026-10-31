@@ -54,8 +54,15 @@ import {
   safePdfName,
 } from "./srikandi-sync";
 import { UploadsService } from "../uploads/uploads.service";
+import { PublicVaultsService } from "../uploads/public-vaults";
 import { cleanReference, REFERENCE_CATEGORIES, referenceClientId, staleReferences } from "./srikandi-reference";
-import { buildRegisterFields, cleanAttachmentName, type OutgoingEntry, registerBlockers } from "./srikandi-register";
+import {
+  buildRegisterFields,
+  cleanAttachmentName,
+  type OutgoingEntry,
+  registerBlockers,
+  registerSizeError,
+} from "./srikandi-register";
 
 /** Tag konteks Resource Global untuk dokumen final bertanda tangan (sama dengan frontend `FINAL_CONTEXT_TAG`). */
 const FINAL_CONTEXT_TAG = "Dokumen Final";
@@ -67,6 +74,9 @@ interface LiveLogin {
   system: RobotSystem;
   startedAt: number;
 }
+
+/** Batas umur sesi login jarak jauh di memori backend. */
+const LOGIN_TTL_MS = 60 * 60 * 1000;
 
 const asList = (value: unknown) =>
   Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
@@ -104,6 +114,7 @@ export class RobotService {
     private readonly records: RecordsService,
     private readonly uploads: UploadsService,
     private readonly storage: ObjectStorageService,
+    private readonly vaults: PublicVaultsService,
   ) {
     this.crypto = new AiCrypto(robotSessionKey(config.getOrThrow<string>("AI_ENCRYPTION_KEY")));
     const credentialKey = config.get<string>("CREDENTIAL_ENCRYPTION_KEY");
@@ -163,6 +174,7 @@ export class RobotService {
    * `captcha`/`otp` = pengguna mengetik jawabannya (`answer`); `done` = sesi langsung disimpan.
    */
   async autoLogin(userId: string, system: string) {
+    this.pruneLogins();
     const connector = await this.connector(userId, system);
     this.requireUrl(connector);
     const credentials = this.credentials(connector);
@@ -240,10 +252,13 @@ export class RobotService {
     const rows = await this.prisma.robotConnector.findMany({ where: { userId } });
     const result = [];
     for (const system of ROBOT_SYSTEMS) {
+      // upsert: dua permintaan pertama yang bersamaan tidak bentrok membuat baris yang sama
       const row =
         rows.find((r) => r.system === system) ??
-        (await this.prisma.robotConnector.create({
-          data: { userId, system, baseUrl: SYSTEM_INFO[system].defaultUrl },
+        (await this.prisma.robotConnector.upsert({
+          where: { userId_system: { userId, system } },
+          create: { userId, system, baseUrl: SYSTEM_INFO[system].defaultUrl },
+          update: {},
         }));
       result.push(this.view(row));
     }
@@ -283,7 +298,14 @@ export class RobotService {
 
   // ---------------------------------------------------------------- Login jarak jauh
 
+  /** Sesi login yang ditinggalkan (tab ditutup tanpa Selesai/Batal) dibuang dari memori; robot menutupnya sendiri. */
+  private pruneLogins() {
+    const limit = Date.now() - LOGIN_TTL_MS;
+    for (const [id, live] of this.logins) if (live.startedAt < limit) this.logins.delete(id);
+  }
+
   async startLogin(userId: string, system: string) {
+    this.pruneLogins();
     const connector = await this.connector(userId, system);
     this.requireUrl(connector);
     const page = await this.robot.startSession(this.target(connector));
@@ -602,7 +624,7 @@ export class RobotService {
           if (result.status === "filled") {
             await this.records.remove("action_plan_entry", entry.id, {}, user);
             // Brankas bukti entri yang dihapus ikut dihapus: tautannya tidak lagi dirujuk e-Kinerja
-            await this.prisma.publicVault.deleteMany({ where: { userId: user.id, entryId: entry.id } });
+            await this.vaults.removeForEntry(user, entry.id, (entry as { vaultId?: string }).vaultId);
           }
           continue;
         }
@@ -664,7 +686,8 @@ export class RobotService {
     const months: { skp: string; period: string; status: string; submittedAt?: string }[] = [];
     for (const skp of list) {
       const read = await this.readRenaksiMonths(user, connector, skp);
-      imported += await this.applyRenaksiSnapshot(user, skp, read.months);
+      const importedHere = await this.applyRenaksiSnapshot(user, skp, read.months);
+      imported += importedHere;
       for (const m of read.months) {
         months.push({
           skp: skp.externalId!,
@@ -674,7 +697,7 @@ export class RobotService {
         });
       }
       await this.log(user.id, connector.id, "sync", read, {
-        note: `Rencana Aksi SKP ${skp.externalId}: ${read.months.length} bulan terbaca, ${imported} entri diimpor`,
+        note: `Rencana Aksi SKP ${skp.externalId}: ${read.months.length} bulan terbaca, ${importedHere} entri diimpor`,
       });
     }
     return { year, skps: list.length, imported, months };
@@ -963,6 +986,17 @@ export class RobotService {
     const references = (await this.records.findMany("srikandi_reference", {}, user))
       .filter((r) => !r.share)
       .map((r) => r.payload as unknown as { id: string; label: string; fields?: Record<string, string> });
+    // Batas formulir SRIKANDI diperiksa sebelum berkas dibaca ke memori (robot juga menolaknya)
+    const sizes = await this.prisma.asset.findMany({
+      where: { id: { in: [entry.file!, ...(entry.attachments ?? [])].map((f) => f.uploadId) } },
+      select: { id: true, size: true },
+    });
+    const sizeOf = (id: string) => sizes.find((s) => s.id === id)?.size ?? 0;
+    const sizeError = registerSizeError(
+      sizeOf(entry.file!.uploadId),
+      (entry.attachments ?? []).map((a) => sizeOf(a.uploadId)),
+    );
+    if (sizeError) throw new BadRequestException(sizeError);
     const loadFile = async (file: { uploadId: string; name: string }, attachment: boolean) => {
       const { asset } = await this.uploads.findWithPermission(file.uploadId, user);
       const buffer = await this.storage.getObjectBuffer(asset.objectKey);

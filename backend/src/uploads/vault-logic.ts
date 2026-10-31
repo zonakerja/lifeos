@@ -5,6 +5,22 @@
 
 export const VAULT_PATH = "/brankas/";
 export const MAX_VAULT_FILES = 30;
+/** Context upload berkas yang diunggah khusus untuk brankas (bukan lampiran item) — sama dengan frontend. */
+export const VAULT_UPLOAD_CONTEXT = "renaksi-vault";
+
+/**
+ * Berkas yang dilepas dari brankas (brankas dihapus / isinya diganti) dan boleh ikut dihapus dari storage: hanya unggahan
+ * khusus brankas milik pemilik brankas yang tidak dipakai brankas lain. Lampiran item & berkas lain tetap utuh.
+ */
+export function vaultFilesToRelease(
+  removed: { id: string; userId: string; context: string | null }[],
+  ownerId: string,
+  stillUsed: ReadonlySet<string>,
+) {
+  return removed
+    .filter((a) => a.userId === ownerId && a.context === VAULT_UPLOAD_CONTEXT && !stillUsed.has(a.id))
+    .map((a) => a.id);
+}
 
 /** Alamat IP dari Express (`req.ip` sudah memperhitungkan `trust proxy`); bentuk IPv4-mapped dirapikan. */
 export function normalizeIp(ip: string | undefined | null) {
