@@ -7,6 +7,7 @@ import {
   BookOpenText,
   BookUser,
   Bot,
+  CalendarClock,
   BotMessageSquare,
   CalendarDays,
   CalendarRange,
@@ -209,7 +210,7 @@ export const MODULES: ModuleDef[] = [
     key: "tools",
     label: "Tools",
     description:
-      "Alat bantu kerja yang dipakai di seluruh aplikasi: editor dokumen ONLYOFFICE, basis pengetahuan, dan indeks pengetahuan AI (RAG).",
+      "Alat bantu kerja yang dipakai di seluruh aplikasi: editor dokumen ONLYOFFICE, basis pengetahuan, indeks pengetahuan AI (RAG), dan jadwal otomasi robot.",
     path: "/tools",
     icon: Wrench,
     sidebarSubmenu: true,
@@ -218,6 +219,7 @@ export const MODULES: ModuleDef[] = [
       { id: "onlyoffice", label: "ONLYOFFICE", icon: FilePen },
       { id: "knowledge", label: "Basis Pengetahuan", icon: Library },
       { id: "index", label: "Indeks Pengetahuan", icon: DatabaseZap },
+      { id: "automation", label: "Otomasi", icon: CalendarClock },
     ],
   },
   {

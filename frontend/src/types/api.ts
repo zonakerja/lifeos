@@ -897,6 +897,62 @@ export interface RobotRun {
   aria?: string | null;
 }
 
+// ---------------------------------------------------------------- Otomasi terjadwal (Tools → Otomasi)
+
+export type AutomationKind =
+  | "ekinerja_session"
+  | "ekinerja_skp"
+  | "ekinerja_renaksi"
+  | "srikandi_session"
+  | "srikandi_letters"
+  | "srikandi_references"
+  | "srikandi_classifications";
+export type AutomationTimezone = "Asia/Jakarta" | "Asia/Makassar" | "Asia/Jayapura";
+
+export type AutomationSchedule =
+  | { mode: "daily"; time: string; days: number[]; timezone: AutomationTimezone }
+  | { mode: "hourly"; minute: number; from: number; to: number; days: number[]; timezone: AutomationTimezone }
+  | { mode: "cron"; pattern: string; timezone: AutomationTimezone };
+
+export type AutomationRunStatus = "queued" | "running" | "ok" | "failed" | "skipped";
+
+export interface AutomationJob {
+  kind: AutomationKind;
+  system: RobotSystem;
+  label: string;
+  enabled: boolean;
+  schedule: AutomationSchedule;
+  cron: string;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastStatus: "ok" | "failed" | "skipped" | null;
+  lastMessage: string | null;
+  activeRun: { id: string; status: "queued" | "running"; createdAt: string } | null;
+}
+
+/** Hal robot yang perlu ditindaklanjuti (lonceng & toast). `id` berubah bila kejadiannya baru. */
+export interface AutomationAlert {
+  id: string;
+  kind: "session_expired" | "session_missing" | "job_failed";
+  system: RobotSystem;
+  title: string;
+  message: string;
+  at: string | null;
+  path: string;
+}
+
+export interface AutomationRun {
+  id: string;
+  kind: AutomationKind;
+  /** schedule = jadwal, manual = "Jalankan sekarang", button = tombol sinkron di menu asal */
+  trigger: "schedule" | "manual" | "button";
+  status: AutomationRunStatus;
+  message: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
 export interface RobotPageInfo {
   url: string;
   title: string;

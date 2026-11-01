@@ -13,11 +13,14 @@ import { OfficeEditorHost } from "@/features/tools/onlyoffice/office-editor-host
 import { GlobalSearchButton } from "@/features/assistant/global-search";
 import { FocusModeButton } from "@/features/focus/focus-mode";
 import { NotificationsPopover } from "@/features/overview/components/notifications-popover";
+import { useRobotAlertToasts } from "@/features/tools/automation/robot-alerts";
 
 export function AppShell() {
   useProfileSync();
   // Berkas yang diunggah tetapi tidak jadi disimpan (reload / tutup tab) dibersihkan dari storage
   usePendingUploadsJanitor();
+  // Sesi robot kedaluwarsa / tugas otomatis gagal → toast (+ notifikasi browser bila diizinkan)
+  useRobotAlertToasts();
 
   return (
     <SidebarProvider>

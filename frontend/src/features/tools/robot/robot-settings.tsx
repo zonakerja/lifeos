@@ -31,6 +31,7 @@ import { robotApi } from "@/lib/api/endpoints";
 import { formatDateTime } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { RobotConnector } from "@/types/api";
+import { AutomationJobs } from "../automation/automation-settings";
 import { AutoLoginDialog } from "./auto-login-dialog";
 import { CredentialsDialog } from "./credentials-dialog";
 import { RemoteBrowserDialog } from "./remote-browser-dialog";
@@ -67,6 +68,7 @@ export function RobotSettings({ systems }: { systems?: RobotConnector["system"][
             />
           ))
       )}
+      <AutomationJobs systems={systems} />
       <RemoteBrowserDialog
         connector={remote?.connector ?? null}
         sessionId={remote?.sessionId}

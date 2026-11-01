@@ -536,6 +536,36 @@ token akses pribadi pemilik di `/opt/data/.env`). Backend `AgentService`: status
 isolasi data, log aktivitas, dan aturan "agen tidak memutuskan" berlaku sama. Data Hermes (model, memori, sesi) di volume
 `hermes-data`, bukan database LifeOS.
 
+### 3.12 Otomasi terjadwal (`src/automation/`, Tools → Otomasi)
+
+Jadwal sinkron robot **baca-saja** per user: e-Kinerja (Ambil SKP & RHK, Pantau Rencana Aksi) dan SRIKANDI (Daftar Naskah
+Keluar, referensi, klasifikasi arsip). Pengisian Renaksi & pendaftaran naskah **tidak** bisa dijadwalkan.
+- **Sumber kebenaran** = tabel `automation_jobs` (satu baris per user per jenis, `schedule` jsonb terstruktur: `daily`
+  (jam + hari) / `hourly` (menit, jam mulai–selesai, hari) / `cron` (menit harus satu angka) + zona waktu WIB/WITA/WIT;
+  baris bawaan dibuat nonaktif dengan jadwal bawaan). Logika murni + test `automation-logic.ts` (`parseSchedule`, `toCron`,
+  `DEFAULT_SCHEDULES`). Semua bentuk dibatasi **paling sering sekali per jam**.
+- **Pelaksana** = BullMQ (bukan n8n / cron OS): antrian `automation`, job scheduler `auto:<userId>:<kind>` (pola cron + `tz`),
+  disamakan dengan tabel saat backend start (`reconcile`). Worker **concurrency 1** untuk semua user, satu percobaan (tidak
+  mengulang otomatis ke sistem pemerintah), `lockDuration` 10 menit.
+- **Kunci per user + sistem** di `RobotService.exclusive` (memori, satu proses backend): tugas kedua pada sistem yang sama
+  ditolak 409 — tombol saat jadwal berjalan mendapat pesan "sedang menjalankan …", jadwal yang bertabrakan dicatat
+  **Dilewati**. Pengisian Renaksi & pendaftaran naskah ikut memakai kunci yang sama.
+- **Pemicu**: jadwal (`schedule`), "Jalankan sekarang" (`manual`, lewat antrian yang sama) dan tombol sinkron di menu asal
+  (`button`, tetap sinkron seperti sebelumnya; dicatat lewat kait `RobotService.onJobFinished`). Riwayat `automation_runs`
+  (50 terakhir per jenis), ringkasan terakhir di `automation_jobs.last_*`. Run "berjalan" saat backend restart → gagal.
+- API: `GET /automation/jobs`, `PATCH /automation/jobs/:kind { enabled?, schedule? }`, `POST /automation/jobs/:kind/run`
+  (202), `GET /automation/runs?kind=&take=`.
+- Frontend: `features/tools/automation/` (`AutomationSettings` = tab Tools → Otomasi, `AutomationJobs systems?` juga di tab
+  Connector Laporan Kinerja & SRIKANDI), hook `data/use-automation.ts` (poll 3 dtk selama ada run aktif; run selesai →
+  record terkait dimuat ulang, `KIND_RECORDS`).
+- **Sesi**: `storageState` disimpan terenkripsi di `robot_connectors` dan diperbarui setiap tugas robot (`saveState`). Jenis
+  `*_session` (**Jaga sesi login**) membuka sistem dengan sesi tersimpan agar cookie diperbarui dan sesi habis cepat diketahui.
+  Sesi belum ada / kedaluwarsa → worker **melewati** tugas sistem itu (tidak membuka halaman login berulang kali) sampai user
+  login ulang (CAPTCHA/OTP tetap diketik user).
+- **Notifikasi**: `GET /automation/alerts` (`automationAlerts`: sesi kedaluwarsa, jadwal aktif tanpa sesi, tugas aktif gagal)
+  → bagian **Robot & Otomasi** di lonceng, toast sekali per kejadian, dan notifikasi browser bila diizinkan.
+- Syarat berjalan: backend + Redis + service robot menyala pada jam jadwal dan sesi Connector masih berlaku.
+
 ### Keamanan
 - **Access token** JWT 15 menit, dikirim via header `Authorization`, hanya disimpan di memori frontend.
 - **Refresh token** JWT (`jti` = `refresh_tokens.id`, DB hanya menyimpan hash SHA-256) dikirim sebagai cookie

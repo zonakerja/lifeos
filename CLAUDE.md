@@ -346,6 +346,19 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   buka/lihat/unduh dicatat (IP, perkiraan lokasi via env `GEOIP_PROVIDER` ipapi|none, peramban); berkas brankas → `DELETE /uploads` 409.
   Brankas dihapus / berkas dikeluarkan → unggahan khusus brankas (context `renaksi-vault`) yang tidak dipakai brankas lain ikut
   dihapus (`vaultFilesToRelease`); lampiran item tidak disentuh. Hapus entri renaksi dari robot → `PublicVaultsService.removeForEntry`.
+- **Otomasi terjadwal** (`src/automation/`, detail `docs/ARCHITECTURE.md` §3.12): jadwal sinkron robot **baca-saja** per user
+  (`automation_jobs` = sumber kebenaran, `schedule` jsonb daily/hourly/cron + zona waktu, maks. sekali per jam; logika murni +
+  test `automation-logic.ts`) → job scheduler BullMQ `auto:<userId>:<kind>` di antrian `automation` (disamakan dengan tabel saat
+  start), worker concurrency 1, satu percobaan. Jenis = `ROBOT_JOB_KINDS` (`robot/robot-jobs.ts`): `*_session` (**Jaga
+  sesi login** = `RobotService.check`: sesi dibuka → `storageState` terbaru disimpan ulang terenkripsi; sesi habis = gagal),
+  `ekinerja_skp`, `ekinerja_renaksi`, `srikandi_letters`, `srikandi_references`, `srikandi_classifications`; isi Renaksi &
+  daftarkan naskah **tidak** dijadwalkan. Sesi belum ada / `status = expired` → worker **melewati** tugas sistem itu tanpa
+  membuka sistem (`pauseReason`), jalan lagi sendiri setelah login ulang. **Notifikasi** `GET /automation/alerts`
+  (`automationAlerts` + test: `session_expired` / `session_missing` (jadwal aktif tanpa sesi) / `job_failed`; tanpa membuat
+  baris konektor). `RobotService.exclusive` = kunci per user + sistem (409 bila sistem sedang dipakai tugas lain; jadwal
+  yang bertabrakan → `skipped`); method sinkron publik = pembungkus tipis (`job(...)`) atas `read*` privat dan menerima
+  `trigger` (`button` bawaan). Riwayat `automation_runs` (schedule | manual | button, 50 terakhir); tombol menu asal dicatat
+  lewat `RobotService.onJobFinished`. `/automation/jobs`, `PATCH /automation/jobs/:kind`, `POST …/:kind/run`, `/automation/runs`.
 - **Database**: tabel & kolom snake_case (`@@map/@map`), timestamptz(3), FK `users` cascade. 28 tabel domain
   (agenda_types, schedules, routines, todos, routine_completions, free_notes, ai_notes, note_lists, areas, projects,
   activities, tasks, resources, para_archives, para_archive_logs, archive_classifications, archive_retention_schedules,
@@ -377,7 +390,7 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `20261025160000_srikandi_letters` (record type `srikandi_letter`) + `20261025170000_srikandi_references` (record type
   `srikandi_reference`) + `20261031120000_srikandi_outgoing` (record type `srikandi_outgoing` — Register Naskah Keluar) + `20261031130000_action_plan_months`
   (record type `action_plan_month` — potret bulan Rencana Aksi e-Kinerja) + `20261031140000_public_vaults` (brankas digital + log
-  akses). Migrasi baru → lihat docs/SETUP.md §10
+  akses) + `20261101120000_automation_jobs` (jadwal & riwayat otomasi). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
@@ -755,6 +768,16 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `div min-h-0 flex-1 overflow-y-auto`, footer `shrink-0` — jangan `ScrollArea` dengan `max-h` saja (lihat §15).
   **Mode Fokus** (`features/focus/focus-mode.tsx`): judul, keterangan, ikon dialog & tombol header mengikuti sesi yang
   dipilih (`MODE_META`: Mode Fokus / Waktu Rehat / Waktu Istirahat).
+- **Tools → Otomasi** (tab `automation`, `features/tools/automation/`, hook `data/use-automation.ts`, logika murni + test
+  `automation-utils.ts`): `AutomationSettings` (penjelasan + semua jadwal) dan `AutomationJobs systems?` (juga dipasang di
+  `RobotSettings` → tab Connector Laporan Kinerja & SRIKANDI): sakelar aktif, ringkasan jadwal (`describeSchedule`) +
+  berikutnya, status terakhir (+ **Login ulang** bila gagal karena sesi), **Ubah jadwal** (Harian/mingguan · Tiap jam ·
+  Kustom cron, hari, zona waktu), **Jalankan sekarang** (antrian), **Riwayat**. Daftar di-poll 3 dtk selama ada run aktif;
+  run yang baru selesai memuat ulang record terkait (`KIND_RECORDS`). Tombol sinkron di menu asal tidak berubah. Peringatan
+  per sistem: sesi kedaluwarsa (merah, jadwal dijeda) / belum login. **Notifikasi robot** (`robot-alerts.tsx`, hook
+  `useAutomationAlerts` dipoll 2 menit): bagian **Robot & Otomasi** paling atas di lonceng, toast sekali per kejadian
+  (`useRobotAlertToasts` di AppShell; ID yang sudah tampil di localStorage `lifeos.robotAlerts.seen.<userId>`, `newAlerts`),
+  notifikasi browser opsional saat tab tidak dilihat (tombol **Aktifkan notifikasi browser** di Otomasi).
 - **Tools → ONLYOFFICE** (`features/tools/`, detail: `docs/ONLYOFFICE.md` §3.3): modul `tools` ber-sub-menu di sidebar
   (`ModuleDef.sidebarSubmenu` → `SubmenuModuleItem`, juga dipakai Pengaturan; sub menu baru = tab baru di `navigation.ts`).
   Editor dibuka dari mana saja lewat `openOfficeEditor({ uploadId, name?, mode? })` (`OfficeEditorHost` di AppShell, editor
@@ -983,6 +1006,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
   sungguhan belum terlihat** karena Gemini 503 high demand saat uji). **Audit & uji menyeluruh fitur AI Agent ✅ 2026-11-01**
   (Asisten Agen, Laporan Kinerja + brankas, SRIKANDI, robot: 6 perbaikan, unit +2, uji API brankas 5/5, UI desktop & HP;
   sistem e-Kinerja/SRIKANDI sungguhan tidak disentuh). **Brankas digital bukti renaksi ✅ 2026-10-31** (satu tautan per poin, beberapa berkas, pemberitahuan PDP, log akses IP + lokasi; unit backend +3, frontend +2, smoke +11, UI diuji: halaman publik, dialog brankas, ubah berkas, hapus entri → tautan mati). **Register Naskah Keluar SRIKANDI — bagian LifeOS ✅ 2026-10-31** (riset formulir resmi, tab Register, tautan final; unit +9, smoke +2, UI diuji desktop & HP; **robot pendaftaran ✅** — diuji ke SRIKANDI sungguhan: simpan konsep, anti-ganda, konsep uji dihapus; unit robot +4, backend +3, smoke +1). Berikutnya skill `penetapan-psp` (menunggu contoh dokumen user, C5) / 5b OnTrack / Register: Naskah Banyak & E-Form / pesan templat WA |
+| Otomasi terjadwal (cron BullMQ, Tools → Otomasi + tab Connector): sinkron baca-saja e-Kinerja & SRIKANDI, jadwal diatur dari UI, Jalankan sekarang, riwayat, tombol manual tetap; **Jaga sesi login** + jadwal dijeda saat sesi kedaluwarsa + notifikasi (lonceng, toast, browser) | ✅ 2026-11-01 — unit backend +11 & frontend +5, smoke +15 (user sementara tanpa sesi → sistem pemerintah tidak disentuh), lint, typecheck, build, UI desktop & HP; **jadwal di akun admin masih nonaktif** (dinyalakan user); run terjadwal ke sistem sungguhan belum diamati |
 | Productivity lanjutan: modal Project/Area lega, kartu ringkas, File Control opt-in, tag bebas Resource Global & lampiran | ✅ 2026-10-12–15 — unit test, lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Audit celah Productivity (8 temuan + 2 temuan saat uji): arsip yang sudah diberkaskan dikunci dari tab Resources, sumber My Notebook dilindungi di dialog hapus, item Area berlampiran & berdeskripsi, ubah lampiran, agenda berulang digabung per seri, form Area di-`key`, tag terhapus tidak kembali, filter & Kelola Tag, tag Musnah/Statis terkunci, tanggal bawaan lokal | ✅ 2026-10-18 — unit test (frontend 190+), lint, typecheck, build, UI diuji di browser dengan data `UJI-AUDIT` (dibersihkan) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
@@ -1634,6 +1658,17 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   batas berkas (naskah/lampiran ≤ 5 MB, total lampiran ≤ 20 MB) diperiksa backend sebelum berkas dibaca ke memori;
   (4) sesi login jarak jauh yang ditinggalkan dibuang dari memori setelah 1 jam; (5) konektor dibuat lewat upsert (dua
   permintaan pertama tidak bentrok); (6) cache lokasi IP brankas dibatasi 1.000 entri, catatan log Pantau per SKP.
+- 2026-11-01 — **Otomasi terjadwal di dalam LifeOS** (permintaan user). Penjadwal BullMQ yang dikelola dari UI
+  (Tools → Otomasi, tanpa layanan baru): e-Kinerja tiap pagi,
+  Daftar Naskah Keluar tiap jam kerja 07–17, referensi tiap pagi, klasifikasi mingguan — semua bawaan **nonaktif** sampai user
+  menyalakan. Hanya tugas baca-saja yang boleh dijadwalkan; maks. sekali per jam; satu tugas sekaligus; tidak mengulang
+  otomatis. Tombol sinkron & "Jalankan sekarang" tetap ada; kunci per sistem mencegah dua tugas memakai sesi yang sama.
+  "Daftar register naskah" ditafsirkan sebagai **Daftar Naskah Keluar** (status Register Naskah Keluar belum dibaca dari
+  SRIKANDI — belum ada alur robotnya). Lanjutan (permintaan user: sesi tersimpan + notifikasi saat kedaluwarsa): sesi sudah
+  disimpan terenkripsi dan diperbarui setiap run; ditambah tugas **Jaga sesi login** per sistem (bawaan tiap jam kerja menit
+  ke-30, nonaktif), jadwal sistem yang sesinya kedaluwarsa **dijeda** (dilewati tanpa membuka halaman login sistem pemerintah),
+  dan notifikasi di lonceng + toast + notifikasi browser opsional. CAPTCHA/OTP tetap diketik user, jadi login ulang tidak
+  diotomatiskan.
 
 ## 13. Konvensi Kode
 
@@ -1760,6 +1795,12 @@ mengirim formulir); kenali hasil simpan dari isi tabel (ID terenkripsi bisa acak
 **Menambah hak akses grup bot WhatsApp** (mis. data OnTrack per grup): kolom boolean baru di `ContactGroup` + migrasi,
 DTO `GroupDto`, `groupAccessSummary` & form grup (frontend), lalu periksa hak itu di `WhatsappService.process` — data
 selalu disaring dengan `contact.group.code` dari database, **jangan** dari isi pesan/argumen model.
+
+**Menambah tugas otomasi terjadwal**: hanya tugas yang **membaca** sistem asal. Jenis baru di `ROBOT_JOB_KINDS` + `ROBOT_JOBS`
++ `summarizeRobotJob` (`robot/robot-jobs.ts`), method publik dibungkus `this.job(user, kind, trigger, …)`, jadwal bawaan di
+`DEFAULT_SCHEDULES`, cabang `dispatch` di `automation-worker.service.ts`; frontend `AutomationKind` (`types/api.ts`),
+`KIND_INFO` & `KIND_RECORDS` (`automation-utils.ts`). Tugas non-robot kelak: tambahkan cabang `dispatch` sendiri (tetap lewat
+service aplikasi). Tanpa migrasi (kolom `kind` teks).
 
 **Menambah skill Hermes**: folder `agents/hermes/skills/<nama-skill>/SKILL.md` (frontmatter `name` = nama folder, huruf
 kecil + tanda hubung, `description` = kapan dipakai) → langkah kerja memakai alat MCP `lifeos` (lihat
@@ -1994,6 +2035,10 @@ utama tetap < 500 kB (cek output `npm run build`).
   di produksi (Caddy + `TRUST_PROXY=true`).
 - Tes AI sungguhan lewat `javascript_tool` (panel tersembunyi): satu panggilan maks. ± 45 detik → tunggu bertahap
   (beberapa panggilan `await` 30–40 detik), jangan satu loop panjang.
+- Kunci robot (`RobotService.exclusive`) dan sesi login jarak jauh ada di **memori satu proses backend** — jangan menjalankan
+  backend lebih dari satu instans (kunci tidak berlaku lintas proses). Menguji "Jalankan sekarang" / menyalakan jadwal di akun
+  yang punya sesi Connector = robot membuka SRIKANDI/e-Kinerja sungguhan → uji pakai user tanpa sesi (smoke) kecuali user
+  mengizinkan. Jadwal yang dinyalakan saat uji wajib dimatikan lagi (cek `automation_jobs.enabled` & Redis `bull:automation:repeat*`).
 
 ## 16. Memori & Kesinambungan Antar-Chat
 

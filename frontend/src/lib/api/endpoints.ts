@@ -7,6 +7,11 @@ import type {
   PublicVaultView,
   VaultAccess,
   VaultDetail,
+  AutomationAlert,
+  AutomationJob,
+  AutomationKind,
+  AutomationRun,
+  AutomationSchedule,
   RobotConnector,
   RobotInput,
   RobotLoginStep,
@@ -483,6 +488,16 @@ export const agentApi = {
     request<{ runId: string; status: string }>("/agent/chat", { method: "POST", body: { message, conversation } }),
   runSkill: (requestId: string, skill: string) =>
     request<{ runId: string; status: string }>(`/agent/requests/${requestId}/run`, { method: "POST", body: { skill } }),
+};
+
+/** Tools → Otomasi: jadwal sinkron robot (baca-saja) + riwayat. */
+export const automationApi = {
+  jobs: () => request<AutomationJob[]>("/automation/jobs"),
+  alerts: () => request<AutomationAlert[]>("/automation/alerts"),
+  update: (kind: AutomationKind, input: { enabled?: boolean; schedule?: AutomationSchedule }) =>
+    request<AutomationJob>(`/automation/jobs/${kind}`, { method: "PATCH", body: input }),
+  run: (kind: AutomationKind) => request<AutomationRun>(`/automation/jobs/${kind}/run`, { method: "POST" }),
+  runs: (kind: AutomationKind, take = 20) => request<AutomationRun[]>(`/automation/runs?kind=${kind}&take=${take}`),
 };
 
 export const robotApi = {

@@ -18,6 +18,7 @@ import { RecordsModule } from "./records/records.module";
 import { RequestsModule } from "./requests/requests.module";
 import { RobotModule } from "./robot/robot.module";
 import { AgentModule } from "./agent/agent.module";
+import { AutomationModule } from "./automation/automation.module";
 import { WhatsappModule } from "./whatsapp/whatsapp.module";
 import { RedisModule } from "./redis/redis.module";
 import { SettingsModule } from "./settings/settings.module";
@@ -50,6 +51,7 @@ import { UsersModule } from "./users/users.module";
     WhatsappModule,
     RobotModule,
     AgentModule,
+    AutomationModule,
     NotebooksModule,
     OfficeModule,
   ],

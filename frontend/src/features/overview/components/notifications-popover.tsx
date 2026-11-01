@@ -7,6 +7,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Progress } from "@/components/ui/progress";
 import { useProjects, useProjectTasks, useSchedules, useTodos } from "@/data/collections";
 import { useIncomingShares } from "@/data/use-sharing";
+import { useAutomationAlerts } from "@/data/use-automation";
+import { RobotAlertsSection } from "@/features/tools/automation/robot-alerts";
 import { scheduleStart } from "@/features/planner/lib/planner-logic";
 import { useToday } from "@/hooks/use-today";
 import { formatDayMonth, formatNumericDate, formatRelative, parseLocalYMD } from "@/lib/dates";
@@ -25,7 +27,10 @@ import { agendaTimeLabel } from "../lib/overview-logic";
 /** Maksimal tugas terlambat yang dirinci (sisanya diarahkan ke Planner Harian). */
 const OVERDUE_LIMIT = 5;
 
-/** Lonceng notifikasi: agenda 3 hari ke depan, tugas terlambat, pengingat deadline project, item baru dibagikan. */
+/**
+ * Lonceng notifikasi: robot & otomasi (sesi kedaluwarsa, tugas gagal), agenda 3 hari ke depan, tugas terlambat, pengingat
+ * deadline project, item baru dibagikan.
+ */
 export function NotificationsPopover() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
@@ -35,12 +40,13 @@ export function NotificationsPopover() {
   const { items: tasks } = useProjectTasks();
   const { items: todos } = useTodos();
   const { data: incoming } = useIncomingShares();
+  const { data: robotAlerts = [] } = useAutomationAlerts();
 
   const agenda = upcomingSchedules(schedules, today);
   const overdue = overdueReminders(todos, tasks, today);
   const reminders = projectReminders(projects, tasks, today);
   const shared = recentIncomingShares(incoming ?? [], today);
-  const total = agenda.length + overdue.length + reminders.length + shared.length;
+  const total = robotAlerts.length + agenda.length + overdue.length + reminders.length + shared.length;
 
   const go = (path: string) => {
     setOpen(false);
@@ -68,7 +74,9 @@ export function NotificationsPopover() {
       >
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="flex flex-col gap-4 p-4">
-            <section className="flex flex-col gap-2">
+            {/* Paling atas: perlu ditindaklanjuti segera (jadwal robot dijeda selama sesi kedaluwarsa) */}
+            <RobotAlertsSection alerts={robotAlerts} onOpen={go} />
+            <section className={cn("flex flex-col gap-2", robotAlerts.length > 0 && "border-t pt-4")}>
               <h3 className="flex items-center justify-between text-sm font-bold">
                 Agenda (3 Hari) <Badge className="bg-mod-planner/15 text-mod-planner">{agenda.length}</Badge>
               </h3>

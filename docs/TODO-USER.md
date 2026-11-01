@@ -300,6 +300,17 @@ naskah ber-TTD, dan mengisi rencana aksi bulanan e-Kinerja. Agar bisa, robot but
   lalu tekan **Kirim Konsep sendiri** — robot tidak pernah mengirim. Setelah ditandatangani: **Daftar Naskah Keluar → Ambil
   dari SRIKANDI**, lalu di Register klik **Tautkan final**.
 
+**Jadwal otomatis** (Tools → **Otomasi**, juga di bawah tab Connector):
+- [ ] Nyalakan sakelar jadwal yang Anda inginkan. Jadwal bawaan sudah terisi: Ambil SKP & RHK setiap hari 07.00, Pantau
+  Rencana Aksi setiap hari 07.05, Daftar Naskah Keluar tiap jam 07.00–17.00 Senin–Jumat, referensi setiap hari 07.00,
+  klasifikasi setiap Senin 07.00 (semua WIB). Ubah lewat **Ubah jadwal** bila perlu.
+- [ ] Pada jam jadwal laptop/server, Docker, dan robot harus menyala. Bila baris jadwal menampilkan **Gagal … sesi
+  kedaluwarsa**, klik **Login ulang** (CAPTCHA/OTP Anda ketik) — jadwal berikutnya berjalan lagi.
+- Tombol sinkron di menu asal tetap bisa dipakai kapan saja; **Jalankan sekarang** = sekali jalan tanpa menunggu jadwal.
+- [ ] Nyalakan juga **Jaga sesi login** untuk sistem yang jadwalnya aktif (tiap jam kerja): sesi diperbarui & disimpan, dan
+  bila habis Anda langsung mendapat notifikasi (lonceng 🔔 + pesan di layar). Klik **Aktifkan notifikasi browser** di Tools →
+  Otomasi agar diberi tahu juga saat tab LifeOS tidak sedang dibuka. Selama sesi habis, jadwal sistem itu **dijeda** otomatis.
+
 Catatan: rekaman halaman bisa memuat data kerja Anda (tersimpan hanya di LifeOS Anda). Hapus rekaman yang tidak perlu
 dari **Riwayat robot**.
 
@@ -480,3 +491,5 @@ Telegram Anda yang diizinkan. Minta Claude menyiapkan service otomatis (systemd)
 | 2026-10-31 | A8: Klasifikasi arsip SRIKANDI jadi referensi (Ambil klasifikasi) |
 | 2026-10-31 | A8: robot Daftarkan ke SRIKANDI (konsep, tanpa Kirim Konsep) + Periksa; tugas rekam formulir dihapus (sudah dipetakan Claude) |
 | 2026-10-31 | A8: bukti renaksi lewat Brankas digital (satu tautan per poin, log akses IP + lokasi, Ganti tautan) |
+| 2026-11-01 | A8: jadwal otomatis sinkron e-Kinerja & SRIKANDI (Tools → Otomasi) — nyalakan sakelar yang diinginkan |
+| 2026-11-01 | A8: Jaga sesi login + notifikasi sesi kedaluwarsa (lonceng, toast, browser) |

@@ -2206,6 +2206,67 @@ try {
     }
   }
 
+  // ---- Otomasi terjadwal (Tools → Otomasi). User sementara tanpa sesi robot → tugas gagal sebelum sampai ke robot.
+  r = await j("GET", "/automation/jobs", null, at);
+  ok(
+    "automation jobs default (7, nonaktif, jadwal bawaan)",
+    r.s === 200 &&
+      r.d.length === 7 &&
+      r.d.find((x) => x.kind === "srikandi_session")?.cron === "30 7-17 * * 1,2,3,4,5" &&
+      r.d.every((x) => !x.enabled) &&
+      r.d.find((x) => x.kind === "srikandi_letters")?.cron === "0 7-17 * * 1,2,3,4,5" &&
+      r.d.find((x) => x.kind === "srikandi_classifications")?.cron === "0 7 * * 1",
+    r,
+  );
+  r = await j("PATCH", "/automation/jobs/srikandi_letters", { enabled: true }, at);
+  ok("automation enable → next run", r.s === 200 && r.d.enabled && !!r.d.nextRunAt, r);
+  r = await j("GET", "/automation/alerts", null, at);
+  ok(
+    "automation alert: jadwal aktif tanpa sesi",
+    r.s === 200 &&
+      r.d.some((a) => a.kind === "session_missing" && a.system === "srikandi" && a.path === "/srikandi/connector"),
+    r,
+  );
+  r = await j(
+    "PATCH",
+    "/automation/jobs/ekinerja_skp",
+    { schedule: { mode: "daily", time: "06:30", days: [1, 2, 3, 4, 5] } },
+    at,
+  );
+  ok("automation schedule updated", r.s === 200 && r.d.cron === "30 6 * * 1,2,3,4,5", r);
+  r = await j("PATCH", "/automation/jobs/ekinerja_skp", { schedule: { mode: "cron", pattern: "*/5 * * * *" } }, at);
+  ok("automation too frequent cron 400", r.s === 400, r);
+  r = await j("PATCH", "/automation/jobs/siman_aset", { enabled: true }, at);
+  ok("automation unknown kind 404", r.s === 404, r);
+  r = await j("POST", "/automation/jobs/srikandi_letters/run", null, at);
+  const autoRunId = r.d?.id;
+  ok("automation run now queued", r.s === 202 && r.d.status === "queued" && r.d.trigger === "manual", r);
+  let autoRun;
+  for (let i = 0; i < 40; i++) {
+    r = await j("GET", "/automation/runs?kind=srikandi_letters", null, at);
+    autoRun = r.d?.find?.((x) => x.id === autoRunId);
+    if (autoRun && !["queued", "running"].includes(autoRun.status)) break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  ok(
+    "automation run without session → dilewati (robot tidak dipanggil)",
+    autoRun?.status === "skipped" && /sesi/i.test(autoRun.message ?? ""),
+    autoRun,
+  );
+  r = await j("GET", "/automation/jobs", null, at);
+  ok("automation last status recorded", r.d?.find((x) => x.kind === "srikandi_letters")?.lastStatus === "skipped", r);
+  r = await j("POST", "/robot/srikandi/classifications/sync", null, at);
+  r = await j("GET", "/automation/runs?kind=srikandi_classifications", null, at);
+  ok("automation records button sync", r.s === 200 && r.d[0]?.trigger === "button", r);
+  r = await j("GET", "/automation/runs?kind=srikandi_letters", null, pt);
+  ok("automation runs isolated per user", r.s === 200 && !r.d.some((x) => x.id === autoRunId), r);
+  r = await j("PATCH", "/automation/jobs/srikandi_letters", { enabled: false }, at);
+  ok("automation disable → no next run", r.s === 200 && !r.d.enabled && r.d.nextRunAt === null, r);
+  r = await j("GET", "/automation/alerts", null, at);
+  ok("automation alerts cleared when no job active", r.s === 200 && !r.d.some((a) => a.system === "srikandi"), r);
+  r = await j("GET", "/automation/alerts", null, pt);
+  ok("automation alerts per user", r.s === 200 && Array.isArray(r.d) && r.d.length === 0, r);
+
   r = await j("POST", "/auth/change-password", { currentPassword: "salah", newPassword: "1234" }, pt);
   ok("change pw wrong 400", r.s === 400, r);
   r = await j("POST", "/auth/logout", null, null, "x".repeat(30));

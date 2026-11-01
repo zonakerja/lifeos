@@ -156,6 +156,8 @@ model User {
   /// Profil layanan bot WhatsApp: { serviceName, topic }
   waBot            Json?              @map("wa_bot")
   agentActivity    AgentActivityLog[]
+  automationJobs   AutomationJob[]
+  automationRuns   AutomationRun[]
 
   @@map("users")
 }
@@ -1565,4 +1567,44 @@ model PublicVaultAccess {
 
   @@index([vaultId, at])
   @@map("public_vault_accesses")
+}
+
+/// Jadwal otomasi per user per jenis tugas (mis. sinkron e-Kinerja tiap pagi). Jadwal BullMQ dibangun dari tabel ini.
+model AutomationJob {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  /// ekinerja_skp | ekinerja_renaksi | srikandi_letters | srikandi_references | srikandi_classifications
+  kind        String
+  enabled     Boolean   @default(false)
+  /// { mode: daily|hourly|cron, time?, from?, to?, minute?, days?, pattern?, timezone }
+  schedule    Json
+  lastRunAt   DateTime? @map("last_run_at") @db.Timestamptz(3)
+  /// ok | failed | skipped
+  lastStatus  String?   @map("last_status")
+  lastMessage String?   @map("last_message")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind])
+  @@map("automation_jobs")
+}
+
+/// Riwayat run otomasi (terjadwal, Jalankan sekarang, atau tombol sinkron di menu asal).
+model AutomationRun {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  kind       String
+  /// schedule | manual | button
+  trigger    String
+  /// queued | running | ok | failed | skipped
+  status     String
+  message    String?
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt  DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(3)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind, createdAt])
+  @@map("automation_runs")
 }

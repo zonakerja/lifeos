@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Prisma, type RobotConnector } from "../generated/prisma/client";
 import { AiCrypto } from "../ai/ai-crypto";
@@ -54,6 +61,14 @@ import {
   safePdfName,
 } from "./srikandi-sync";
 import { UploadsService } from "../uploads/uploads.service";
+import {
+  ROBOT_JOBS,
+  type RobotJobEvent,
+  type RobotJobKind,
+  type RobotJobTrigger,
+  sessionJobKind,
+  summarizeRobotJob,
+} from "./robot-jobs";
 import { PublicVaultsService } from "../uploads/public-vaults";
 import { cleanReference, REFERENCE_CATEGORIES, referenceClientId, staleReferences } from "./srikandi-reference";
 import {
@@ -104,6 +119,9 @@ export class RobotService {
   private readonly logger = new Logger(RobotService.name);
   private readonly crypto: AiCrypto;
   private readonly logins = new Map<string, LiveLogin>();
+  /** Tugas robot yang sedang berjalan per `userId:sistem` — satu sesi sistem tidak dipakai dua tugas sekaligus. */
+  private readonly busy = new Map<string, { label: string; since: Date }>();
+  private readonly jobListeners: ((event: RobotJobEvent) => void | Promise<void>)[] = [];
   /** null = CREDENTIAL_ENCRYPTION_KEY belum diatur → brankas kredensial nonaktif */
   private readonly vault: CredentialVault | null;
 
@@ -359,7 +377,19 @@ export class RobotService {
   // ---------------------------------------------------------------- Pekerjaan robot
 
   /** Cek sesi: buka halaman utama dengan sesi tersimpan → aktif / kedaluwarsa. */
-  async check(userId: string, system: string) {
+  /** Cek sesi = tugas "Jaga sesi login": cookie terbaru disimpan ulang; sesi kedaluwarsa dihitung gagal di riwayat. */
+  check(userId: string, system: string, trigger: RobotJobTrigger = "button") {
+    if (!isRobotSystem(system)) throw new NotFoundException("Sistem tidak dikenal.");
+    return this.job(
+      userId,
+      sessionJobKind(system),
+      trigger,
+      () => this.checkSession(userId, system),
+      (c) => c.status === "active",
+    );
+  }
+
+  private async checkSession(userId: string, system: string) {
     const connector = await this.connector(userId, system);
     this.requireSession(connector);
     try {
@@ -431,7 +461,75 @@ export class RobotService {
    * record `skp` & `skp_target` milik user (lewat RecordsService → isolasi & sinkron frontend sama dengan data lain).
    * Robot hanya membaca halaman; tidak ada yang diubah di e-Kinerja.
    */
-  async syncEkinerjaSkp(user: AuthUser, year: number) {
+  syncEkinerjaSkp(user: AuthUser, year: number, trigger: RobotJobTrigger = "button") {
+    return this.job(user.id, "ekinerja_skp", trigger, () => this.readEkinerjaSkp(user, year));
+  }
+
+  /** Kait setelah tugas sinkron robot selesai (riwayat Otomasi). */
+  onJobFinished(listener: (event: RobotJobEvent) => void | Promise<void>) {
+    this.jobListeners.push(listener);
+  }
+
+  /**
+   * Jalankan `fn` dengan kunci per user + sistem: tugas kedua pada sistem yang sama ditolak 409 (sesi browser yang sama
+   * tidak dipakai dua tugas sekaligus, mis. jadwal yang bertepatan dengan tombol).
+   */
+  private async exclusive<T>(userId: string, system: RobotSystem, label: string, fn: () => Promise<T>): Promise<T> {
+    const key = `${userId}:${system}`;
+    const running = this.busy.get(key);
+    if (running) {
+      const since = running.since.toLocaleTimeString("id-ID", {
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Asia/Jakarta",
+      });
+      throw new ConflictException(
+        `Robot ${SYSTEM_INFO[system].label} sedang menjalankan "${running.label}" (mulai ${since}). Coba lagi setelah selesai.`,
+      );
+    }
+    this.busy.set(key, { label, since: new Date() });
+    try {
+      return await fn();
+    } finally {
+      this.busy.delete(key);
+    }
+  }
+
+  /** Tugas sinkron baca-saja: kunci sistem + peristiwa selesai (berhasil/gagal) untuk riwayat Otomasi. */
+  private async job<T>(
+    userId: string,
+    kind: RobotJobKind,
+    trigger: RobotJobTrigger,
+    fn: () => Promise<T>,
+    succeeded: (result: T) => boolean = () => true,
+  ) {
+    const { system, label } = ROBOT_JOBS[kind];
+    return this.exclusive(userId, system, label, async () => {
+      const startedAt = new Date();
+      // Kait ditunggu (riwayat sudah tercatat saat respons kembali), kegagalannya tidak menggagalkan tugas
+      const emit = async (ok: boolean, message: string) => {
+        const event = { userId, kind, trigger, startedAt, finishedAt: new Date(), ok, message };
+        for (const listener of this.jobListeners) {
+          try {
+            await listener(event);
+          } catch (error) {
+            this.logger.warn(`Kait tugas robot gagal: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      };
+      let result: T;
+      try {
+        result = await fn();
+      } catch (error) {
+        await emit(false, (error instanceof Error ? error.message : String(error)).slice(0, 500));
+        throw error;
+      }
+      await emit(succeeded(result), summarizeRobotJob(kind, result));
+      return result;
+    });
+  }
+
+  private async readEkinerjaSkp(user: AuthUser, year: number) {
     const connector = await this.connector(user.id, "ekinerja");
     this.requireSession(connector);
     let result: Awaited<ReturnType<RobotClient["ekinerjaSkp"]>>;
@@ -528,7 +626,13 @@ export class RobotService {
    * menekan "Kirim Penilaian Ke Atasan"; bulan yang sudah diajukan dilewati (terkunci). Entri yang semua butirnya terbaca
    * → `filled` + `pushedSignature` (pengenal perubahan berikutnya).
    */
-  async fillEkinerjaRenaksi(user: AuthUser, period: string, dryRun = false) {
+  fillEkinerjaRenaksi(user: AuthUser, period: string, dryRun = false) {
+    return this.exclusive(user.id, "ekinerja", "Isi Rencana Aksi", () =>
+      this.writeEkinerjaRenaksi(user, period, dryRun),
+    );
+  }
+
+  private async writeEkinerjaRenaksi(user: AuthUser, period: string, dryRun: boolean) {
     const connector = await this.connector(user.id, "ekinerja");
     this.requireSession(connector);
     const { entries, targets, skps } = await this.renaksiData(user);
@@ -674,7 +778,11 @@ export class RobotService {
    * tanggal pengajuan, rating, isi, feedback), impor butir yang hanya ada di e-Kinerja pada bulan draf, dan tandai entri
    * yang isinya sudah ada di e-Kinerja. Hanya membaca e-Kinerja.
    */
-  async syncEkinerjaRenaksi(user: AuthUser, year: number) {
+  syncEkinerjaRenaksi(user: AuthUser, year: number, trigger: RobotJobTrigger = "button") {
+    return this.job(user.id, "ekinerja_renaksi", trigger, () => this.readEkinerjaRenaksi(user, year));
+  }
+
+  private async readEkinerjaRenaksi(user: AuthUser, year: number) {
     const connector = await this.connector(user.id, "ekinerja");
     this.requireSession(connector);
     const { skps } = await this.renaksiData(user);
@@ -851,7 +959,11 @@ export class RobotService {
    * punya berkas di LifeOS diambil PDF-nya (maks. 5 per sinkron) dan disimpan sebagai berkas milik user (context
    * `srikandi`, ikut ekstraksi & indeks). Robot hanya membaca halaman — tidak ada tombol yang diklik di SRIKANDI.
    */
-  async syncSrikandiLetters(user: AuthUser) {
+  syncSrikandiLetters(user: AuthUser, trigger: RobotJobTrigger = "button") {
+    return this.job(user.id, "srikandi_letters", trigger, () => this.readSrikandiLetters(user));
+  }
+
+  private async readSrikandiLetters(user: AuthUser) {
     const connector = await this.connector(user.id, "srikandi");
     this.requireSession(connector);
     const existing = await this.prisma.srikandiLetter.findMany({
@@ -972,7 +1084,13 @@ export class RobotService {
    * Robot berhenti di SIMPAN — draf masuk Log Naskah Keluar, Kirim Konsep tetap keputusan user. Draf berhal sama yang
    * belum terkirim dipakai ulang (tidak ganda). `dryRun` = isi formulir tanpa menyimpan, untuk diperiksa.
    */
-  async registerSrikandiOutgoing(user: AuthUser, entryId: string, dryRun = false) {
+  registerSrikandiOutgoing(user: AuthUser, entryId: string, dryRun = false) {
+    return this.exclusive(user.id, "srikandi", "Daftarkan naskah", () =>
+      this.writeSrikandiOutgoing(user, entryId, dryRun),
+    );
+  }
+
+  private async writeSrikandiOutgoing(user: AuthUser, entryId: string, dryRun: boolean) {
     const connector = await this.connector(user.id, "srikandi");
     this.requireSession(connector);
     const record = await this.records.findOne("srikandi_outgoing", entryId, {}, user);
@@ -1069,7 +1187,16 @@ export class RobotService {
    * SRIKANDI → Pengguna: ambil referensi (penandatangan, tujuan, verifikator, tembusan, grup) → record
    * `srikandi_reference` milik user, bahan pilihan Register Naskah Keluar. Robot hanya membaca tabel.
    */
-  async syncSrikandiReferences(user: AuthUser, categories?: string[]) {
+  /** `classification` saja = tugas "Ambil klasifikasi arsip"; selain itu "Ambil referensi". */
+  syncSrikandiReferences(user: AuthUser, categories?: string[], trigger: RobotJobTrigger = "button") {
+    const kind =
+      categories?.length === 1 && categories[0] === "classification"
+        ? "srikandi_classifications"
+        : "srikandi_references";
+    return this.job(user.id, kind, trigger, () => this.readSrikandiReferences(user, categories));
+  }
+
+  private async readSrikandiReferences(user: AuthUser, categories?: string[]) {
     const connector = await this.connector(user.id, "srikandi");
     this.requireSession(connector);
     let result: Awaited<ReturnType<RobotClient["srikandiReferences"]>>;

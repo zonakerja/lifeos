@@ -27,6 +27,8 @@ function useApplyConnector() {
       prev?.map((c) => (c.system === connector.system ? connector : c)),
     );
     void client.invalidateQueries({ queryKey: ["robot", "runs"] });
+    // Login ulang / cek sesi mengubah notifikasi sesi kedaluwarsa & jadwal yang dijeda
+    void client.invalidateQueries({ queryKey: ["automation"] });
   };
 }
 
