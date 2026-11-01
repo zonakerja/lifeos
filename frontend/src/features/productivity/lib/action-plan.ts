@@ -296,7 +296,16 @@ export const DISPLAY_LABELS: Record<DisplayStatus, string> = {
   locked: "Terkunci — sudah diajukan",
 };
 
-/** Status yang perlu dikirim ke e-Kinerja dengan "Kirim perubahan". */
+/**
+ * Bulan ini pernah dikirim ke e-Kinerja: ada entri yang sudah terisi / punya pengenal perubahan, atau potret bulan dari
+ * e-Kinerja sudah berisi baris. Menentukan label tombol: belum pernah = "Kirim ke e-Kinerja", sudah = "Kirim perubahan".
+ */
+export const monthSent = (
+  entries: Pick<ActionPlanEntry, "status" | "pushedSignature">[],
+  month?: ActionPlanMonth | null,
+) => entries.some((e) => e.status === "filled" || !!e.pushedSignature) || (month?.rows?.length ?? 0) > 0;
+
+/** Status yang perlu dikirim ke e-Kinerja (Kirim ke e-Kinerja / Kirim perubahan). */
 export const isPending = (status: DisplayStatus) =>
   status === "ready" || status === "changed" || status === "deleted" || status === "missing";
 

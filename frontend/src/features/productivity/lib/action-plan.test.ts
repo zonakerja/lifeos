@@ -12,6 +12,7 @@ import {
   entrySignature,
   isLockedMonth,
   isPending,
+  monthSent,
   monthOf,
   entryStatus,
   indicatorRealization,
@@ -216,6 +217,12 @@ describe("pemantauan e-Kinerja & pengenal perubahan", () => {
     expect(displayStatus({ ...pushed, realization: "x" }, target, month("submitted"))).toBe("locked");
     expect(displayStatus(entry({ targetId: "t1" }), target, null)).toBe("draft");
     expect(isPending("changed") && isPending("deleted") && !isPending("filled") && !isPending("locked")).toBe(true);
+    // Label tombol kirim: belum pernah dikirim vs sudah ada isi di e-Kinerja
+    expect(monthSent([{ status: "ready" }, { status: "draft" }], null)).toBe(false);
+    expect(monthSent([{ status: "ready", pushedSignature: "x" }], null)).toBe(true);
+    expect(monthSent([{ status: "filled" }], undefined)).toBe(true);
+    expect(monthSent([], { rows: [{}] } as unknown as ActionPlanMonth)).toBe(true);
+    expect(monthSent([], { rows: [] } as unknown as ActionPlanMonth)).toBe(false);
   });
 
   it("isi entri dicocokkan per indikator (realisasi waktu bawaan)", () => {

@@ -50,6 +50,7 @@ import {
   indicatorRealization,
   isPeriod,
   missingFields,
+  monthSent,
   periodLabel,
   periodYear,
   shiftPeriod,
@@ -84,7 +85,8 @@ const SOURCE_LABELS = { task: "Action/Task", activity: "Kegiatan", schedule: "Ag
 /**
  * Tab Laporan Kinerja: rencana aksi bulanan e-Kinerja yang dipilih user dari Productivity (tombol Renaksi di Action/Task,
  * Kegiatan, Agenda). Setiap entri = SKP bulan itu + RHK & indikator + renaksi + realisasi + bukti; yang lengkap diisikan
- * robot lewat "Isi ke e-Kinerja" (draf — robot tidak pernah mengirim penilaian ke atasan).
+ * robot lewat "Kirim ke e-Kinerja" (bulan belum pernah dikirim) / "Kirim perubahan" (draf — robot tidak pernah mengirim
+ * penilaian ke atasan).
  * SKP & RHK diambil robot dari e-Kinerja (satu tahun bisa beberapa SKP).
  */
 export function ActionPlanBoard() {
@@ -115,6 +117,9 @@ export function ActionPlanBoard() {
   const counts = Object.fromEntries(COUNT_ORDER.map((s) => [s, 0])) as Record<DisplayStatus, number>;
   for (const e of monthEntries) counts[statusOf(e)] += 1;
   const pending = monthEntries.filter((e) => isPending(statusOf(e))).length;
+  // Belum pernah dikirim → "Kirim ke e-Kinerja"; sudah ada isi di e-Kinerja → "Kirim perubahan"
+  const sent = monthSent(monthEntries, month);
+  const sendLabel = sent ? "Kirim perubahan" : "Kirim ke e-Kinerja";
   const [confirmFill, setConfirmFill] = useState(false);
   const [filling, setFilling] = useState<"push" | "check" | "sync" | null>(null);
   const client = useQueryClient();
@@ -247,7 +252,7 @@ export function ActionPlanBoard() {
             </Button>
             <Button size="sm" onClick={() => setConfirmFill(true)} disabled={!!filling || locked || !pending}>
               {filling === "push" ? <Loader2 className="animate-spin" /> : <Send />}{" "}
-              {filling === "push" ? "Robot mengisi…" : `Kirim perubahan${pending ? ` (${pending})` : ""}`}
+              {filling === "push" ? "Robot mengisi…" : `${sendLabel}${pending ? ` (${pending})` : ""}`}
             </Button>
           </span>
         </div>
@@ -305,9 +310,17 @@ export function ActionPlanBoard() {
       <ConfirmDialog
         open={confirmFill}
         onOpenChange={setConfirmFill}
-        title={`Kirim perubahan Rencana Aksi ${periodLabel(period)} ke e-Kinerja?`}
-        description={`Robot membaca e-Kinerja dulu (isian yang hanya ada di sana dimasukkan ke LifeOS), lalu menyamakan bulan ini dengan LifeOS: ${counts.ready} entri baru ditambahkan, ${counts.changed} entri berubah dan ${counts.deleted} entri dihapus ditulis ulang (e-Kinerja tidak punya ubah per butir: baris indikatornya dilepas, dicentang lagi, lalu diisi ulang dari LifeOS). Robot TIDAK menekan Kirim Penilaian Ke Atasan.`}
-        confirmLabel="Kirim perubahan"
+        title={
+          sent
+            ? `Kirim perubahan Rencana Aksi ${periodLabel(period)} ke e-Kinerja?`
+            : `Kirim Rencana Aksi ${periodLabel(period)} ke e-Kinerja?`
+        }
+        description={
+          sent
+            ? `Robot membaca e-Kinerja dulu (isian yang hanya ada di sana dimasukkan ke LifeOS), lalu menyamakan bulan ini dengan LifeOS: ${counts.ready} entri baru ditambahkan, ${counts.changed} entri berubah dan ${counts.deleted} entri dihapus ditulis ulang (e-Kinerja tidak punya ubah per butir: baris indikatornya dilepas, dicentang lagi, lalu diisi ulang dari LifeOS). Robot TIDAK menekan Kirim Penilaian Ke Atasan.`
+            : `Robot mengisikan ${counts.ready} entri ke Rencana Aksi ${periodLabel(period)} di e-Kinerja sebagai draf: indikator RHK dicentang, lalu rencana aksi, realisasi, dan bukti data dukung diisi. Robot TIDAK menekan Kirim Penilaian Ke Atasan — periksa di e-Kinerja lalu kirim sendiri bila sudah sesuai.`
+        }
+        confirmLabel={sendLabel}
         destructive={false}
         onConfirm={() => void fill()}
       />

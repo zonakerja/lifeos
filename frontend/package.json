@@ -33,6 +33,7 @@
     "html5-qrcode": "^2.3.8",
     "katex": "^0.18.9",
     "lucide-react": "^1.53.0",
+    "pdfjs-dist": "^6.4.299",
     "perfect-freehand": "^1.2.3",
     "qrcode.react": "^4.2.0",
     "radix-ui": "^1.7.0",

@@ -57,12 +57,14 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 | | Tailwind CSS / shadcn CLI (Radix, lucide) | 4.3 / 4.21 | Design system berbasis token |
 | | react-markdown / KaTeX | 10.1 / **0.18.9** | Render Markdown & matematika (dimuat malas) |
 | | Tiptap (`@tiptap/*` + `@tiptap/markdown`, MIT) / perfect-freehand | **3.31** / 1.2 | Editor teks kaya + tulisan tangan stylus di Catatan Bebas (dimuat malas); Markdown → dokumen editor (salin dari My Notebook) |
+| | pdf.js (`pdfjs-dist`, Apache-2.0) | **6.4** | Penampil PDF modal halaman publik brankas digital (kanvas; HP & desktop), dimuat malas (chunk `pdf-pages` + worker `.mjs`) |
 | | oxlint / Vitest | 1.87 / 5.0 | Lint (0 warning) & unit test |
 | Data | PostgreSQL + pgvector | **18** (18.6) + 0.8.7 (`pgvector/pgvector:0.8.7-pg18`, Debian 12; volume `postgres18-data` di `/var/lib/postgresql`) | Data relasional + vector search (RAG) |
 | | Redis | **8.10** (`redis:8.10-alpine`) | Antrian BullMQ; cache/rate-limit/sesi chat (rencana) |
 | | SeaweedFS | 4.48 | S3-compatible self-host (dev & default produksi) |
 | Edge | Caddy / nginx | 2.11 / 1.30 (stable) | HTTPS otomatis + reverse proxy / sajian SPA + CSP |
 | Agen | Hermes Agent (`nousresearch/hermes-agent:v0.22.2`, image resmi, amd64+arm64) | 0.22.2 | Service `hermes` (profile `agent`): API server OpenAI-compatible + MCP klien ke LifeOS; skill di `agents/hermes/skills/` (§3.11) |
+| Sinkron vault | Syncthing (`syncthing/syncthing:2.1.6`, image resmi, amd64+arm64) | 2.1.6 | Service `syncthing` (profile `sync`, produksi saja): vault Obsidian laptop/HP ↔ `./knowledge-vaults` VPS (DEPLOYMENT §10); Obsidian tidak berjalan di server |
 | Robot | Playwright + Chromium (`mcr.microsoft.com/playwright:v1.63.0-noble`, paket `playwright` **1.63.0** — versi keduanya wajib sama) | 1.63 | Service `robot/` (TypeScript, Node bawaan image): browser jarak jauh & eksplor halaman konektor SRIKANDI/e-Kinerja (§3.10) |
 | Backup | rclone (`rclone/rclone:1.75.1`) di image `infra/backup` (base = image postgres) | 1.75 | Cermin object storage via API S3 + salinan luar server terenkripsi (crypt) |
 | CI | GitHub Actions | checkout v7, setup-node v7, setup-buildx v4, build-push v7; runner `ubuntu-24.04` | Lint, test, build, smoke, drift, image |
@@ -204,8 +206,9 @@ berkas (`sourceType = "asset"`) — dengan embedding `gemini-embedding-2` 768 di
 
 ### 3.4 My Notebook (`src/notebooks/`, RAG ala NotebookLM)
 
-Tabel `notebooks`, `notebook_sources`, `notebook_messages`, `notebook_notes` (migrasi `20261014130000_notebooks`); semua
-milik satu user (tanpa berbagi — tahap berikutnya). Endpoint `/notebooks` (CRUD), `/:id/sources` (tambah/ubah aktif/
+Tabel `notebooks`, `notebook_sources`, `notebook_messages`, `notebook_notes` (migrasi `20261014130000_notebooks`;
+`notebook_messages.attachments` dari `20261014140000_notebook_message_attachments`); semua milik satu user (tanpa
+berbagi — tahap berikutnya). Endpoint `/notebooks` (CRUD), `/:id/sources` (tambah/ubah aktif/
 muat ulang web/hapus), `/:id/chat` + `/:id/messages` (riwayat permanen), `/:id/summary` (Studio), `/:id/notes`.
 - **Sumber**: `upload` (asset + `asset_extractions`, status ikut ekstraksi), `record` (item milik sendiri: `free_note`,
   `ai_note`, `list`, `para_resource` — resource berkas ikut membaca isi berkasnya), `text` (tempel, ≤ 500 rb karakter),
@@ -216,9 +219,12 @@ muat ulang web/hapus), `/:id/chat` + `/:id/messages` (riwayat permanen), `/:id/s
   ekstraktor, teks polos.
 - **Chat hibrida** (`notebook-context.ts`, logika murni + test): total teks sumber aktif ≤ 150 rb karakter → semua
   potongan dikirim (mode `full`); lebih besar → 14 potongan terbaik (mode `rag`) dari gabungan RRF pencarian indeks
-  (vektor + kata, dibatasi ke sumber notebook) dan peringkat kata kunci di memori (tetap jalan bila indeks dimatikan /
-  tanpa key Gemini). Potongan bernomor `[n]`; AI wajib menjawab hanya dari sumber dengan sitasi; nomor yang dikutip
-  disimpan sebagai `citations` (sumber + cuplikan). 8 pesan terakhir ikut sebagai riwayat.
+  (vektor + kata, dibatasi ke sumber notebook lewat `search(…, { only })`) dan peringkat kata kunci di memori (tetap jalan
+  bila indeks dimatikan / tanpa embedding). Sumber dipotong dengan `chunkSource` — aturan yang sama dengan indeks AI
+  (berkas & teks/web sadar struktur per judul/BAB/Pasal, item LifeOS dipotong biasa) sehingga hasil vektor cocok per potongan. Potongan
+  bernomor `[n]`; AI wajib menjawab hanya dari sumber dengan sitasi; nomor yang dikutip disimpan sebagai `citations`
+  (sumber + cuplikan). 8 pesan terakhir ikut sebagai riwayat; **profil kerja** user (`users.ai_profile`) ikut sebagai
+  penyesuai gaya, bukan sumber fakta. Chat & ringkasan Studio memakai provider tugas **`chat`** (Pembagian tugas AI).
 - **Lampiran chat**: `fileIds` (maks. 4, milik sendiri): gambar (≤ 10 MB) dikirim ke AI; dokumen (≤ 20 MB) dibaca dari
   teks ekstraksi server (dibatasi 100 rb karakter, tag `<lampiran_pengguna>`), PDF tanpa teks dikirim ke AI sebagai berkas;
   lampiran tidak diberi nomor sitasi. Tersimpan di `notebook_messages.attachments` dan ikut dihapus saat chat dibersihkan /
@@ -524,7 +530,10 @@ Playwright, dan pola "sesi tersimpan + login manusia" dipakai bersama kedua sist
   (context `renaksi-vault`) milik pemilik yang tidak dipakai brankas lain ikut dihapus (`vaultFilesToRelease` + test); lampiran
   item dan berkas lain tidak disentuh. Cache lokasi IP maks. 1.000 IP. Halaman publik SPA `/brankas/:token` (`features/vault/public-vault-page.tsx`) memuat
   **Pemberitahuan Pelindungan Data Pribadi** (UU 27/2022 Pasal 65 jo. 67, hanya untuk atasan/penilai/PPK) + pemberitahuan
-  pencatatan akses beserta IP/lokasi/peramban pengunjung itu.
+  pencatatan akses beserta IP/lokasi/peramban pengunjung itu. **Lihat** = modal pratinjau (`vault-file-viewer.tsx`): berkas
+  diambil sebagai blob (tercatat "lihat"), PDF digambar pdf.js ke kanvas (`pdf-pages.tsx`, maks. 60 halaman), gambar
+  langsung, jenis lain hanya Unduh — tanpa tab baru/unduhan (respons berkas ber-CSP sandbox membuat penampil PDF bawaan
+  Chrome mengunduh, dan iframe PDF tidak tampil di HP).
 
 ### 3.11 Asisten Agen — Hermes (`src/agent/`, `features/agent/`, service `hermes`)
 
@@ -598,7 +607,7 @@ dengan `ON DELETE CASCADE`, soft delete `deleted_at` pada tabel domain.
 | `routine` | `routines` | title, frequency, days, interval, interval_type, month_dates, start_date, active, archived, freeze_periods |
 | `todo` | `todos` | title, completed, date, priority |
 | `completion` | `routine_completions` | routine_id, date, actual_date, note, completed_at |
-| `free_note` | `free_notes` | title, content, color |
+| `free_note` | `free_notes` | title, content, color (`kind`, `doc`, `ink`, `pinned`, `orphanUploadIds` di `extra`) |
 | `ai_note` | `ai_notes` | title, date, content, ai_summary, audio_transcript, file_context, audio_upload_id, file_attachment |
 | `list` | `note_lists` | title, archived, items |
 | `para_area` | `areas` | title, description, color |
@@ -689,7 +698,7 @@ rollback + toast bila gagal). Komponen memakai hook bertipe di `data/collections
 - Dialog edit/detail yang perlu deep link dikendalikan query string (`?edit=`, `?project=`, `?archive=`, ...).
 - Form dialog: state di komponen dalam yang di-mount saat terbuka (tanpa sinkronisasi `useEffect`).
 - Konten berat dimuat malas: rute, halaman login, renderer Markdown/KaTeX, pemindai kamera `html5-qrcode`, editor
-  Catatan Bebas (Tiptap + kanvas stylus, chunk `free-note-editor`).
+  Catatan Bebas (Tiptap + kanvas stylus, chunk `free-note-editor`), penampil PDF brankas (pdf.js, chunk `pdf-pages`).
 - Cetak dokumen (label/A4/berita acara) lewat `printElement` (jendela baru + stylesheet aplikasi); QR dibuat lokal.
 
 ### Design system

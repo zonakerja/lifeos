@@ -197,6 +197,9 @@ Diverifikasi end-to-end 2026-10-09 (smoke test lulus lewat HTTPS). Panduan: `doc
 **ONLYOFFICE produksi** (opsional, `COMPOSE_PROFILES=office` + `ONLYOFFICE_URL=https://<domain>/office` +
 `ONLYOFFICE_JWT_SECRET`): service `onlyoffice`, Caddy `/office/*` (halaman bawaan 404), volume font bersama backend;
 diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
+**Syncthing produksi** (opsional, `COMPOSE_PROFILES=sync`): service `syncthing` (UID 1000 = backend) menyinkronkan vault
+Obsidian ke `./knowledge-vaults`; port 22000 TCP/UDP publik (satu-satunya selain Caddy), GUI hanya `127.0.0.1:8384` (tunnel
+SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Docker. Panduan: DEPLOYMENT §10.
 
 ## 8. Backend (`backend/`)
 
@@ -476,6 +479,7 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   `key` pada inner. **Jangan** sinkronisasi props→state dengan `useEffect`.
 - **Deep link via URL** (`useSearchParam`): `?edit=`, `?todo=`, `?date=`, `?agenda=<id>|new` (lihat/buat agenda di Overview, Harian, Jadwal), `?schedule=<id>` (Notes AI baru dari agenda),
   `?project=`, `?area=`, `?task=`, `?resource=`, `?note=<id>|new` (Catatan & Notes AI, `links.note(tab, id)`; Catatan juga `new-ink` = tulis tangan), `?archive=`,
+  `?list=<id>` (List Bebas, `links.list(id)`), `?notebook=<id>` (My Notebook, `links.notebook(id)`),
   sub-tab/filter `?sub=`/`?ref=`. Peta di `src/lib/deep-links.ts`. Mengubah **lebih dari satu** param
   sekaligus → `useSetSearchParams()({ a: null, b: null })`, jangan dua setter `useSearchParam` berturut-turut.
 - **Waktu di render**: `useToday()`. **Hak akses**: `usePermissions()` → `canEdit` (data sendiri selalu true; di dalam
@@ -514,10 +518,29 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   navigasi yang disengaja lewat ref `leavingRef`) + listener `beforeunload` selama ada perubahan/proses berjalan, dan
   dialog Simpan / Buang / Batal. Editor tanpa proses berat (Catatan) cukup **simpan otomatis** lewat `setItems` — antrian
   tulis `useCollection` tetap terkirim walau komponen sudah unmount.
-- **Notes** (`features/notes/`): logika murni + test di `lib/notes-logic.ts` (urutan, pencarian, prompt ringkasan,
-  progres list, berkas yang aman dihapus); baca isi dokumen lewat `lib/read-file-text.ts` (ekstraksi backend
-  `GET /uploads/:id/metadata`, cadangan AI). Berkas audio/dokumen Notes AI dihapus dari storage saat diganti, perubahan
-  dibuang, atau catatan dihapus (`removeUploads`).
+- **Notes Space** (`features/notes/`, `notes-page.tsx`): tab berurutan **Catatan Bebas** (`free`) → **List Bebas**
+  (`lists`) → **Notes AI** (`ai`) → **My Notebook** (`notebook`, chunk malas); hero = jumlah catatan, list aktif,
+  Notes AI, notebook. Logika murni + test di `lib/notes-logic.ts` (urutan: disematkan dulu lalu terakhir diubah / tanggal,
+  pencarian, prompt ringkasan & transkrip & tulisan tangan, progres list, berkas yang aman dihapus); baca isi dokumen lewat
+  `lib/read-file-text.ts` (ekstraksi backend `GET /uploads/:id/metadata`, cadangan AI). Catatan Bebas & Notes AI dimuat
+  sebagai **daftar ringan** → editor dibuka lewat `useCompleteItem` (pemuat "Membuka catatan…"); `?note=<id>` yang tidak
+  ada / tidak lagi dibagikan menampilkan "tidak ditemukan" + Kembali. Hapus catatan lewat `NoteDeleteDialog` (lihat
+  Lampiran).
+  - **Catatan Bebas**: kartu warna (`note-colors.ts`), pratinjau tulis tangan dari coretan yang dipotong server, sematkan,
+    cari, paginasi 12; simpan otomatis (detail editor di bawah).
+  - **List Bebas** (`lists-tab.tsx`, record `list`): item dicentang/diurutkan/diubah/dihapus langsung di kartu, progres
+    `selesai/total`, "Hapus yang selesai", arsip (tampilan Arsip terpisah), paginasi 9. Ubah judul/teks item: Enter atau
+    klik di luar = simpan, **Esc = batal**. Tulis memakai penggabungan `base` (List bersama tidak saling menimpa).
+    `?list=<id>` menyorot list dan menaruhnya paling atas; list diarsipkan / hilang → keterangan + "Lihat arsip".
+  - **Notes AI** (`ai-note-editor.tsx`, simpan eksplisit — lihat "Editor dengan simpan eksplisit"): judul, tanggal, agenda
+    terkait (`agenda-options.ts`, `?note=new&schedule=<id>` terisi dari agenda), **audio** (rekam / unggah → transkrip AI,
+    maks. 20 MB), **dokumen tambahan** (teks ekstraksi server, dibatasi 200 rb karakter), catatan kasar, **ringkasan AI**
+    dengan gaya Standar / Akademis / Risalah Rapat / Catatan Mudah / Kustom (`summary-style-dialog.tsx`, `SUMMARY_STYLES`)
+    yang bisa disunting. Unggahan dicatat `trackPendingUpload` sampai Simpan/Buang; **Simpan dikunci selama merekam**.
+    Berkas audio/dokumen dihapus dari storage saat diganti, perubahan dibuang, atau catatan dihapus (`removeUploads`).
+  - **Berkas pemilik di catatan bersama**: kolaborator berizin Edit tidak boleh menghapus berkas pemilik → ID yang ditolak
+    (403) dicatat di `orphanUploadIds` catatan (`removeUploadsCollectForbidden`), lalu `useOrphanUploadsJanitor` (tab
+    Catatan Bebas & Notes AI milik pemilik) menghapus yang sudah tidak dipakai dan mengosongkan daftarnya.
 - **Catatan Bebas: editor kaya & tulisan tangan** (chunk malas `components/free-note-editor.tsx`):
   - `kind`: `text` (default) = Tiptap 3 (`editor/rich-text-editor.tsx`: StarterKit, Highlight, TaskList, TableKit,
     Placeholder + node sendiri `inkBlock` & `image`), `handwriting` = halaman tulis tangan penuh (`ink/ink-canvas.tsx`).
@@ -689,6 +712,61 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   yang berpindah menu. Modal Project/Area = komponen bersama `ParaDetailDialogs`
   (`features/productivity/components/para-detail-dialogs.tsx`, dipasang di Productivity & Overview); `?task=` milik item
   Area membuka dialog Area dengan kegiatan pemilik task langsung terpilih (`AreaDetailDialog initialSelection`).
+- **Peta modul Planner** (`features/planner/`, `/planner/:tab`, `planner-page.tsx` = hero "agenda hari ini / rutinitas
+  aktif" + 4 tab):
+  - **Harian** (`daily-tab.tsx`): URL `?date=YYYY-MM-DD`, `?todo=<id>|new`; kalender, Terlambat, agenda hari itu (+ baris
+    "Dipindah ke …"), rutinitas aktif (`isRoutineActiveOnDate`), to-do gabungan = todo (`todo.date` = `toDateString`) +
+    action/task Productivity yang jatuh tempo (`dueDate` YMD), urut prioritas. Todo: `TodoDialog` (juga dipakai Overview);
+    centang rutinitas = `completion` `${routineId}:${dateKey}` (tidak untuk tanggal mendatang), "Catat" =
+    `ActivityLogDialog` (tanggal aktual ≤ hari ini + catatan) — keduanya di `planner-dialogs.tsx`. Hapus task Productivity
+    dari Harian memakai `DeleteWithFilesDialog`.
+  - **Jadwal** (`schedule-tab.tsx`): filter `?sub=upcoming|past|all`, pencarian, gabung seri, paginasi 10; hapus lewat
+    `ScheduleDeleteDialog`; lihat/ubah lewat `ScheduleDialogs` (`schedule-dialogs.tsx`, form `schedule-form.tsx`, pola
+    berulang `recurrence-fields.tsx` + `SeriesScopePicker`, `reschedule-dialog.tsx`).
+  - **Rutinitas** (`routines-tab.tsx` + `routine-dialogs.tsx`): `?edit=<id>|new`; frekuensi harian / mingguan (hari) /
+    bulanan (tanggal 29–31 jatuh ke hari terakhir, `dayInMonth`) / interval (hari, minggu, bulan, tahun dari
+    `startDate`); **freeze** = periode jeda (`freezePeriods`, riwayat bisa diubah/dihapus, irisan hanya diperingatkan);
+    Unfreeze mengakhiri periode per kemarin; **arsip** menyembunyikan tanpa menghapus riwayat; hapus ikut menghapus
+    `completion`-nya.
+  - **Referensi** (`references-tab.tsx`): tipe agenda (record `agenda_type`: nama, `order`, warna `AGENDA_COLORS`, ikon
+    paket ikon) — `useAgendaTypeList()` (`use-agenda-types.ts`) menyemai tipe bawaan sekali per user (penanda di
+    localStorage) dan mengembalikan `names` unik; ganti nama ikut memperbarui agenda milik sendiri; gaya efektif lewat
+    `scheduleTypeStyle`/`resolveAgendaStyle` (`lib/schedule-style.ts`, bawaan dari nama bila belum diatur).
+  - Logika murni (semuanya ber-test): `lib/planner-logic.ts` (tanggal/jam agenda, filter, terlambat & selesai terlambat,
+    rutinitas & freeze, ringkasan kalender, link meeting), `recurrence.ts`, `reschedule.ts`, `planner-search.ts`. Dipakai
+    juga oleh Overview, notifikasi, pencarian global, chatbot, Notes AI, Productivity, dan Basis Pengetahuan — ubah
+    dengan hati-hati.
+  - Celah yang diketahui: form agenda membuang upload sesi saat dialog ditutup (`discardUploads`) tetapi belum mencatatnya
+    dengan `trackPendingUpload`, jadi berkas bisa tertinggal bila tab di-reload sebelum agenda disimpan.
+- **Peta modul Productivity** (`features/productivity/`, `/productivity/:tab`, `productivity-page.tsx` = hero jumlah
+  projects/areas/resources + 5 tab; `ParaDetailDialogs` & `ScheduleDialogs` dipasang di halaman):
+  - **Overview** (`overview-tab.tsx`): 4 kartu statistik, `ParaCalendar` (`para-calendar.tsx`: rentang project berjalan
+    `isProjectRunningOn` + titik action/task per tanggal → `DayDetailDialog`), daftar project belum selesai (maks. 5, dua
+    bar `MiniProgress`: task berbobot `projectTaskProgress` & waktu `projectTimeProgress`, `lib/progress.ts`).
+  - **Projects** (`projects-tab.tsx` + `project-dialogs.tsx`): cari judul, `DateRangeFilter` "Aktif Bulan/Tahun Ini"
+    (`isProjectActiveIn`), paginasi 10; kartu ringkas (`CARD_ACTION_CLASS`: ubah, bagikan, arsip, hapus; label Free Project
+    hanya untuk project milik sendiri); form Project = nama, deskripsi, tanggal mulai/deadline, area, Dasar Pelaksanaan
+    (tag "Project Basis"; `status` tidak ada di form — bawaan `active`); detail = `ProjectDetailDialog` → `TaskManager`.
+  - **Areas** (`areas-tab.tsx` + `area-dialogs.tsx`): paginasi 10, kartu jumlah sub area + project; hapus area ditolak
+    selama masih berisi sub area/project, arsip lewat `ParaDetailDialogs`. `AreaDetailDialog` = sidebar pohon
+    Sub Area → Kegiatan → Sub Kegiatan (buka/tutup, `max-h-[30svh]` di HP) + daftar project area (Ambil dari Free Project /
+    Lepas) + panel kanan `TaskManager` item terpilih (`initialSelection`).
+  - **TaskManager** (`task-manager.tsx`, dipakai detail Project & item area): daftar gabungan action/task + agenda
+    (`agenda-item.tsx`) urut tanggal, tampilan List | Timeline, cari, filter tanggal & jenis, sakelar Gabung seri; centang
+    → `CompleteTaskDialog`, "Ubah" cepat → `TaskQuickDialog`, form action/task dengan lampiran (`useAttachmentEdits`);
+    tombol Laporan Kinerja (`ActionPlanButton`) di baris action/task, agenda, dan header Kegiatan/Sub Kegiatan.
+  - **Resources** (`resources-tab.tsx`): cari nama/tag, filter tanggal & tag, Kelola Tag, paginasi 25, `?resource=<id>`
+    menyorot; ringkasan AI per resource, arsipkan, hapus (aturan berkas & arsip terkunci: lihat Lampiran). Form Resource
+    (tipe link / file / Buat Dokumen ONLYOFFICE / catatan) di berkas yang sama.
+  - **Archives** (`archives-tab.tsx`): tampilan Arsip (filter jenis project/area/resource, cari, tanggal, paginasi 25,
+    "Lihat isi", Pulihkan dengan konfirmasi) | **Log Arsip & Pemulihan** (filter aksi). Tidak ada hapus arsip permanen.
+  - Aksi berantai (arsip/pulihkan/hapus project, area, item area beserta turunan, agenda, berkas, log) terpusat di
+    `use-para-actions.ts`; logika murni ber-test: `lib/para.ts`, `lib/para-archive.ts`, `lib/progress.ts`,
+    `lib/action-plan.ts`.
+  - Celah yang diketahui (belum diperbaiki): Overview Productivity memilih project dari progres saja (project berstatus
+    selesai/ditunda bisa muncul; Overview utama memakai `runningProjects`) dan masih berlabel Inggris ("Calendar
+    Overview", "Recent Active Projects", "Task Completion", "Time Elapsed"; form Project juga "Start Date", "Area of
+    Responsibility"); tab Areas belum punya pencarian.
 - **Kalender Harian** (`planner-calendar.tsx`): sel tinggi tetap 56–64 px (bukan persegi); penanda dari `summarizeDay()`
   (`planner-logic.ts`, sumber sama dengan daftar Harian) — titik penuh = ada yang belum selesai, lingkaran = semua
   selesai (todo/task/rutinitas yang sudah selesai tetap ditandai); hover tanggal → tooltip ringkasan agenda, rutinitas,
@@ -744,7 +822,7 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
     `originalSlot`). Tampilan: badge "Dijadwal ulang", kotak "Jadwal semula" + alasan + tombol **Kembalikan**; Harian di
     tanggal asal menampilkan baris samar "Dipindah ke …" (`movedAwayFrom`). Seri: pertemuan baru tidak mewarisi riwayat;
     ubah field bersama mempertahankan pemindahan; perubahan pola menghitung ulang tanggal & menghapus riwayat pertemuan yang
-    tanggalnya berubah. Productivity (`agenda-item.tsx`) belum menampilkan badge jadwal ulang (data sudah tersedia).
+    tanggalnya berubah. Productivity (`agenda-item.tsx`) juga menampilkan badge "Dijadwal ulang".
   - **Banyak link meeting**: tetap kolom `media`, dipisah baris baru; baca **selalu** lewat `scheduleLinks(s)`, tulis
     `joinLinks()`, label `linkLabel()` (host). Input `<LinkListInput>` (`components/common/link-list-input.tsx`, reusable):
     Enter/+ menambah, Backspace di input kosong menghapus terakhir, tempel beberapa link sekaligus dipecah. Harian: tombol
@@ -836,7 +914,8 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   per tahun, bisa ditambah di tempat), **indikator** RHK yang dicentang (bawaan semua), **rencana aksi** (`description`),
   **realisasi** (`realization`; indikator aspek WAKTU memakai `timeRealization`, bawaan "Penyampaian tepat waktu"), **bukti
   data dukung** (`documentUrl`: **Brankas digital** = pilihan bawaan bila item punya berkas — beberapa berkas (lampiran item +
-  unggah, context `renaksi-vault`) di balik satu tautan `/brankas/<token>`, `entry.vaultId`; ubah berkas = tautan & pengenal
+  unggah, context `renaksi-vault`) di balik satu tautan `/brankas/<token>` (halaman publik: **Lihat** = modal pratinjau
+  `vault-file-viewer.tsx`, PDF lewat pdf.js `pdf-pages.tsx` dimuat malas — bukan tab baru), `entry.vaultId`; ubah berkas = tautan & pengenal
   perubahan tetap; `VaultFilePicker`, `VaultButton` + dialog log akses / ganti tautan di baris Laporan Kinerja
   (`features/vault/`, hook `data/use-vaults.ts`); atau web link lampiran, berkas tunggal → tautan publik, ketik sendiri). Entri = record type `action_plan_entry` (`period` YYYY-MM, `skpId`, `targetId`, `indicators`,
   `source*`, `status` draft/ready/filled; field baru di `extra`). Status **dihitung ulang** di tampilan
@@ -859,7 +938,8 @@ diuji stack lokal 2026-10-16 (smoke penuh lewat Caddy). Panduan: DEPLOYMENT §9.
   → record `action_plan_month` per bulan (status draft/submitted/rated, tanggal pengajuan, rating, isi + feedback) + impor butir
   yang hanya ada di e-Kinerja (`importCandidates`); entri menyimpan pengenal perubahan `pushedSignature` + `pushed` (`entrySignature`
   backend = frontend `lib/action-plan.ts`, ubah keduanya bersamaan) dan `deleted` (hapus tertunda); `displayStatus` = Berubah /
-  Akan dihapus / Tidak ada di e-Kinerja / Terkunci (bulan diajukan → ubah & hapus ditolak). **Kirim perubahan** = fill `mode: "sync"`:
+  Akan dihapus / Tidak ada di e-Kinerja / Terkunci (bulan diajukan → ubah & hapus ditolak). Tombol kirim berlabel **Kirim ke e-Kinerja** bila bulan belum pernah dikirim
+  (`monthSent`: tidak ada entri terisi/berpengenal dan potret bulan kosong), selain itu **Kirim perubahan** = fill `mode: "sync"`:
   baca + impor dulu, lalu `syncPlan` (centang baru, lepas yang tidak diminta & berisi, **tulis ulang** baris berubah = lepas →
   centang → isi ulang; indikator sementara bila bulan akan kosong, `modalPasses`; baris kosong tidak pernah dilepas). Backend sinkron: `POST
   /robot/ekinerja/skp/sync { year }` (`RobotService.syncEkinerjaSkp` menulis lewat `RecordsService`; logika murni + test
@@ -1005,7 +1085,8 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
   token agen otomatis, kartu Siapkan agen, `configure.sh`; unit +7, smoke +6; Hermes → proxy & MCP terbukti, **jawaban model
   sungguhan belum terlihat** karena Gemini 503 high demand saat uji). **Audit & uji menyeluruh fitur AI Agent ✅ 2026-11-01**
   (Asisten Agen, Laporan Kinerja + brankas, SRIKANDI, robot: 6 perbaikan, unit +2, uji API brankas 5/5, UI desktop & HP;
-  sistem e-Kinerja/SRIKANDI sungguhan tidak disentuh). **Brankas digital bukti renaksi ✅ 2026-10-31** (satu tautan per poin, beberapa berkas, pemberitahuan PDP, log akses IP + lokasi; unit backend +3, frontend +2, smoke +11, UI diuji: halaman publik, dialog brankas, ubah berkas, hapus entri → tautan mati). **Register Naskah Keluar SRIKANDI — bagian LifeOS ✅ 2026-10-31** (riset formulir resmi, tab Register, tautan final; unit +9, smoke +2, UI diuji desktop & HP; **robot pendaftaran ✅** — diuji ke SRIKANDI sungguhan: simpan konsep, anti-ganda, konsep uji dihapus; unit robot +4, backend +3, smoke +1). Berikutnya skill `penetapan-psp` (menunggu contoh dokumen user, C5) / 5b OnTrack / Register: Naskah Banyak & E-Form / pesan templat WA |
+  sistem e-Kinerja/SRIKANDI sungguhan tidak disentuh). **Rancangan persetujuan otomatis ("Kebijakan Otomatis") ditulis
+  2026-11-01** (`docs/AI-AGENT.md` §24; menunggu keputusan AG-26…29, belum ada kode). **Brankas digital bukti renaksi ✅ 2026-10-31** (satu tautan per poin, beberapa berkas, pemberitahuan PDP, log akses IP + lokasi; unit backend +3, frontend +2, smoke +11, UI diuji: halaman publik, dialog brankas, ubah berkas, hapus entri → tautan mati). **Register Naskah Keluar SRIKANDI — bagian LifeOS ✅ 2026-10-31** (riset formulir resmi, tab Register, tautan final; unit +9, smoke +2, UI diuji desktop & HP; **robot pendaftaran ✅** — diuji ke SRIKANDI sungguhan: simpan konsep, anti-ganda, konsep uji dihapus; unit robot +4, backend +3, smoke +1). Berikutnya skill `penetapan-psp` (menunggu contoh dokumen user, C5) / 5b OnTrack / Register: Naskah Banyak & E-Form / pesan templat WA |
 | Otomasi terjadwal (cron BullMQ, Tools → Otomasi + tab Connector): sinkron baca-saja e-Kinerja & SRIKANDI, jadwal diatur dari UI, Jalankan sekarang, riwayat, tombol manual tetap; **Jaga sesi login** + jadwal dijeda saat sesi kedaluwarsa + notifikasi (lonceng, toast, browser) | ✅ 2026-11-01 — unit backend +11 & frontend +5, smoke +15 (user sementara tanpa sesi → sistem pemerintah tidak disentuh), lint, typecheck, build, UI desktop & HP; **jadwal di akun admin masih nonaktif** (dinyalakan user); run terjadwal ke sistem sungguhan belum diamati |
 | Productivity lanjutan: modal Project/Area lega, kartu ringkas, File Control opt-in, tag bebas Resource Global & lampiran | ✅ 2026-10-12–15 — unit test, lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Audit celah Productivity (8 temuan + 2 temuan saat uji): arsip yang sudah diberkaskan dikunci dari tab Resources, sumber My Notebook dilindungi di dialog hapus, item Area berlampiran & berdeskripsi, ubah lampiran, agenda berulang digabung per seri, form Area di-`key`, tag terhapus tidak kembali, filter & Kelola Tag, tag Musnah/Statis terkunci, tanggal bawaan lokal | ✅ 2026-10-18 — unit test (frontend 190+), lint, typecheck, build, UI diuji di browser dengan data `UJI-AUDIT` (dibersihkan) |
@@ -1658,6 +1739,15 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   batas berkas (naskah/lampiran ≤ 5 MB, total lampiran ≤ 20 MB) diperiksa backend sebelum berkas dibaca ke memori;
   (4) sesi login jarak jauh yang ditinggalkan dibuang dari memori setelah 1 jam; (5) konektor dibuat lewat upsert (dua
   permintaan pertama tidak bentrok); (6) cache lokasi IP brankas dibatasi 1.000 entri, catatan log Pantau per SKP.
+- 2026-11-01 — **Pemeriksaan dokumentasi Planner** (permintaan user): kode Planner dibaca ulang dan dibandingkan dengan
+  dokumen. Ditambahkan peta modul Planner di §8b (tab → berkas, URL, aturan rutinitas/freeze/arsip, tipe agenda, logika
+  murni & pemakainya di modul lain); kalimat usang "Productivity belum menampilkan badge jadwal ulang" dikoreksi. Celah
+  kode yang dicatat (belum diperbaiki): upload Dasar Pelaksanaan di form agenda belum memakai `trackPendingUpload`.
+- 2026-11-01 — **Pemeriksaan dokumentasi Productivity** (permintaan user): kode Productivity dibaca ulang. Aturan fitur
+  (lampiran, tag, File Control, arsip, Sub Area, agenda, Laporan Kinerja) sudah tercatat dan sesuai kode; yang belum ada =
+  peta modul → ditambahkan di §8b (tab → berkas, filter, paginasi, TaskManager, aksi berantai). Celah kode yang dicatat
+  (belum diperbaiki): Overview Productivity memakai label Inggris & bisa menampilkan project selesai/ditunda; tab Areas
+  tanpa pencarian.
 - 2026-11-01 — **Otomasi terjadwal di dalam LifeOS** (permintaan user). Penjadwal BullMQ yang dikelola dari UI
   (Tools → Otomasi, tanpa layanan baru): e-Kinerja tiap pagi,
   Daftar Naskah Keluar tiap jam kerja 07–17, referensi tiap pagi, klasifikasi mingguan — semua bawaan **nonaktif** sampai user
@@ -1669,6 +1759,18 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   ke-30, nonaktif), jadwal sistem yang sesinya kedaluwarsa **dijeda** (dilewati tanpa membuka halaman login sistem pemerintah),
   dan notifikasi di lonceng + toast + notifikasi browser opsional. CAPTCHA/OTP tetap diketik user, jadi login ulang tidak
   diotomatiskan.
+
+- 2026-11-01 — **Obsidian tidak di Docker; Syncthing sebagai container produksi** (permintaan user). Obsidian = aplikasi
+  desktop untuk menulis (laptop/HP); LifeOS hanya membaca berkas Markdown vault, jadi image Obsidian (desktop jarak jauh
+  KasmVNC) tidak dipakai — berat dan menambah permukaan serangan. Yang dijalankan di VPS = Syncthing resmi
+  `syncthing/syncthing:2.1.6` (2.1.7 baru 11 hari) di profile `sync`, menggantikan paket sistem sebagai cara utama
+  (paket tetap alternatif). Pengecualian aturan "hanya Caddy membuka port": 22000 TCP/UDP untuk sinkron langsung.
+- 2026-11-01 — **Rancangan persetujuan otomatis tugas agen** (permintaan user, contoh Generasi PSP: WhatsApp → baca dokumen →
+  ambil aset → cocokkan ke master SIMAN/OnTrack → ≥ 75% → PSP dari templat → SRIKANDI, selain itu Telaah Staf). Prinsip yang
+  dipilih: **yang menyetujui = kebijakan milik user yang dijalankan server**, bukan model. Agen menyerahkan data aset
+  terstruktur, server memverifikasi ulang ke OnTrack dan menghitung skor sendiri (tahan *prompt injection*). Dilengkapi mode
+  shadow, masa tunda sebelum SRIKANDI (yang bisa dibatalkan), batas harian, sakelar darurat, dan `agent_runs` permanen.
+  Rancangan & keputusan terbuka AG-26…29: `docs/AI-AGENT.md` §24. Belum ada kode.
 
 ## 13. Konvensi Kode
 
@@ -2033,6 +2135,11 @@ utama tetap < 500 kB (cek output `npm run build`).
   bergeser saat lewat tayangan robot). Job register membawa berkas base64 → batas body robot 40 MB khusus rute itu.
 - Dev: request lewat proxy Vite → `req.ip` = `::1` (log brankas "Jaringan lokal / privat"). Lokasi IP sungguhan hanya terlihat
   di produksi (Caddy + `TRUST_PROXY=true`).
+- Berkas dari `/uploads/...` & `/public/.../files/...` ber-`CSP: sandbox` → dibuka langsung di tab, penampil PDF Chrome
+  **mengunduh** berkasnya. Tampilkan lewat blob (pratinjau aplikasi) atau pdf.js (brankas publik; iframe PDF tidak tampil di HP).
+- `mime.types` nginx (image `nginx:1.30-alpine`) tidak mengenal `.mjs` → worker pdf.js tersaji `application/octet-stream`
+  dan ditolak (nosniff) **hanya di produksi** (Vite dev benar). `nginx.conf` memetakan `.mjs` di `/assets/`; cek dengan image
+  nginx sungguhan (`docker run … nginx:1.30-alpine` + `wget -S`).
 - Tes AI sungguhan lewat `javascript_tool` (panel tersembunyi): satu panggilan maks. ± 45 detik → tunggu bertahap
   (beberapa panggilan `await` 30–40 detik), jangan satu loop panjang.
 - Kunci robot (`RobotService.exclusive`) dan sesi login jarak jauh ada di **memori satu proses backend** — jangan menjalankan

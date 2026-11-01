@@ -264,6 +264,30 @@ services:
     deploy: { resources: { limits: { memory: "${HERMES_MEM_LIMIT:-1536m}" } } }
     logging: *logging
 
+  syncthing:
+    # Sinkron vault Obsidian laptop/HP ↔ VPS ke ./knowledge-vaults (dibaca backend; DEPLOYMENT §10).
+    # Opsional: COMPOSE_PROFILES=sync. Obsidian sendiri tidak berjalan di server — LifeOS hanya membaca berkas Markdown.
+    # UID/GID 1000 = user node backend, agar backend tetap bisa menulis 00-Inbox dan Syncthing membaca hasilnya.
+    image: syncthing/syncthing:${SYNCTHING_TAG:-2.1.6}
+    restart: unless-stopped
+    profiles: ["sync"]
+    hostname: lifeos-vps
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+    volumes:
+      # Konfigurasi & kunci perangkat (Device ID) — hilang = perangkat harus dipasangkan ulang
+      - syncthing-data:/var/syncthing/config
+      - ./knowledge-vaults:/var/syncthing/knowledge-vaults
+    ports:
+      # Protokol sinkron (TCP + QUIC); terenkripsi & hanya perangkat yang Anda setujui yang bisa terhubung
+      - "${SYNCTHING_PORT:-22000}:22000/tcp"
+      - "${SYNCTHING_PORT:-22000}:22000/udp"
+      # Antarmuka web hanya di localhost VPS → buka lewat tunnel SSH, jangan ke internet
+      - "127.0.0.1:8384:8384"
+    deploy: { resources: { limits: { memory: "${SYNCTHING_MEM_LIMIT:-256m}" } } }
+    logging: *logging
+
   backup:
     # Backup berkala: dump database tervalidasi + cermin object storage (API S3) ke ./backups, salinan terenkripsi
     # ke S3 luar server (opsional), heartbeat pemantauan. Panduan: docs/DEPLOYMENT.md §4.
@@ -317,3 +341,4 @@ volumes:
   onlyoffice-logs:
   onlyoffice-fonts:
   hermes-data:
+  syncthing-data:

@@ -1425,3 +1425,87 @@ models` dengan kunci agen = 200, JWT login = 401, Hermes → proxy LifeOS terbuk
 base_url=…/agent/llm/v1`), MCP Hermes ditolak sebelum Siapkan agen lalu tersambung sendiri setelahnya. Jawaban model
 sungguhan belum terlihat: Gemini (`gemini-3.8-flash`) sedang 503 "high demand" — jalur native (Uji di Pengaturan) juga 503,
 jadi bukan masalah proxy; Hermes mencoba ulang otomatis.
+
+## 24. Rancangan 2026-11-01 — Persetujuan otomatis lewat "Kebijakan Otomatis" (belum dikerjakan)
+
+**Permintaan user**: beberapa tugas agen boleh **disetujui otomatis**. Contoh **Generasi PSP**: dokumen masuk lewat WhatsApp →
+dokumen dibaca → daftar aset di lampiran diambil → dicocokkan dengan master aset SIMAN (OnTrack) → bila **≥ 75% benar**,
+dokumen PSP dibuat dari templat lalu dikirim ke SRIKANDI; bila tidak, dibuat **Telaah Staf** tentang data aset yang tidak sesuai.
+Skill dibuat di Hermes, dan LifeOS harus mendukung alurnya.
+
+**Prinsip**: yang menyetujui adalah **LifeOS berdasarkan aturan yang ditulis user**, bukan model AI. Agen hanya menyerahkan
+data terstruktur. Server memeriksa ulang data itu ke sumber kebenaran (OnTrack), menghitung skor sendiri, lalu memutuskan
+menurut kebijakan. Akibatnya:
+- angka "75%" tidak bisa dikarang model, dan tidak bisa dimanipulasi isi dokumen pemohon (*prompt injection*);
+- aturan §22 bahwa "agen tidak pernah menyetujui" tetap berlaku. Persetujuan otomatis tercatat sebagai keputusan
+  **kebijakan milik user**, dengan alasan dan skor di riwayat.
+
+### 24.1 Kondisi sekarang vs kebutuhan (hasil kajian kode)
+
+| Langkah alur PSP | Kondisi LifeOS | Yang perlu dibuat |
+|---|---|---|
+| Dokumen dikirim lewat WhatsApp | ✅ bot → `RequestsService.create` (source `whatsapp`, berkas context `request`) | — |
+| Agen jalan sendiri saat pengajuan masuk | ❌ hanya tombol **Kerjakan dengan agen** (`AgentService.runSkill`); run dicatat di memori (hilang saat restart) | **Pemicu** + tabel `agent_runs` |
+| Membaca dokumen | ✅ `read_request_files` | — |
+| Mengambil daftar aset dari lampiran | 🟡 bisa dikerjakan skill, tetapi belum ada tempat menyimpan hasil terstruktur | Tool MCP `submit_asset_check` + kolom hasil |
+| Mencocokkan dengan master aset | ❌ MCP/API OnTrack belum ada (C1) | Klien REST `src/integrations/ontrack/` (verifikasi oleh server) |
+| Skor ≥ ambang → buat PSP dari templat | 🟡 `create_request_document` ada; status dari agen paling jauh *menunggu verifikasi* (`advanceStatus`) | **Mesin kebijakan** yang boleh menetapkan *disetujui (otomatis)* |
+| Kirim ke SRIKANDI | 🟡 robot Register menyimpan **konsep** (`registerSrikandiOutgoing`), tetapi entri `srikandi_outgoing` hanya dibuat dari UI | Pembuatan entri Register dari server + antrian kirim tertunda |
+| Skor < ambang → Telaah Staf | ✅ templat + `update_request` → menunggu verifikasi | Templat Telaah Staf (diunggah user) |
+| Kabar ke pemohon | ✅ `onStatusChange` → WhatsApp | Kait juga untuk keputusan otomatis |
+
+### 24.2 Alur yang dirancang
+
+```
+WhatsApp → pengajuan "baru" (jenis psp, grup X)
+   │  Pemicu (kebijakan cocok: jenis + grup + skill) → agent_runs (antri) → Hermes /v1/runs (skill penetapan-psp)
+   v
+Hermes: read_request_files → ambil daftar aset → submit_asset_check([{nup, kode_barang, nama, nilai, …}])
+   v
+LifeOS (server, deterministik): ambil master aset per NUP dari OnTrack → bandingkan per kolom → skor
+   ├─ skor ≥ ambang & semua syarat kebijakan terpenuhi
+   │     → Hermes membuat dokumen PSP (create_request_document; aset sesuai keputusan AG-26)
+   │     → LifeOS: status "disetujui · otomatis (kebijakan <nama>)" + riwayat (skor, rincian, versi kebijakan)
+   │     → entri Register Naskah Keluar dibuat → masa tunda (bisa dibatalkan) → robot simpan KONSEP di SRIKANDI
+   │     → kabar WhatsApp ke pemohon
+   └─ skor < ambang / data tidak lengkap / OnTrack tak terjangkau
+         → Hermes membuat Telaah Staf (rincian ketidaksesuaian dari hasil verifikasi server)
+         → status "menunggu verifikasi" → keputusan di tangan user (alur biasa)
+```
+
+Hasil verifikasi server diserahkan kembali ke agen (respons `submit_asset_check`). Hermes lalu memilih cabang PSP atau Telaah
+Staf. Meski begitu, **status akhir tetap ditetapkan server**: agen yang memanggil cabang PSP padahal skor kurang akan ditolak.
+
+### 24.3 Komponen LifeOS yang dibangun
+
+| Komponen | Isi |
+|---|---|
+| **Tabel `agent_policies`** | Milik user. Isi: nama, skill, pemicu (jenis pengajuan, grup kontak yang diizinkan), mode `off` / `shadow` / `auto`, ambang skor, kolom kritis (wajib cocok 100%, mis. NUP & kode barang), toleransi nilai, batas per hari, aksi lanjutan (`register_srikandi`), masa tunda (menit), versi (setiap perubahan menaikkan versi; keputusan mencatat versi). |
+| **Tabel `agent_runs`** | Pengganti peta run di memori. Isi: pemicu (`button` / `policy`), skill, pengajuan, status (antri/berjalan/selesai/gagal), run ID Hermes, ringkasan. Dipantau worker BullMQ, sehingga run tetap terlacak setelah backend restart. Antrian `agent-runs` concurrency 1. |
+| **Pemicu** | Kait `RequestsService` saat pengajuan baru dibuat (dan saat berkas bertambah dalam jendela intake WhatsApp), dijalankan setelah ekstraksi berkas selesai. Pengajuan yang cocok dengan kebijakan aktif masuk antrian `agent-runs`. |
+| **Verifikasi aset (server)** | Klien OnTrack (REST ber-API key, AG-18) + logika murni `asset-check.ts` (+ test): normalisasi NUP/kode, banding per kolom, skor per aset & total, alasan per ketidakcocokan. Disimpan di pengajuan (`asset_check` jsonb: daftar dari agen, data OnTrack, skor, waktu, versi kebijakan). |
+| **Tool MCP** | `submit_asset_check` (cakupan `requests:write`, input zod dibatasi jumlah aset). Respons = hasil verifikasi server + cabang yang diizinkan. `register_request_document` (buat entri Register dari dokumen pengajuan; hanya bila kebijakan mengizinkan). |
+| **Mesin kebijakan** | `RequestsService.policyDecide(...)`: satu-satunya jalan selain user untuk mencapai status *disetujui*. Riwayat `by: "kebijakan"` + alasan. Mode **shadow** hanya mencatat "akan disetujui otomatis" tanpa mengubah status. |
+| **Kirim tertunda** | Job BullMQ tertunda (masa tunda) → `registerSrikandiOutgoing` (konsep saja, tidak pernah Kirim Konsep). Bisa dibatalkan dari Approval selama masa tunda. Sesi SRIKANDI kedaluwarsa → job ditunda dan notifikasi (pola Otomasi). |
+| **Pengaman** | Sakelar darurat global, batas per hari, jeda otomatis bila beberapa keputusan otomatis dibuka kembali / dibatalkan user, hanya grup kontak yang diizinkan, pengajuan yang berkasnya bertambah setelah diputuskan → manual. |
+| **UI** | Approval → tab **Kebijakan Otomatis** (daftar, ubah, mode, statistik shadow: "cocok dengan keputusan Anda n/m") + penanda **Otomatis** di daftar & detail, panel **Verifikasi aset** (tabel per aset: cocok/tidak + kolom berbeda), tombol **Batalkan pengiriman** selama masa tunda; **Buka kembali** tetap ada. |
+
+### 24.4 Tahapan
+
+1. **Fondasi tanpa OnTrack**: `agent_runs` + worker (run dari tombol ikut pindah ke tabel), tabel kebijakan + UI, pemicu,
+   mode shadow, `submit_asset_check` dengan **sumber master tiruan** (berkas CSV/JSON uji, hanya dev), keputusan otomatis +
+   Register tertunda. Diuji dengan pengajuan `[UJI]` lewat Simulator WhatsApp.
+2. **Skill `penetapan-psp`** (butuh C5): langkah ekstraksi aset, cabang PSP / Telaah Staf, contoh gaya.
+3. **Sambung OnTrack** (setelah C1): klien REST menggantikan sumber tiruan. Mode shadow dijalankan pada pengajuan nyata
+   sampai cocok dengan keputusan user beberapa kali, baru mode `auto`.
+4. Kebijakan untuk jenis lain (panitia penghapusan, pemanfaatan) memakai komponen yang sama, dengan pemeriksa server
+   sesuai jenisnya.
+
+### 24.5 Keputusan (menunggu user)
+
+| ID | Pertanyaan | Rekomendasi |
+|---|---|---|
+| AG-26 | Arti "75% benar", dan aset mana yang masuk PSP? | Skor = persen **aset** yang cocok penuh pada kolom kritis (NUP, kode barang) + kolom lain dalam toleransi. PSP **hanya memuat aset yang cocok**; aset yang tidak cocok masuk Telaah Staf terlampir. Bila semua harus satu dokumen, ambang dinaikkan ke 100%. |
+| AG-27 | Sejauh mana "kirim ke SRIKANDI" otomatis? | Sampai **konsep tersimpan** di Log Naskah Keluar (setelah masa tunda 15 menit). Kirim Konsep / TTE tetap ditekan user, karena itu tindakan resmi atas nama pejabat. |
+| AG-28 | Urutan kerja | Tahap 1 sekarang (fondasi + master tiruan), skill setelah C5, OnTrack setelah C1. Mode `auto` hanya setelah shadow cocok minimal 5 pengajuan nyata. |
+| AG-29 | Kabar WhatsApp ke pemohon saat disetujui otomatis | Ya, tetapi baru setelah konsep tersimpan di SRIKANDI (bukan saat status berubah), agar tidak memberi kabar bila pengiriman dibatalkan. |

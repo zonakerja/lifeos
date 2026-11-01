@@ -1,11 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Download, Eye, FileText, FolderLock, Loader2, ScrollText, ShieldAlert } from "lucide-react";
 import { useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { appLogoUrl, useAppSettings } from "@/data/use-app-settings";
 import { errorMessage } from "@/lib/api/client";
 import { publicVaultApi } from "@/lib/api/endpoints";
+import type { PublicVaultView } from "@/types/api";
 import { formatDateTime } from "@/lib/dates";
+import { VaultFileViewer } from "./vault-file-viewer";
 import { formatVaultSize } from "./vault-utils";
 
 /**
@@ -25,6 +28,7 @@ function PublicVaultPage() {
     retry: false,
     refetchOnWindowFocus: false,
   });
+  const [viewing, setViewing] = useState<PublicVaultView["files"][number] | null>(null);
 
   return (
     <div data-module="kinerja" className="min-h-svh bg-background px-4 py-6 sm:py-10">
@@ -74,10 +78,8 @@ function PublicVaultPage() {
                       <p className="truncate text-sm font-medium">{file.name}</p>
                       <p className="text-xs text-muted-foreground">{formatVaultSize(file.size)}</p>
                     </div>
-                    <Button asChild variant="ghost" size="sm" title="Lihat di tab baru">
-                      <a href={publicVaultApi.fileUrl(token, file.id)} target="_blank" rel="noopener noreferrer">
-                        <Eye /> <span className="hidden sm:inline">Lihat</span>
-                      </a>
+                    <Button variant="ghost" size="sm" title="Lihat" onClick={() => setViewing(file)}>
+                      <Eye /> <span className="hidden sm:inline">Lihat</span>
                     </Button>
                     <Button asChild variant="outline" size="sm" title="Unduh">
                       <a href={publicVaultApi.fileUrl(token, file.id, true)} rel="noopener noreferrer">
@@ -136,6 +138,7 @@ function PublicVaultPage() {
           </>
         )}
       </div>
+      <VaultFileViewer token={token} file={viewing} onClose={() => setViewing(null)} />
     </div>
   );
 }

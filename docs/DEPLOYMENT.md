@@ -115,7 +115,9 @@ sudo ufw enable
 ```
 
 Catatan: port yang dipublikasikan Docker melewati aturan `ufw`. Karena itu hanya Caddy (80/443) yang membuka port di
-`docker-compose.prod.yml`; jangan menambahkan `ports:` pada service lain.
+`docker-compose.prod.yml`; jangan menambahkan `ports:` pada service lain. Satu-satunya pengecualian = Syncthing opsional
+(profile `sync`, §10): port sinkron 22000 TCP/UDP (protokol terenkripsi berpasangan perangkat) dan antarmuka web yang
+hanya terikat ke `127.0.0.1`.
 
 ### 1.1 Batas memori container
 
@@ -410,11 +412,19 @@ Anda (folder host); salinan juga ada di laptop/HP.
 
 1. Siapkan folder: `mkdir -p knowledge-vaults && sudo chown 1000:1000 knowledge-vaults` (user `node` di container
    ber-UID 1000; backend perlu izin tulis untuk folder `00-Inbox`).
-2. Pasang **Syncthing** di VPS (paket `syncthing`, jalankan sebagai user yang memiliki folder di atas, mis. service
-   `syncthing@<user>`) dan di laptop/HP. GUI Syncthing VPS cukup dibuka lewat tunnel SSH
-   (`ssh -L 8384:localhost:8384 <user>@<vps>` → http://localhost:8384), **jangan** dibuka ke internet.
-3. Bagikan folder vault dari laptop ke VPS dengan path tujuan `.../knowledge-vaults/<nama folder>` (nama: huruf,
-   angka, spasi, `.` `_` `-`). Aktifkan *File Versioning* (Staggered) di sisi VPS sebagai riwayat perubahan.
+2. Nyalakan **Syncthing** di VPS sebagai container (service `syncthing`, profile `sync`): tambahkan `sync` ke
+   `COMPOSE_PROFILES` di `.env` (mis. `COMPOSE_PROFILES=office,sync`) → `docker compose -f docker-compose.prod.yml up -d
+   syncthing`. Container berjalan sebagai UID 1000 (sama dengan backend), membuka port sinkron **22000 TCP/UDP**
+   (terenkripsi; hanya perangkat yang Anda setujui yang bisa terhubung; tanpa port ini Syncthing tetap jalan lewat relay,
+   hanya lebih lambat), dan antarmuka web hanya di `127.0.0.1:8384` VPS → buka lewat tunnel SSH
+   (`ssh -L 8384:localhost:8384 <user>@<vps>` → http://localhost:8384), **jangan** dibuka ke internet. Saat pertama dibuka,
+   atur **GUI Authentication User/Password** (Actions → Settings → GUI). Konfigurasi & Device ID ada di volume
+   `syncthing-data`. Pasang Syncthing juga di laptop/HP (TODO-USER B5).
+   Alternatif tanpa container: paket `syncthing` sebagai service `syncthing@<user>` (user ber-UID 1000).
+3. Bagikan folder vault dari laptop ke VPS. Di VPS, path folder **di dalam container** =
+   `/var/syncthing/knowledge-vaults/<nama folder>` (nama: huruf, angka, spasi, `.` `_` `-`). Aktifkan *File Versioning*
+   (Staggered) di sisi VPS sebagai riwayat perubahan. Saran *Ignore Patterns* agar berkas tampilan Obsidian tidak
+   bolak-balik antar-perangkat: `.obsidian/workspace*.json`. Folder `.stfolder`/`.stversions` dilewati LifeOS (tersembunyi).
 4. Di LifeOS: **Tools → Basis Pengetahuan → Pakai folder yang sudah ada** → pilih folder itu. Server memantau
    perubahan otomatis; tombol **Pindai** memaksa baca ulang.
 5. Alternatif tanpa Syncthing: berlangganan Obsidian Sync dan jalankan klien resmi `obsidian-headless` (`ob`) di VPS

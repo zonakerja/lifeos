@@ -45,6 +45,9 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
 - [ ] **C4** Push ke GitHub bila ingin cadangan kode (minta Claude, lalu cek tab Actions)
 - [ ] **C5** Siapkan contoh nyata (surat permohonan + lampiran + dokumen jadi yang sudah disetujui) untuk **PSP** dan
   **panitia penghapusan** — bahan skill Hermes pertama (keputusan AG-22…25 sudah disetujui 31 Okt 2026)
+- [ ] **C6** Jawab keputusan **persetujuan otomatis** (`docs/AI-AGENT.md` §24.5): AG-26 arti "75% benar" & aset yang masuk
+  PSP, AG-27 batas kirim ke SRIKANDI, AG-28 urutan kerja, AG-29 kabar WhatsApp ke pemohon. Siapkan juga **templat Telaah Staf**
+  (unggah di Tools → ONLYOFFICE → Templat)
 
 ---
 
@@ -390,9 +393,11 @@ Tidak yakin? Minta Claude memandu sambil Anda menjalankan perintah, satu per sat
 1. **Laptop**: unduh dari <https://syncthing.net/downloads/> (untuk Windows tersedia installer "Syncthing Windows
    Setup" yang membuat Syncthing berjalan otomatis) → buka antarmuka web <http://localhost:8384>.
 2. **HP Android** (opsional): pasang **Syncthing-Fork** (Play Store/F-Droid).
-3. **VPS**: ikuti DEPLOYMENT §10 (pasang paket `syncthing`, buka antarmukanya hanya lewat tunnel SSH).
+3. **VPS**: ikuti DEPLOYMENT §10 (Syncthing berjalan sebagai container: tambahkan `sync` ke `COMPOSE_PROFILES` di
+   `.env`; antarmukanya dibuka hanya lewat tunnel SSH, lalu pasang user/password antarmuka). Obsidian **tidak** dipasang
+   di VPS.
 4. Di laptop: **Add Remote Device** → masukkan *Device ID* VPS (dan HP). Lalu bagikan folder vault Anda ke perangkat
-   tersebut; di VPS arahkan ke `…/lifeos/knowledge-vaults/<nama folder>`.
+   tersebut; di VPS arahkan ke `/var/syncthing/knowledge-vaults/<nama folder>`.
 5. Di LifeOS (VPS): **Tools → Basis Pengetahuan → Pakai folder yang sudah ada** → pilih folder itu.
 
 ## B6. WhatsApp Business Cloud API (bot layanan)
@@ -493,3 +498,4 @@ Telegram Anda yang diizinkan. Minta Claude menyiapkan service otomatis (systemd)
 | 2026-10-31 | A8: bukti renaksi lewat Brankas digital (satu tautan per poin, log akses IP + lokasi, Ganti tautan) |
 | 2026-11-01 | A8: jadwal otomatis sinkron e-Kinerja & SRIKANDI (Tools → Otomasi) — nyalakan sakelar yang diinginkan |
 | 2026-11-01 | A8: Jaga sesi login + notifikasi sesi kedaluwarsa (lonceng, toast, browser) |
+| 2026-11-01 | C6: keputusan persetujuan otomatis (Kebijakan Otomatis, alur Generasi PSP) + templat Telaah Staf |
