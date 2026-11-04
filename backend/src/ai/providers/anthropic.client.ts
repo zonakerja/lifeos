@@ -9,9 +9,9 @@ import {
 } from "./ai-client";
 
 /** Model yang mendukung `output_config.effort` (Haiku 4.5 & model lebih lama menolaknya). */
-const EFFORT_MODELS = /^claude-(opus-5|sonnet-5-5|haiku-5-5|fable-5)/;
+export const EFFORT_MODELS = /^claude-(opus-5|sonnet-5-5|haiku-5-5|fable-5)/;
 /** Model yang menerima `fallbacks: "default"` (dijalankan ulang di model lain bila ditolak filter keamanan). */
-const FALLBACK_MODELS = /^claude-(opus-5|sonnet-5-5|fable-5)/;
+export const FALLBACK_MODELS = /^claude-(opus-5|sonnet-5-5|fable-5)/;
 
 type ContentBlock = Anthropic.Beta.Messages.BetaContentBlockParam;
 

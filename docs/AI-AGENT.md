@@ -1416,7 +1416,7 @@ Google Cloud). **Keputusan**: "satu pintu" seperti AI di ONLYOFFICE — Hermes t
 
 | Bagian | Isi |
 |---|---|
-| Model | `config.yaml` Hermes: `model.provider: custom`, `base_url: http://lifeos-api:4000/api/v1/agent/llm/v1`, `default: lifeos-agent`, `api_key: "${API_SERVER_KEY}"` (ditulis `infra/hermes/configure.sh`, idempoten, tanpa rahasia). Backend `AgentLlmController` (`GET models`, `POST chat/completions`) meneruskan ke endpoint OpenAI-compatible resmi provider user (Gemini `…/v1beta/openai`, OpenAI, Anthropic) dengan key tersimpan; model = Pembagian tugas → **Agen (Hermes)** (`ai_routing.agent`, kosong = provider aktif). Streaming diteruskan apa adanya; error provider diteruskan dengan status aslinya (Hermes mencoba ulang 503/429 sendiri). Logika murni + test `agent-llm.ts`. |
+| Model | `config.yaml` Hermes: `model.provider: custom`, `base_url: http://lifeos-api:4000/api/v1/agent/llm/v1`, `default: lifeos-agent`, `api_key: "${API_SERVER_KEY}"` (ditulis `infra/hermes/configure.sh`, idempoten, tanpa rahasia). Backend `AgentLlmController` (`GET models`, `POST chat/completions`) meneruskan ke endpoint OpenAI-compatible resmi provider user (Gemini `…/v1beta/openai`, OpenAI) dengan key tersimpan; **Claude** diterjemahkan ke Messages API native (lihat di bawah); model = Pembagian tugas → **Agen (Hermes)** (`ai_routing.agent`, kosong = provider aktif). Streaming diteruskan apa adanya; error provider diteruskan dengan status aslinya (Hermes mencoba ulang 503/429 sendiri). Logika murni + test `agent-llm.ts`, `agent-claude.ts`. |
 | Izin | Satu kunci bersama `HERMES_API_KEY` (= `API_SERVER_KEY` container) di dua arah. Tombol **Siapkan agen** membuat token akses "Agen Hermes (otomatis)" milik `HERMES_OWNER_EMAIL` dengan hash kunci itu + cakupan pilihan (bawaan semua, termasuk `ai:model` baru) → MCP & model memakai isolasi/log token biasa; dicabut di Pengaturan → Integrasi. Kunci harus 24–128 huruf/angka/`_`/`-` (`openssl rand -hex 32`). |
 | UI | Kartu **Siapkan agen** di Asisten Agen → Status & Skill: Hermes menyala, model (provider · model, tautan Pengaturan → Model AI), izin agen (dialog cakupan), panggilan model terakhir. |
 
@@ -1425,6 +1425,16 @@ models` dengan kunci agen = 200, JWT login = 401, Hermes → proxy LifeOS terbuk
 base_url=…/agent/llm/v1`), MCP Hermes ditolak sebelum Siapkan agen lalu tersambung sendiri setelahnya. Jawaban model
 sungguhan belum terlihat: Gemini (`gemini-3.8-flash`) sedang 503 "high demand" — jalur native (Uji di Pengaturan) juga 503,
 jadi bukan masalah proxy; Hermes mencoba ulang otomatis.
+
+**Claude lewat API native (2026-11-05)**: Hermes tetap berbicara format OpenAI ke LifeOS; `agent-claude.ts` menerjemahkannya ke
+Messages API. Alasan: endpoint kompatibel OpenAI milik Anthropic tanpa prompt caching dan menolak beberapa parameter pada model
+terbaru; `api_mode: anthropic_messages` di Hermes mengharuskan konfigurasi Hermes diubah setiap ganti provider (kembali ke
+terminal). Yang aktif: cache otomatis (`cache_control` tingkat atas), effort `medium` (atau `reasoning_effort` dari permintaan),
+`temperature`/`top_p` dibuang, `tool_choice` paksa → `auto` pada model yang menolaknya, `drop_block` + `fallbacks: "default"` pada
+model terbaru, kredit habis → 402. Pemanggilan alat dikirim di akhir stream (yang sebelum `fallback` tidak boleh dijalankan). Blok
+giliran alat disimpan di memori backend karena Hermes membuang `reasoning_details` di rute custom, lalu dikirim balik utuh selama
+Hermes tidak mengubah giliran itu. Diuji unit (SDK sungguhan + respons SSE tiruan) dan klien OpenAI → backend uji → server Anthropic
+tiruan (alat → hasil → jawaban, pemikiran terkirim balik); **Claude sungguhan & Hermes sungguhan dengan Claude belum diuji**.
 
 ## 24. Rancangan 2026-11-01 — Persetujuan otomatis lewat "Kebijakan Otomatis" (belum dikerjakan)
 

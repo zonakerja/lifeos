@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
@@ -11,12 +12,21 @@ import {
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Response as ExpressResponse } from "express";
+import Anthropic from "@anthropic-ai/sdk";
 import { AiService } from "../ai/ai.service";
 import type { AuthUser } from "../common/types/auth-user";
 import { type ApiScope, hashToken, looksLikeToken, normalizeScopes } from "../integrations/api-token-logic";
 import type { TokenPrincipal } from "../integrations/api-tokens.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RequestsService } from "../requests/requests.service";
+import {
+  chatCompletion,
+  chunkFactory,
+  claudeRequest,
+  ClaudeTurnMemory,
+  replayableBlocks,
+  runClaude,
+} from "./agent-claude";
 import {
   AGENT_TOKEN_NAME,
   AGENT_TOKEN_PREFIX,
@@ -61,6 +71,8 @@ export interface ModelCall {
   provider: string;
   model: string;
   error?: string;
+  /** Pemakaian token (saat ini hanya Claude): dasar memeriksa prompt caching & biaya */
+  usage?: { input: number; output: number; cacheRead: number; cacheWrite: number };
 }
 
 /** Error berformat OpenAI untuk Hermes (klien OpenAI membaca `error.message`). */
@@ -77,6 +89,7 @@ export class AgentService {
   private readonly logger = new Logger(AgentService.name);
   private readonly runs = new Map<string, TrackedRun>();
   private lastModelCall: ModelCall | null = null;
+  private readonly claudeTurns = new ClaudeTurnMemory();
 
   constructor(
     private readonly config: ConfigService,
@@ -232,6 +245,7 @@ export class AgentService {
     if (!credential) {
       return llmError(res, 400, "Model AI agen belum diatur: simpan API key di LifeOS → Pengaturan → Model AI.");
     }
+    if (credential.provider === "anthropic") return this.proxyClaude(principal.user.id, credential, body, res);
     const payload = prepareChatBody(body, credential.provider, credential.model);
     if (!payload) return llmError(res, 400, "Permintaan chat tidak valid (messages kosong).");
 
@@ -278,6 +292,79 @@ export class AgentService {
       res.end();
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  /** Proxy untuk Claude: Messages API native (prompt caching, blok pemikiran) dengan keluaran format OpenAI. */
+  private async proxyClaude(
+    userId: string,
+    credential: { apiKey: string; model: string },
+    body: unknown,
+    res: ExpressResponse,
+  ) {
+    const { apiKey, model } = credential;
+    const request = claudeRequest(body, model, (toolIds) => this.claudeTurns.recall(userId, toolIds));
+    if (!request) return llmError(res, 400, "Permintaan chat tidak valid (messages kosong).");
+
+    const streaming = (body as { stream?: unknown }).stream === true;
+    const client = new Anthropic({ apiKey, timeout: MODEL_TIMEOUT_MS, maxRetries: 1 });
+    const controller = new AbortController();
+    res.on("close", () => controller.abort());
+    const call: ModelCall = { at: new Date().toISOString(), ok: true, provider: "anthropic", model };
+    const created = Math.floor(Date.now() / 1000);
+    const id = `chatcmpl-${randomUUID()}`;
+    const chunks = chunkFactory(id, model, created);
+    const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+
+    try {
+      const message = await runClaude(
+        client,
+        request,
+        controller.signal,
+        () => {
+          if (!streaming) return;
+          res.status(200);
+          res.setHeader("Content-Type", "text/event-stream");
+          res.setHeader("Cache-Control", "no-cache");
+          send(chunks.start());
+        },
+        (text) => {
+          if (streaming) send(chunks.text(text));
+        },
+      );
+      this.claudeTurns.remember(userId, replayableBlocks(message.content));
+      const { input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens } = message.usage;
+      this.lastModelCall = {
+        ...call,
+        usage: {
+          input: input_tokens,
+          output: output_tokens,
+          cacheRead: cache_read_input_tokens ?? 0,
+          cacheWrite: cache_creation_input_tokens ?? 0,
+        },
+      };
+      if (!streaming) {
+        res.json(chatCompletion(message, created));
+        return;
+      }
+      chunks.finish(message).forEach(send);
+      res.write("data: [DONE]\n\n");
+      res.end();
+    } catch (error) {
+      const aborted = controller.signal.aborted;
+      const status = error instanceof Anthropic.APIError && error.status ? error.status : aborted ? 504 : 502;
+      const detail = error instanceof Anthropic.APIError ? JSON.stringify(error.error ?? error.message) : String(error);
+      const raw = error instanceof Error ? error.message : detail;
+      const summary = upstreamErrorSummary(status, detail);
+      this.lastModelCall = { ...call, ok: false, error: summary };
+      this.logger.warn(`Model agen anthropic/${model} gagal ${summary}`);
+      if (res.writableEnded || res.destroyed) return;
+      if (!res.headersSent) {
+        // Saldo kredit habis dikembalikan Anthropic sebagai 400 → 402 agar Hermes tidak mengira permintaannya salah
+        return llmError(res, /credit balance/i.test(raw) ? 402 : status, `anthropic: ${summary}`);
+      }
+      send({ error: { message: `anthropic: ${summary}`, code: status } });
+      res.end();
     }
   }
 

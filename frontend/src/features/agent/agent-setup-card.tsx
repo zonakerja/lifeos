@@ -108,6 +108,14 @@ export function AgentSetupCard({ status }: { status: AgentStatus }) {
           Panggilan model terakhir {formatDateTime(setup.lastModelCall.at)} (
           {providerLabel(setup.lastModelCall.provider)}
           ): {setup.lastModelCall.ok ? "berhasil" : setup.lastModelCall.error}
+          {setup.lastModelCall.usage && (
+            <span className="mt-1 block">
+              Token: masuk {setup.lastModelCall.usage.input.toLocaleString("id-ID")} · dari cache{" "}
+              {setup.lastModelCall.usage.cacheRead.toLocaleString("id-ID")} · tulis cache{" "}
+              {setup.lastModelCall.usage.cacheWrite.toLocaleString("id-ID")} · keluar{" "}
+              {setup.lastModelCall.usage.output.toLocaleString("id-ID")}
+            </span>
+          )}
           {!setup.lastModelCall.ok && (
             <span className="mt-1 block text-muted-foreground">
               429 = kuota/batas API key habis (key gratis cepat habis karena agen boros token); 503 = provider sedang

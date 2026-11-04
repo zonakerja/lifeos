@@ -20,11 +20,10 @@ export const AGENT_TOKEN_PREFIX = "hermes";
 /** Cakupan bawaan token agen: semua izin (bisa dikurangi user saat menyiapkan / dicabut di Integrasi). */
 export const DEFAULT_AGENT_SCOPES: ApiScope[] = [...API_SCOPES];
 
-/** Endpoint OpenAI-compatible resmi tiap provider (tanpa `/chat/completions`). */
-export const OPENAI_COMPAT_BASE: Record<"gemini" | "openai" | "anthropic", string> = {
+/** Endpoint OpenAI-compatible resmi (tanpa `/chat/completions`); Claude lewat Messages API native (`agent-claude.ts`). */
+export const OPENAI_COMPAT_BASE: Record<"gemini" | "openai", string> = {
   gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
   openai: "https://api.openai.com/v1",
-  anthropic: "https://api.anthropic.com/v1",
 };
 
 /**
@@ -54,7 +53,7 @@ export function modelsResponse(provider: keyof typeof CONTEXT_LENGTH | null, mod
   };
 }
 
-/** Kunci yang tidak diteruskan ke provider (khusus OpenAI / tidak dikenal endpoint kompatibel Gemini & Claude). */
+/** Kunci yang tidak diteruskan ke provider (khusus OpenAI / tidak dikenal endpoint kompatibel Gemini). */
 const DROPPED_KEYS = ["store", "metadata", "service_tier", "prompt_cache_key", "safety_identifier", "user"];
 
 /**

@@ -436,7 +436,14 @@ export interface AgentSetupState {
   keyValid: boolean;
   token: { id: string; scopes: ApiScope[]; lastUsedAt: string | null; createdAt: string } | null;
   model: { provider: AiProviderId; model: string } | null;
-  lastModelCall: { at: string; ok: boolean; provider: string; model: string; error?: string } | null;
+  lastModelCall: {
+    at: string;
+    ok: boolean;
+    provider: string;
+    model: string;
+    error?: string;
+    usage?: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  } | null;
 }
 
 export interface AgentStatus {

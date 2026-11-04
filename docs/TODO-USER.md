@@ -200,9 +200,13 @@ terminal atau API key yang perlu diketik di Hermes. Yang perlu **Anda** lakukan 
 5. Setelah laptop dinyalakan ulang: `wsl -e sh /mnt/d/Development/Application/LifeOS/infra/hermes/up.sh` (PowerShell).
 6. Kredit Google: pantau pemakaian di Google Cloud Console → Billing (agen memakai jauh lebih banyak token daripada chat).
 7. (Opsional, nanti) Telegram ke Hermes pribadi dari HP: `docker compose --profile agent run --rm hermes gateway setup`.
+8. (Opsional) **Bandingkan dengan Claude**: isi kredit kecil ($10–20) di <https://platform.claude.com> (terpisah dari langganan
+   Claude Pro) → buat API key → simpan di **Pengaturan → Model AI** → baris **Agen (Hermes)** pilih Anthropic, model
+   `claude-sonnet-5-5` atau `claude-opus-5-5` → ulangi langkah 4 pada pengajuan yang sama. Di kartu **Siapkan agen** lihat
+   **Token: dari cache**: angkanya harus naik setelah panggilan pertama. Beri tahu Claude hasilnya; ini uji pertama ke Claude sungguhan.
 
-Catatan: API key model untuk Hermes disimpan di Hermes (volume Docker), terpisah dari Pengaturan → Model AI LifeOS. Biaya/kuota
-dipakai dari key itu.
+Catatan: API key model **tidak** disimpan di Hermes; agen memakai key di Pengaturan → Model AI LifeOS, jadi biaya/kuota dipakai
+dari key itu.
 
 ---
 
