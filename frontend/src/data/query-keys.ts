@@ -27,6 +27,7 @@ export const queryKeys = {
   agentStatus: ["agent", "status"] as const,
   agentSkills: ["agent", "skills"] as const,
   agentRuns: ["agent", "runs"] as const,
+  agentPolicies: ["agent", "policies"] as const,
   agentRun: (id: string) => ["agent", "run", id] as const,
   automationJobs: ["automation", "jobs"] as const,
   automationAlerts: ["automation", "alerts"] as const,

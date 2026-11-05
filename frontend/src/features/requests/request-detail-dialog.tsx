@@ -43,7 +43,8 @@ import { formatDateTime, formatShortDate, parseLocalYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
 import type { RequestDetail, RequestStatus, RequestUpdate } from "@/types/api";
-import { CHECK_LABELS, CHECK_TONE, KIND_LABELS, STATUS_LABELS, STATUS_TONE } from "./request-utils";
+import { AutoDecisionPanel } from "./auto-decision-panel";
+import { CHECK_LABELS, CHECK_TONE, HISTORY_ACTOR, KIND_LABELS, STATUS_LABELS, STATUS_TONE } from "./request-utils";
 import { TemplateFillDialog } from "./template-fill-dialog";
 import { useOfficeLinkBadges } from "@/data/use-office";
 import { DocumentLinkBadge } from "@/features/tools/onlyoffice/document-links";
@@ -192,6 +193,8 @@ function RequestDetailBody({ request: r, onDeleted }: { request: RequestDetail; 
         )}
       </Section>
 
+      <AutoDecisionPanel request={r} />
+
       <AgentRunPanel requestId={r.id} decided={["disetujui", "dikirim", "ditolak"].includes(r.status)} />
 
       {!aiReady && (
@@ -322,7 +325,7 @@ function RequestDetailBody({ request: r, onDeleted }: { request: RequestDetail; 
             <li key={`${h.at}-${i}`} className="flex flex-wrap items-center gap-1.5">
               <span className="text-muted-foreground tabular-nums">{formatDateTime(h.at)}</span>
               <Badge className={cn("h-5", STATUS_TONE[h.status])}>{STATUS_LABELS[h.status]}</Badge>
-              <span className="text-muted-foreground">oleh {h.by === "agen" ? "agen AI" : "Anda"}</span>
+              <span className="text-muted-foreground">oleh {HISTORY_ACTOR[h.by] ?? h.by}</span>
               {h.note && <span>— {h.note}</span>}
             </li>
           ))}

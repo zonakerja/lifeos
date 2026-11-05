@@ -15,8 +15,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { useAiSettings } from "@/data/use-ai-settings";
+import { useAiIndexStatus, useAiSettings } from "@/data/use-ai-settings";
 import { useIntegrationScopes } from "@/data/use-integrations";
+import { useKnowledgeStatus } from "@/data/use-knowledge";
 import { queryKeys } from "@/data/query-keys";
 import { errorMessage } from "@/lib/api/client";
 import { type AgentStatus, agentApi } from "@/lib/api/endpoints";
@@ -32,6 +33,16 @@ const UP_COMMAND = "wsl -e sh /mnt/d/Development/Application/LifeOS/infra/hermes
 export function AgentSetupCard({ status }: { status: AgentStatus }) {
   const setup = status.setup;
   const { data: ai } = useAiSettings();
+  const { data: vault } = useKnowledgeStatus();
+  const { data: index } = useAiIndexStatus();
+  // Error indeks berawalan jenis kesalahan provider; isi mentahnya ada di Tools → Indeks Pengetahuan
+  const indexError = !index?.lastError
+    ? null
+    : index.lastError.startsWith("auth")
+      ? "API key embedding ditolak provider"
+      : index.lastError.startsWith("quota")
+        ? "kuota embedding habis"
+        : "provider embedding sedang bermasalah";
   const [open, setOpen] = useState(false);
   const providerLabel = (id: string) => ai?.providers.find((p) => p.id === id)?.label ?? id;
   const ready = status.reachable && !!setup?.token?.scopes.includes("ai:model") && !!setup.model;
@@ -40,7 +51,7 @@ export function AgentSetupCard({ status }: { status: AgentStatus }) {
     <SectionCard
       icon={Wrench}
       title="Siapkan agen"
-      description="Tiga langkah, tanpa terminal: Hermes menyala, model AI dari Pengaturan → Model AI, lalu izinkan agen."
+      description="Empat langkah, tanpa terminal: Hermes menyala, model AI dari Pengaturan → Model AI, izinkan agen, lalu sambungkan vault Obsidian."
       className="lg:col-span-2"
       action={
         <Button size="sm" variant={setup?.token ? "outline" : "default"} onClick={() => setOpen(true)}>
@@ -97,6 +108,29 @@ export function AgentSetupCard({ status }: { status: AgentStatus }) {
         )}
       </Step>
 
+      <Step ok={!!vault?.folder && vault.folderExists && !indexError} title="4. Basis pengetahuan (Obsidian)">
+        {!vault?.configured ? (
+          "Folder vault belum diatur di server (KNOWLEDGE_VAULTS_DIR)."
+        ) : !vault.folder ? (
+          "Belum ada vault tersambung, jadi agen belum punya pengetahuan Anda. "
+        ) : !vault.folderExists ? (
+          <span className="text-warning">Folder vault {vault.folder} tidak ditemukan. </span>
+        ) : (
+          <>
+            Vault <code>{vault.folder}</code> · {vault.notes} catatan
+            {vault.lastScanAt ? ` · dibaca ${formatDateTime(vault.lastScanAt)}` : ""}.{" "}
+          </>
+        )}
+        {indexError && (
+          <span className="text-warning">
+            Pencarian makna terganggu, agen sementara mencari per kata: {indexError}.{" "}
+          </span>
+        )}
+        <Link className="font-medium text-module hover:underline" to="/tools/knowledge">
+          Tools → Basis Pengetahuan
+        </Link>
+      </Step>
+
       {setup?.lastModelCall && (
         <p
           className={
@@ -118,8 +152,8 @@ export function AgentSetupCard({ status }: { status: AgentStatus }) {
           )}
           {!setup.lastModelCall.ok && (
             <span className="mt-1 block text-muted-foreground">
-              429 = kuota/batas API key habis (key gratis cepat habis karena agen boros token); 503 = provider sedang
-              sibuk, coba lagi nanti. Ganti key/model di Pengaturan → Model AI.
+              401 = API key ditolak, buat key baru; 429 = kuota/batas API key habis (key gratis cepat habis karena agen
+              boros token); 503 = provider sedang sibuk, coba lagi nanti. Ganti key/model di Pengaturan → Model AI.
             </span>
           )}
         </p>

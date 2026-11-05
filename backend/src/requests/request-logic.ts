@@ -33,7 +33,8 @@ export interface HistoryEntry {
   at: string;
   status: RequestStatus;
   note?: string;
-  by: "user" | "agen";
+  /** kebijakan = keputusan Kebijakan Otomatis milik user (dijalankan server, bukan model) */
+  by: "user" | "agen" | "kebijakan";
 }
 
 /** Tambah entri riwayat bila status berubah (atau ada catatan). */

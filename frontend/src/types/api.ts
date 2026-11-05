@@ -699,8 +699,79 @@ export interface RequestAnalysis {
 export interface RequestHistoryEntry {
   at: string;
   status: RequestStatus;
-  by: "user" | "agen";
+  by: "user" | "agen" | "kebijakan";
   note?: string;
+}
+
+/** Keputusan Kebijakan Otomatis atas satu pengajuan (docs/AI-AGENT.md §24). */
+export interface RequestAutoDecision {
+  policyId: string;
+  policyName: string;
+  mode: AgentPolicyMode;
+  outcome: "approve" | "review";
+  /** Keputusan benar-benar diterapkan (mode auto); shadow = hanya dicatat */
+  applied: boolean;
+  reasons: string[];
+  score: number | null;
+  decidedAt: string;
+  registerId?: string;
+  /** Konsep dijadwalkan disimpan ke SRIKANDI pada waktu ini (masa tunda) */
+  sendAt?: string;
+  sentAt?: string;
+  cancelledAt?: string;
+  error?: string;
+}
+
+export interface AssetClaim {
+  nup?: string;
+  kodeBarang?: string;
+  nama?: string;
+  nilai?: number | string;
+}
+
+export interface RequestAssetCheck {
+  source: string | null;
+  available: boolean;
+  checkedAt: string;
+  threshold: number;
+  total: number;
+  matched: number;
+  score: number;
+  items: {
+    claimed: AssetClaim;
+    master: { nup: string; kodeBarang: string; nama?: string; nilai?: number } | null;
+    status: "cocok" | "berbeda" | "tidak_ditemukan";
+    diffs: { field: AssetField; claimed: string | number | null; master: string | number | null }[];
+  }[];
+}
+
+export type AgentPolicyMode = "off" | "shadow" | "auto";
+export type AssetField = "nup" | "kodeBarang" | "nama" | "nilai";
+
+export interface AgentPolicyInput {
+  name: string;
+  skill: string;
+  requestKind: RequestKind;
+  groupCodes: string[];
+  mode: AgentPolicyMode;
+  threshold: number;
+  criticalFields: AssetField[];
+  valueTolerance: number;
+  dailyLimit: number;
+  holdMinutes: number;
+  registerTemplate: string | null;
+}
+
+export interface AgentPolicy extends AgentPolicyInput {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  stats: { decisions: number; applied: number; judged: number; agree: number };
+}
+
+export interface AgentPolicyList {
+  paused: boolean;
+  policies: AgentPolicy[];
 }
 
 export interface RequestSummary {
@@ -718,6 +789,7 @@ export interface RequestSummary {
   source: "manual" | "mcp" | "whatsapp";
   attachments: RequestAttachment[];
   documents: RequestDocument[];
+  autoDecision: RequestAutoDecision | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -730,6 +802,7 @@ export interface RequestDetail extends RequestSummary {
   reviewCitations: AiChatCitation[] | null;
   draftReply: string | null;
   history: RequestHistoryEntry[];
+  assetCheck: RequestAssetCheck | null;
   files: (RequestAttachment & { extraction: string | null })[];
 }
 

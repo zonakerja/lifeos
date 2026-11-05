@@ -6,6 +6,8 @@ import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import {
   ForbiddenException,
   Injectable,
+  OnModuleDestroy,
+  OnModuleInit,
   Logger,
   NotFoundException,
   UnprocessableEntityException,
@@ -17,6 +19,7 @@ import { AiService } from "../ai/ai.service";
 import type { AuthUser } from "../common/types/auth-user";
 import { type ApiScope, hashToken, looksLikeToken, normalizeScopes } from "../integrations/api-token-logic";
 import type { TokenPrincipal } from "../integrations/api-tokens.service";
+import type { AgentRun } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { RequestsService } from "../requests/requests.service";
 import {
@@ -37,7 +40,6 @@ import {
   upstreamErrorSummary,
 } from "./agent-llm";
 import {
-  type AgentRunView,
   type AgentSkill,
   isAgentOwner,
   parseRun,
@@ -47,19 +49,16 @@ import {
   SKILL_NAME,
   skillRunInput,
 } from "./agent-logic";
+import { AgentPolicyService } from "./agent-policy.service";
 
-interface TrackedRun {
-  userId: string;
-  kind: "chat" | "skill";
-  input: string;
-  requestId?: string;
-  skill?: string;
-  startedAt: string;
-  last?: AgentRunView;
-}
-
-/** Batas run yang diingat (riwayat singkat di memori; isi percakapan lengkap ada di sesi Hermes). */
-const MAX_TRACKED = 200;
+/** Pemantau tugas agen: tugas dari aturan dimulai & dipantau server walau tidak ada yang membuka aplikasi. */
+const POLL_MS = 10_000;
+/** Pengajuan dianggap selesai menerima berkas (jendela berkas susulan WhatsApp) setelah tidak berubah selama ini. */
+const SETTLE_MS = 90_000;
+/** Tugas antri yang berkasnya tidak kunjung terbaca dimulai juga setelah batas ini. */
+const QUEUE_LIMIT_MS = 15 * 60_000;
+/** Tugas berjalan yang tidak selesai dalam batas ini dianggap gagal. */
+const RUN_LIMIT_MS = 45 * 60_000;
 
 /** Batas satu panggilan model agen (langkah agen bisa panjang: banyak alat + berkas). */
 const MODEL_TIMEOUT_MS = 10 * 60_000;
@@ -85,18 +84,128 @@ const llmError = (res: ExpressResponse, status: number, message: string) =>
  * `HERMES_OWNER_EMAIL` yang boleh memakai agen ini. Tugas berjalan sebagai **run** asinkron (`/v1/runs`) yang di-poll.
  */
 @Injectable()
-export class AgentService {
+export class AgentService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AgentService.name);
-  private readonly runs = new Map<string, TrackedRun>();
   private lastModelCall: ModelCall | null = null;
   private readonly claudeTurns = new ClaudeTurnMemory();
+  private poller?: NodeJS.Timeout;
+  private polling = false;
 
   constructor(
     private readonly config: ConfigService,
     private readonly requests: RequestsService,
     private readonly prisma: PrismaService,
     private readonly ai: AiService,
+    private readonly policies: AgentPolicyService,
   ) {}
+
+  onModuleInit() {
+    if (!this.configured) return;
+    this.poller = setInterval(() => void this.tick(), POLL_MS);
+  }
+
+  onModuleDestroy() {
+    if (this.poller) clearInterval(this.poller);
+  }
+
+  /** Satu putaran pemantau: mulai tugas antri dari aturan, perbarui tugas berjalan, putuskan yang selesai. */
+  private async tick() {
+    if (this.polling) return;
+    this.polling = true;
+    try {
+      const queued = await this.prisma.agentRun.findMany({
+        where: { status: "queued" },
+        take: 5,
+        orderBy: { createdAt: "asc" },
+      });
+      for (const run of queued) await this.startQueued(run);
+      const running = await this.prisma.agentRun.findMany({ where: { status: "running" }, take: 20 });
+      for (const run of running) {
+        if (!run.hermesRunId) continue;
+        await this.refresh(run).catch((error) =>
+          this.logger.warn(
+            `Status tugas agen ${run.id} gagal dibaca: ${error instanceof Error ? error.message : error}`,
+          ),
+        );
+      }
+    } finally {
+      this.polling = false;
+    }
+  }
+
+  /** Tugas dari aturan dimulai setelah berkas pemohon selesai dibaca server (atau batas tunggu habis). */
+  private async startQueued(run: AgentRun) {
+    const request = run.requestId ? await this.prisma.request.findUnique({ where: { id: run.requestId } }) : null;
+    const account = await this.prisma.user.findUnique({ where: { id: run.userId }, select: { agentAutoPaused: true } });
+    if (!request || account?.agentAutoPaused || !["baru", "diproses"].includes(request.status)) {
+      await this.prisma.agentRun.update({
+        where: { id: run.id },
+        data: {
+          status: "skipped",
+          finishedAt: new Date(),
+          error: !request
+            ? "Pengajuan sudah dihapus."
+            : account?.agentAutoPaused
+              ? "Sakelar darurat aktif."
+              : "Pengajuan sudah diproses.",
+        },
+      });
+      return;
+    }
+    const waited = Date.now() - run.createdAt.getTime();
+    const settled = Date.now() - request.updatedAt.getTime() > SETTLE_MS;
+    const ids = (Array.isArray(request.attachments) ? (request.attachments as { uploadId: string }[]) : []).map(
+      (a) => a.uploadId,
+    );
+    const pending = ids.length
+      ? await this.prisma.assetExtraction.count({
+          where: { assetId: { in: ids }, status: { in: ["pending", "extracting"] } },
+        })
+      : 0;
+    if ((!settled || pending > 0) && waited < QUEUE_LIMIT_MS) return;
+    try {
+      const body = await this.call<{ run_id?: string }>("/v1/runs", {
+        method: "POST",
+        body: { input: run.input, session_id: sessionIdFor(run.userId, `req-${request.id}`) },
+      });
+      if (!body.run_id) throw new Error("Hermes tidak mengembalikan ID tugas.");
+      await this.prisma.agentRun.update({
+        where: { id: run.id },
+        data: { status: "running", hermesRunId: body.run_id, startedAt: new Date() },
+      });
+    } catch (error) {
+      const failed = await this.prisma.agentRun.update({
+        where: { id: run.id },
+        data: {
+          status: "failed",
+          finishedAt: new Date(),
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+      await this.policies.finalize(failed);
+    }
+  }
+
+  /** Baca status run di Hermes; selesai → simpan hasil dan (bila dari aturan) jalankan keputusan server. */
+  private async refresh(run: AgentRun) {
+    const view = parseRun(
+      run.hermesRunId!,
+      await this.call<unknown>(`/v1/runs/${encodeURIComponent(run.hermesRunId!)}`),
+    );
+    const overdue = !view.done && run.startedAt && Date.now() - run.startedAt.getTime() > RUN_LIMIT_MS;
+    if (!view.done && !overdue) return run;
+    const updated = await this.prisma.agentRun.update({
+      where: { id: run.id },
+      data: {
+        status: overdue ? "failed" : view.status,
+        output: view.output?.slice(0, 20_000) ?? null,
+        error: overdue ? "Tugas agen melewati batas waktu." : view.error,
+        finishedAt: new Date(),
+      },
+    });
+    await this.policies.finalize(updated);
+    return updated;
+  }
 
   get configured() {
     return !!this.config.get<string>("HERMES_URL") && !!this.config.get<string>("HERMES_API_KEY");
@@ -429,54 +538,74 @@ export class AgentService {
       body: { input: run.input, session_id: run.sessionId },
     });
     if (!body.run_id) throw new UnprocessableEntityException("Hermes tidak mengembalikan ID tugas.");
-    this.runs.set(body.run_id, {
-      userId: user.id,
-      kind: run.kind,
-      input: run.input,
-      requestId: run.requestId,
-      skill: run.skill,
-      startedAt: new Date().toISOString(),
+    await this.prisma.agentRun.create({
+      data: {
+        userId: user.id,
+        hermesRunId: body.run_id,
+        kind: run.kind,
+        trigger: run.kind === "chat" ? "chat" : "button",
+        skill: run.skill ?? null,
+        requestId: run.requestId ?? null,
+        input: run.input,
+        status: "running",
+        startedAt: new Date(),
+      },
     });
-    while (this.runs.size > MAX_TRACKED) this.runs.delete(this.runs.keys().next().value!);
     return { runId: body.run_id, status: body.status ?? "started" };
   }
 
-  private tracked(user: AuthUser, runId: string) {
-    const run = this.runs.get(runId);
-    if (!run || run.userId !== user.id) throw new NotFoundException("Tugas agen tidak ditemukan.");
+  private async tracked(user: AuthUser, runId: string) {
+    const run = await this.prisma.agentRun.findFirst({ where: { hermesRunId: runId, userId: user.id } });
+    if (!run) throw new NotFoundException("Tugas agen tidak ditemukan.");
     return run;
+  }
+
+  private view(run: AgentRun) {
+    const done = run.status !== "queued" && run.status !== "running";
+    return {
+      runId: run.hermesRunId ?? run.id,
+      status: run.status,
+      done,
+      output: run.output,
+      error: run.error,
+      requestId: run.requestId,
+      skill: run.skill,
+    };
   }
 
   async run(user: AuthUser, runId: string) {
     this.requireOwner(user);
-    const run = this.tracked(user, runId);
-    if (run.last?.done) return { ...run.last, requestId: run.requestId, skill: run.skill };
-    run.last = parseRun(runId, await this.call<unknown>(`/v1/runs/${encodeURIComponent(runId)}`));
-    return { ...run.last, requestId: run.requestId, skill: run.skill };
+    const run = await this.tracked(user, runId);
+    if (run.status !== "running") return this.view(run);
+    return this.view(await this.refresh(run));
   }
 
   async stop(user: AuthUser, runId: string) {
     this.requireOwner(user);
-    this.tracked(user, runId);
+    const run = await this.tracked(user, runId);
+    if (run.status !== "running") return { stopping: false };
     await this.call(`/v1/runs/${encodeURIComponent(runId)}/stop`, { method: "POST", body: {} });
     return { stopping: true };
   }
 
-  /** Tugas agen terakhir milik user (sejak backend dinyalakan). */
-  recent(user: AuthUser) {
+  /** Tugas agen terakhir milik user (tersimpan permanen di `agent_runs`). */
+  async recent(user: AuthUser) {
     this.requireOwner(user);
-    return [...this.runs.entries()]
-      .filter(([, r]) => r.userId === user.id)
-      .reverse()
-      .slice(0, 20)
-      .map(([runId, r]) => ({
-        runId,
-        kind: r.kind,
-        skill: r.skill ?? null,
-        requestId: r.requestId ?? null,
-        input: r.kind === "chat" ? r.input.slice(0, 200) : null,
-        startedAt: r.startedAt,
-        status: r.last?.status ?? "running",
-      }));
+    const rows = await this.prisma.agentRun.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    return rows.map((r) => ({
+      runId: r.hermesRunId ?? r.id,
+      kind: r.kind,
+      trigger: r.trigger,
+      skill: r.skill,
+      requestId: r.requestId,
+      input: r.kind === "chat" ? r.input.slice(0, 200) : null,
+      startedAt: (r.startedAt ?? r.createdAt).toISOString(),
+      status: r.status,
+      error: r.error,
+    }));
   }
 }

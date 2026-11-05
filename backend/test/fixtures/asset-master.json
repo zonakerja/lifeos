@@ -1,0 +1,8 @@
+[
+  { "nup": "1", "kodeBarang": "3020102001", "nama": "[UJI] Mobil Dinas Toyota Innova", "nilai": 350000000 },
+  { "nup": "2", "kodeBarang": "3020102001", "nama": "[UJI] Mobil Dinas Toyota Avanza", "nilai": 210000000 },
+  { "nup": "1", "kodeBarang": "3100102001", "nama": "[UJI] Laptop Lenovo ThinkPad", "nilai": 18500000 },
+  { "nup": "2", "kodeBarang": "3100102001", "nama": "[UJI] Laptop Asus ExpertBook", "nilai": 16000000 },
+  { "nup": "1", "kodeBarang": "3050104001", "nama": "[UJI] Lemari Arsip Besi", "nilai": 4200000 },
+  { "nup": "1", "kodeBarang": "4010101001", "nama": "[UJI] Gedung Kantor Satker Contoh", "nilai": 2750000000 }
+]

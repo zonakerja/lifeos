@@ -158,6 +158,10 @@ model User {
   agentActivity    AgentActivityLog[]
   automationJobs   AutomationJob[]
   automationRuns   AutomationRun[]
+  agentPolicies    AgentPolicy[]
+  agentRuns        AgentRun[]
+  /// Sakelar darurat Kebijakan Otomatis: true = tidak ada tugas/keputusan/kiriman otomatis baru
+  agentAutoPaused  Boolean            @default(false) @map("agent_auto_paused")
 
   @@map("users")
 }
@@ -1342,6 +1346,11 @@ model Request {
   notes           String?
   /// Riwayat status: [{ at, status, note?, by }]
   history         Json     @default("[]")
+  /// Verifikasi aset oleh server: { source, checkedAt, score, matched, total, items[{ claimed, status, diffs[] }] }
+  assetCheck      Json?    @map("asset_check")
+  /// Keputusan Kebijakan Otomatis: { policyId, policyName, mode, outcome, applied, reasons[], score, decidedAt,
+  /// registerId?, sendAt?, sentAt?, cancelledAt?, error? }
+  autoDecision    Json?    @map("auto_decision")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1607,4 +1616,67 @@ model AutomationRun {
 
   @@index([userId, kind, createdAt])
   @@map("automation_runs")
+}
+
+// ---------------------------------------------------------------- Kebijakan Otomatis agen (docs/AI-AGENT.md §24)
+
+/// Aturan milik user: pengajuan jenis/grup tertentu dikerjakan skill agen, lalu diputuskan server (bukan model).
+model AgentPolicy {
+  id               String   @id @default(cuid())
+  userId           String   @map("user_id")
+  name             String
+  /// Skill LifeOS yang dijalankan (folder agents/hermes/skills)
+  skill            String
+  /// Jenis pengajuan yang memicu (psp | penghapusan | …)
+  requestKind      String   @map("request_kind")
+  /// Kode grup kontak yang diizinkan; kosong = semua grup
+  groupCodes       Json     @default("[]") @map("group_codes")
+  /// off | shadow (hanya mencatat) | auto (memutuskan & menyimpan konsep SRIKANDI)
+  mode             String   @default("shadow")
+  /// Persen aset yang harus cocok (0–100)
+  threshold        Int      @default(75)
+  /// Kolom yang wajib sama persis: ["nup", "kodeBarang", …]
+  criticalFields   Json     @default("[\"nup\",\"kodeBarang\"]") @map("critical_fields")
+  /// Toleransi selisih nilai aset (persen)
+  valueTolerance   Float    @default(0) @map("value_tolerance")
+  /// Keputusan otomatis maksimal per hari
+  dailyLimit       Int      @default(5) @map("daily_limit")
+  /// Masa tunda sebelum konsep disimpan ke SRIKANDI (menit)
+  holdMinutes      Int      @default(15) @map("hold_minutes")
+  /// Entri Register Naskah Keluar yang isiannya disalin (jenis, sifat, klasifikasi, tujuan, verifikator, penandatangan)
+  registerTemplate String?  @map("register_template")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("agent_policies")
+}
+
+/// Tugas agen Hermes (chat, tombol skill, atau Kebijakan Otomatis) — tetap terlacak setelah backend restart.
+model AgentRun {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  /// ID run di Hermes
+  hermesRunId String?   @unique @map("hermes_run_id")
+  /// chat | skill
+  kind        String
+  /// button | policy | chat
+  trigger     String
+  skill       String?
+  requestId   String?   @map("request_id")
+  policyId    String?   @map("policy_id")
+  input       String
+  /// queued | running | completed | failed | cancelled | skipped
+  status      String
+  output      String?
+  error       String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt   DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt  DateTime? @map("finished_at") @db.Timestamptz(3)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("agent_runs")
 }

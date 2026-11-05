@@ -48,6 +48,25 @@ export interface GeneratedDocument {
 
 /** Dipanggil setelah user mengubah status pengajuan (mis. bot WhatsApp mengabari pemohon). */
 export type RequestStatusListener = (request: Request, status: RequestStatus, note?: string) => Promise<void>;
+/** Dipanggil setelah pengajuan baru dibuat (pemicu Kebijakan Otomatis). */
+export type RequestCreatedListener = (request: Request) => Promise<void>;
+
+/** Keputusan Kebijakan Otomatis yang disimpan di pengajuan (`auto_decision`). */
+export interface AutoDecision {
+  policyId: string;
+  policyName: string;
+  mode: string;
+  outcome: "approve" | "review";
+  applied: boolean;
+  reasons: string[];
+  score: number | null;
+  decidedAt: string;
+  registerId?: string;
+  sendAt?: string;
+  sentAt?: string;
+  cancelledAt?: string;
+  error?: string;
+}
 
 const asList = <T>(value: unknown) => (Array.isArray(value) ? (value as T[]) : []);
 const LIST_SELECT = {
@@ -63,6 +82,7 @@ const LIST_SELECT = {
   source: true,
   attachments: true,
   documents: true,
+  autoDecision: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -76,6 +96,7 @@ const LIST_SELECT = {
 export class RequestsService {
   private readonly logger = new Logger(RequestsService.name);
   private readonly statusListeners: RequestStatusListener[] = [];
+  private readonly createdListeners: RequestCreatedListener[] = [];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -87,6 +108,77 @@ export class RequestsService {
 
   onStatusChange(listener: RequestStatusListener) {
     this.statusListeners.push(listener);
+  }
+
+  onCreated(listener: RequestCreatedListener) {
+    this.createdListeners.push(listener);
+  }
+
+  /** Kabari pendengar status (WhatsApp) — dipakai juga setelah konsep keputusan otomatis tersimpan di SRIKANDI. */
+  async emitStatus(request: Request, status: RequestStatus, note?: string) {
+    for (const listener of this.statusListeners) {
+      await listener(request, status, note).catch((error) =>
+        this.logger.warn(
+          `Kabar status pengajuan ${request.id} gagal: ${error instanceof Error ? error.message : error}`,
+        ),
+      );
+    }
+  }
+
+  /** Simpan hasil verifikasi aset oleh server (bukan oleh agen). */
+  async setAssetCheck(userId: string, id: string, check: Prisma.InputJsonValue) {
+    await this.own(userId, id);
+    await this.prisma.request.update({ where: { id }, data: { assetCheck: check } });
+  }
+
+  /**
+   * Keputusan Kebijakan Otomatis — satu-satunya jalan selain pemilik untuk menyetujui. Disetujui hanya bila keputusan
+   * benar-benar dijalankan (mode auto); selain itu pengajuan diserahkan ke pemilik (menunggu verifikasi) beserta alasannya.
+   */
+  async policyDecide(userId: string, id: string, decision: AutoDecision) {
+    const current = await this.own(userId, id);
+    if (!["baru", "diproses", "menunggu_verifikasi"].includes(current.status)) return current;
+    const status: RequestStatus = decision.applied
+      ? "disetujui"
+      : advanceStatus(current.status as RequestStatus, "menunggu_verifikasi");
+    const label = decision.applied
+      ? `Disetujui otomatis (kebijakan ${decision.policyName})`
+      : decision.outcome === "approve"
+        ? `Memenuhi kebijakan ${decision.policyName}, tidak dijalankan`
+        : `Diserahkan ke pemilik (kebijakan ${decision.policyName})`;
+    return this.prisma.request.update({
+      where: { id },
+      data: {
+        status,
+        autoDecision: decision as unknown as Prisma.InputJsonValue,
+        history: withHistory(
+          current.history,
+          status,
+          "kebijakan",
+          `${label}: ${decision.reasons.join(" ")}`,
+        ) as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  /** Perbarui catatan keputusan otomatis (jadwal kirim, hasil kirim, pembatalan). */
+  async patchAutoDecision(id: string, patch: Partial<AutoDecision>, reopenNote?: string) {
+    const current = await this.prisma.request.findUnique({ where: { id } });
+    if (!current?.autoDecision) return null;
+    const data: Prisma.RequestUpdateInput = {
+      autoDecision: { ...(current.autoDecision as object), ...patch } as Prisma.InputJsonValue,
+    };
+    // Kiriman dibatalkan → keputusan kembali ke pemilik
+    if (reopenNote) {
+      data.status = "menunggu_verifikasi";
+      data.history = withHistory(
+        current.history,
+        "menunggu_verifikasi",
+        "user",
+        reopenNote,
+      ) as unknown as Prisma.InputJsonValue;
+    }
+    return this.prisma.request.update({ where: { id }, data });
   }
 
   list(userId: string, status?: string) {
@@ -127,6 +219,11 @@ export class RequestsService {
         history: withHistory([], "baru", source === "manual" ? "user" : "agen") as unknown as Prisma.InputJsonValue,
       },
     });
+    for (const listener of this.createdListeners) {
+      await listener(request).catch((error) =>
+        this.logger.warn(`Pemicu pengajuan ${request.id} gagal: ${error instanceof Error ? error.message : error}`),
+      );
+    }
     return this.get(user.id, request.id);
   }
 

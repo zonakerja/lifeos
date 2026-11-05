@@ -1436,7 +1436,7 @@ giliran alat disimpan di memori backend karena Hermes membuang `reasoning_detail
 Hermes tidak mengubah giliran itu. Diuji unit (SDK sungguhan + respons SSE tiruan) dan klien OpenAI → backend uji → server Anthropic
 tiruan (alat → hasil → jawaban, pemikiran terkirim balik); **Claude sungguhan & Hermes sungguhan dengan Claude belum diuji**.
 
-## 24. Rancangan 2026-11-01 — Persetujuan otomatis lewat "Kebijakan Otomatis" (belum dikerjakan)
+## 24. Persetujuan otomatis lewat "Kebijakan Otomatis" (rancangan 2026-11-01, tahap 1 dibangun 2026-11-06)
 
 **Permintaan user**: beberapa tugas agen boleh **disetujui otomatis**. Contoh **Generasi PSP**: dokumen masuk lewat WhatsApp →
 dokumen dibaca → daftar aset di lampiran diambil → dicocokkan dengan master aset SIMAN (OnTrack) → bila **≥ 75% benar**,
@@ -1511,7 +1511,10 @@ Staf. Meski begitu, **status akhir tetap ditetapkan server**: agen yang memanggi
 4. Kebijakan untuk jenis lain (panitia penghapusan, pemanfaatan) memakai komponen yang sama, dengan pemeriksa server
    sesuai jenisnya.
 
-### 24.5 Keputusan (menunggu user)
+### 24.5 Keputusan
+
+AG-26 s.d. AG-29 diputuskan user 2026-11-06 sesuai rekomendasi di bawah (AG-27: otomatis hanya sampai konsep tersimpan di
+SRIKANDI; AG-28: tahap 1 dengan data master tiruan, shadow dulu lalu auto dinaikkan user sendiri).
 
 | ID | Pertanyaan | Rekomendasi |
 |---|---|---|
@@ -1519,3 +1522,57 @@ Staf. Meski begitu, **status akhir tetap ditetapkan server**: agen yang memanggi
 | AG-27 | Sejauh mana "kirim ke SRIKANDI" otomatis? | Sampai **konsep tersimpan** di Log Naskah Keluar (setelah masa tunda 15 menit). Kirim Konsep / TTE tetap ditekan user, karena itu tindakan resmi atas nama pejabat. |
 | AG-28 | Urutan kerja | Tahap 1 sekarang (fondasi + master tiruan), skill setelah C5, OnTrack setelah C1. Mode `auto` hanya setelah shadow cocok minimal 5 pengajuan nyata. |
 | AG-29 | Kabar WhatsApp ke pemohon saat disetujui otomatis | Ya, tetapi baru setelah konsep tersimpan di SRIKANDI (bukan saat status berubah), agar tidak memberi kabar bila pengiriman dibatalkan. |
+
+### 24.6 Tahap 1 yang dibangun (2026-11-06)
+
+| Bagian | Isi |
+|---|---|
+| Data | `agent_policies` (aturan per pemilik: jenis, grup, skill, mode off/shadow/auto, ambang, kolom kritis, toleransi nilai %, batas harian, masa tunda, templat Register), `agent_runs` (semua run agen — tombol, chat, aturan — permanen; dulu di memori), `users.agent_auto_paused` (sakelar darurat), `requests.asset_check` & `requests.auto_decision`. Migrasi `20261106120000_agent_policies`. |
+| Logika murni | `backend/src/agent/agent-policy.ts` (+ test): `compareAssets` (cocok lewat NUP + kode barang, lalu NUP saja; nama hanya informasi kecuali dijadikan kolom kritis), `matchPolicy` (aturan dengan grup menang atas aturan semua grup), `decidePolicy` (lolos hanya bila master tersedia, skor ≥ ambang, ada dokumen, belum diputuskan; shadow / sakelar darurat / batas harian = tidak diterapkan). |
+| Verifikasi aset | Alat MCP `submit_asset_check` → `AssetVerificationService`: agen menyerahkan daftar aset dari berkas, **server** mencocokkan ke data master dan menghitung skor; respons `branch: lanjut | telaah`. Sumber master tahap 1 = berkas JSON tiruan `AGENT_ASSET_MASTER_FILE` (dev: `backend/test/fixtures/asset-master.json`, isi `[UJI]`); kosong = selalu telaah. OnTrack menggantikannya (C1). |
+| Pemicu & run | `AgentPolicyService`: pengajuan baru milik pemilik agen yang cocok aturan → `agent_runs` `queued` (trigger `policy`). Pemantau `AgentService` (10 dtk) memulai run Hermes setelah pengajuan tenang 90 dtk dan berkasnya selesai dibaca (maks. tunggu 15 menit), lalu membaca status run; run > 45 menit = gagal. |
+| Keputusan | Run selesai → `finalize`: run gagal = telaah; tanpa templat Register = tidak diterapkan. Diterapkan (auto) → status **Disetujui** (riwayat oleh "kebijakan") → entri Register `reg-auto-<id>` (isian disalin dari templat Register, berkas = dokumen terakhir pengajuan, nomor = Ambil Nomor) → job BullMQ `agent-send` setelah masa tunda → `registerSrikandiOutgoing` (Simpan konsep saja) → kabar status (WhatsApp) **setelah** konsep tersimpan. Tidak diterapkan → **Menunggu verifikasi** + alasan. |
+| Endpoint | `GET/POST /agent/policies`, `PATCH/DELETE /agent/policies/:id`, `POST /agent/policies/pause { paused }`, `POST /agent/requests/:id/auto/cancel` (batalkan kiriman selama masa tunda → kembali menunggu verifikasi). Semua hanya pemilik agen. |
+| UI | Approval → tab **Kebijakan Otomatis** (`policies-tab.tsx`: penjelasan, sakelar darurat, daftar aturan + statistik kecocokan shadow vs keputusan user, formulir aturan, peringatan alat bawaan Hermes saat mode auto). Daftar Approval: penanda keadaan otomatis. Detail: panel **Kebijakan Otomatis** (`auto-decision-panel.tsx`: keputusan + alasan, jadwal kirim, Batalkan kiriman, Buka di Register, tabel verifikasi aset). Riwayat menampilkan "oleh Kebijakan Otomatis". |
+| Diuji | unit backend +9, frontend +4, smoke +5, uji API ujung-ke-ujung 12/12 (aturan shadow → antri → `submit_asset_check` 2/3 = 67% → run Hermes → keputusan "perlu telaah", tidak disetujui, statistik). Run Hermes berakhir **gagal** karena key Gemini 401 — jalur "lolos" dengan model sungguhan & pengiriman ke SRIKANDI **belum** diuji. |
+
+**Belum**: skill `penetapan-psp` (C5), draf skill buatan Hermes yang diaktifkan user, pembatasan toolset Hermes (wajib sebelum
+mode auto dipakai sungguhan), sumber master OnTrack.
+
+## 25. Peta jalan penyempurnaan agen (permintaan user 2026-11-05, dikerjakan satu per satu)
+
+| No | Pekerjaan | Status | Catatan |
+|---|---|---|---|
+| 1 | Komunikasi Hermes ↔ Obsidian ↔ LifeOS | ✅ kecuali jawaban model sungguhan | Hasil di §25.1 |
+| 2 | Hermes membentuk skill & bekerja otomatis tanpa Approval; **Kirim Konsep di SRIKANDI tetap di tangan user** | 🚧 tahap 1 ✅ 2026-11-06 (§24.6) | Sisa: skill `penetapan-psp` (C5), draf skill dari Hermes, pembatasan toolset Hermes, uji dengan model sungguhan |
+| 3 | Fitur Hermes seperti di aplikasi desktopnya, di dalam LifeOS | Belum | Daftar fitur yang diinginkan perlu dipastikan dengan user |
+| 4 | Antarmuka Obsidian di LifeOS (Graph View, dsb.) | Belum | Data graf sudah ada (`knowledge_links`) |
+| 5 | Pembagian model: penalaran agen Claude dengan cadangan OpenAI; tugas biasa, RAG, chatbot dengan Gemini | Belum | Pembagian tugas per provider sudah ada (`ai_routing`); **cadangan otomatis belum ada di proxy agen**. Uji Claude sungguhan menunggu API key |
+
+### 25.1 Hasil nomor 1 (2026-11-05)
+
+```
+Obsidian ⇄ berkas vault → LifeOS (pemantau → knowledge_notes + knowledge_links → ai_chunks)
+                              ↑ MCP + kunci agen (18 alat)        ↑ proxy model
+                            Hermes ────────────────────────────────┘
+```
+
+Obsidian dan Hermes tidak saling memanggil: **LifeOS adalah satu-satunya perantara**. Hermes membaca vault lewat
+`search_knowledge` / `read_knowledge_note` dan menulis lewat `add_knowledge_inbox` (hanya folder `00-Inbox`, status draf).
+
+**Terbukti sungguhan**: berkas baru di vault terbaca ± 3 detik dan bisa dicari; `hermes mcp test lifeos` dari dalam container
+= tersambung, 18 alat; lewat MCP dengan kunci agen: cari → baca → ikuti tautan & backlink → tulis Inbox → berkas muncul di disk.
+
+**Diperbaiki**:
+- Embedding gagal (key ditolak, kuota, provider sibuk) membuat catatan baru **tidak tersimpan sama sekali** di indeks, sehingga
+  tidak bisa dicari walau per kata. Kini potongan tetap disimpan tanpa vektor dan error tetap dicatat; vektornya menyusul saat
+  percobaan ulang atau saat key diganti (menyimpan key memicu bangun ulang indeks).
+- Kartu **Siapkan agen** punya langkah 4 Basis pengetahuan (vault, jumlah catatan, gangguan indeks) dan keterangan error 401.
+- `read_knowledge_note` tidak lagi menampilkan tautan yang sama dua kali.
+
+**Belum terbukti**: Hermes menjalankan alur ini dengan model sungguhan. API key Gemini tersimpan ditolak Google (401, terakhir
+berhasil 31 Okt), jadi run agen berhenti di panggilan model pertama. Menunggu key baru dari user (TODO-USER A1).
+
+**Temuan untuk nomor 2**: Hermes menyalakan toolset bawaan `terminal`, `file`, `browser`, `web`, `code_execution`, `cronjob`,
+`delegation`, dan `computer_use` di container (backend terminal `local`, tanpa sandbox). Sebelum agen dibuat otomatis, toolset
+perlu dibatasi ke yang dipakai skill LifeOS.

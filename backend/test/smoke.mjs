@@ -1667,6 +1667,16 @@ try {
       values: { hal: "Uji agen" },
     });
     ok("mcp create_request_document", !t.error && t.text.includes('"created": true'), t.raw);
+    // Verifikasi aset (Kebijakan Otomatis): skor dihitung server; aset tak dikenal → cabang telaah (dengan / tanpa master)
+    t = await call("submit_asset_check", {
+      requestId: mcpReq?.id,
+      assets: [{ nup: "999999", kodeBarang: "0000000000", nama: "Aset smoke", nilai: "Rp1.000" }],
+    });
+    ok(
+      "mcp submit_asset_check → telaah",
+      !t.error && t.text.includes('"branch": "telaah"') && t.text.includes('"matched": 0'),
+      t.raw,
+    );
     r = await j("GET", `/requests/${mcpReq?.id}`, null, at);
     ok(
       "agent work stored (review, document, history by agen)",
@@ -1696,6 +1706,15 @@ try {
     ok("agent run by non-owner rejected", r.s === 403 || r.s === 422, r);
     r = await j("POST", `/agent/requests/${reqId}/run`, { skill: "../x" }, at);
     ok("agent run invalid skill 400", r.s === 400, r);
+    // Kebijakan Otomatis: hanya pemilik agen; validasi isian sebelum layanan
+    r = await j("GET", "/agent/policies", null, pt);
+    ok("agent policies non-owner rejected", r.s === 403 || r.s === 422, r);
+    r = await j("POST", "/agent/policies/pause", { paused: true }, pt);
+    ok("agent policies pause non-owner rejected", r.s === 403 || r.s === 422, r);
+    r = await j("POST", `/agent/requests/${reqId}/auto/cancel`, null, pt);
+    ok("agent auto cancel non-owner rejected", r.s === 403 || r.s === 422, r);
+    r = await j("POST", "/agent/policies", { name: "x", skill: "Bad", requestKind: "psp", groupCodes: [], mode: "selalu" }, at);
+    ok("agent policy invalid input 400", r.s === 400, r);
 
     r = await j("DELETE", `/requests/${reqId}`, null, at);
     ok("request delete", r.s === 200, r);

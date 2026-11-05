@@ -329,6 +329,17 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   (`${API_SERVER_KEY}` di config Hermes) yang dikenali sebagai token akses biasa: `POST /agent/setup { scopes? }` membuat token
   "Agen Hermes (otomatis)" milik pemilik agen dengan hash kunci itu (cakupan baru `ai:model` untuk model). `bearerToken`
   menerima `[A-Za-z0-9_-]{24,128}` (JWT bertitik tetap ditolak). Logika murni + test `agent-llm.ts`.
+  **Run agen permanen** di tabel `agent_runs` (tombol, chat, aturan; `hermesRunId`) + pemantau 10 dtk di `AgentService`
+  (mulai run antrian, baca status, batas 45 menit) — tidak lagi hilang saat backend restart.
+  **Kebijakan Otomatis** (`agent-policy.service.ts`, logika murni + test `agent-policy.ts`, detail `docs/AI-AGENT.md` §24.6):
+  aturan pemilik di `agent_policies` (jenis + grup → skill, mode off/shadow/auto, ambang skor aset, kolom kritis, toleransi,
+  batas harian, masa tunda, templat Register). Pengajuan baru yang cocok → run `queued` (trigger `policy`) → agen memanggil
+  MCP `submit_asset_check` (`requests/asset-verification.service.ts`: **server** mencocokkan ke data master — tahap 1 berkas
+  JSON tiruan `AGENT_ASSET_MASTER_FILE`, kelak OnTrack) → `finalize` memutuskan dengan `decidePolicy` (model tidak
+  memutuskan). Auto & lolos → Disetujui (riwayat `by: "kebijakan"`) → entri Register `reg-auto-<id>` dari templat → job
+  `agent-send` setelah masa tunda → `registerSrikandiOutgoing` (Simpan konsep saja; **Kirim Konsep tetap user**) → kabar
+  status. Shadow / sakelar darurat `users.agent_auto_paused` / batas harian = hanya dicatat. `/agent/policies*`,
+  `POST /agent/requests/:id/auto/cancel`.
 - **Konektor robot** (`src/robot/` + service `robot/`, detail `docs/ARCHITECTURE.md` §3.10, DEPLOYMENT §13): env opsional
   `ROBOT_URL`, `ROBOT_TOKEN`. Tabel `robot_connectors` (sesi browser `storageState` **terenkripsi**, kunci = HMAC turunan
   `AI_ENCRYPTION_KEY`, `robotSessionKey`) & `robot_runs` (tangkapan layar di object storage `robot/<userId>/…`, bukan
@@ -395,7 +406,8 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   `20261025160000_srikandi_letters` (record type `srikandi_letter`) + `20261025170000_srikandi_references` (record type
   `srikandi_reference`) + `20261031120000_srikandi_outgoing` (record type `srikandi_outgoing` — Register Naskah Keluar) + `20261031130000_action_plan_months`
   (record type `action_plan_month` — potret bulan Rencana Aksi e-Kinerja) + `20261031140000_public_vaults` (brankas digital + log
-  akses) + `20261101120000_automation_jobs` (jadwal & riwayat otomasi). Migrasi baru → lihat docs/SETUP.md §10
+  akses) + `20261101120000_automation_jobs` (jadwal & riwayat otomasi) + `20261106120000_agent_policies` (Kebijakan Otomatis,
+  `agent_runs`, sakelar darurat, `requests.asset_check`/`auto_decision`). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
@@ -892,6 +904,10 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   petugas / simpan FAQ / tandai selesai, Simulator) & **Grup & Kontak** (`whatsapp/contacts-tab.tsx`: profil layanan
   bot, grup + jenis + hak akses, kontak); pemohon pengajuan = `applicant` + `groupCode` (bukan satker); hook
   `data/use-whatsapp.ts` (percakapan dipantau berkala), logika murni `whatsapp/whatsapp-utils.ts` (+ test).
+  Tab **Kebijakan Otomatis** (`policies-tab.tsx`, hanya pemilik agen: aturan, sakelar darurat, statistik shadow) + panel
+  detail `auto-decision-panel.tsx` (keputusan, Batalkan kiriman, tabel verifikasi aset) + penanda di daftar; helper
+  `autoDecisionState`/`policyAgreement`/`HISTORY_ACTOR` di `request-utils.ts` (+ test); hook `useAgentPolicies` /
+  `useAgentPolicyMutations` (`data/use-agent.ts`).
 - **Asisten Agen** (grup AI Agent paling atas, `/agent`, `features/agent/`, warna `--mod-agent` violet): tab **Chat**
   (`agent-page.tsx`: pesan → `agentApi.chat` → `useAgentRunWatcher` poll 1,5 dtk; percakapan = sesi Hermes, ID di
   localStorage, riwayat tampilan hanya di memori tab; Hentikan) & **Status & Skill** (status, skill LifeOS + jumlah skill
@@ -1046,6 +1062,9 @@ VPS, CI, dokumentasi). Berikutnya:
    "Masukkan ke File Control" (`file-control-intake.ts`), ekstraksi/indeks RAG berkas (DOCX/XLSX sudah didukung), CSP
    `nginx.conf` bila editor dimuat dari domain lain.
 
+5. **Peta jalan agen** (`docs/AI-AGENT.md` §25, dikerjakan satu per satu): komunikasi ✅ kecuali uji model → skill & kerja otomatis →
+   fitur Hermes di LifeOS → antarmuka Obsidian → pembagian model.
+
 Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1): KaTeX 0.19 (≥ 29 Okt 2026), Node 26
 (≥ ± 25 Nov 2026); pantau TS 7, Prisma 8, ioredis 6.
 
@@ -1085,7 +1104,10 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Integrasi ONLYOFFICE (menu Tools → ONLYOFFICE) | 🚧 riset + keputusan user (`docs/ONLYOFFICE.md` §4.2) + **tahap 0 infra dev ✅** + **tahap 1 backend ✅** + **tahap 2 frontend ✅ 2026-10-15** (Tools = pengaturan/status; buka/edit dari pratinjau semua fitur; "Buat dokumen" di form lampiran & Resource; simpan otomatis saat modal ditutup; riwayat versi; unit backend 19 + frontend 4, smoke +29, UI diuji desktop & HP); **tahap 3 ✅ 2026-10-16** (revisi user: AI satu pintu = tab AI bawaan ONLYOFFICE memakai provider & key Pengaturan → Model AI lewat proxy backend; templat diunggah di Tools; impor berkas saat Buat Dokumen; unit + smoke lulus, UI diuji termasuk Summarization dengan Gemini sungguhan) + **lanjutan ✅** (Tools per role, font diunggah admin + pemantau, tautan konsep ↔ dokumen final) + **tahap 4 produksi ✅ 2026-10-16** (compose profile `office`, Caddy `/office/`, smoke penuh lewat stack produksi lokal); berikutnya agen SRIKANDI & agen pembuat dokumen di Tools (teknologi dibahas user) |
 | Integrasi AI Agent (Basis Pengetahuan, agen dokumen bertemplat, SRIKANDI, e-Kinerja Kemenhub, SIMAN, asisten chat) | 🚧 riset (2026-10-17/18, revisi OnTrack 2026-10-24; `docs/AI-AGENT.md` §9–§16, keputusan AG-18…AG-20 ✅, AG-21 ditunda) + **tahap 1 fondasi pengetahuan ✅ & tahap 2 konektor Obsidian ✅ 2026-10-24** (`POST /ai/chat` RAG + riwayat + sitasi, koleksi/metadata indeks, pemotongan per BAB/Pasal, profil kerja, vault Obsidian + graf tautan + Inbox, Tools → Basis Pengetahuan; unit backend +22 & frontend +7, smoke +20, skrip API vault 15/15, chat Gemini sungguhan, UI desktop & HP). **Pembagian tugas AI + embedding OpenAI + OCR multi-provider ✅** dan **tahap 3 token akses + MCP server ✅ 2026-10-24** (unit +8, klien MCP SDK 16/16, smoke +19, UI; embedding OpenAI belum diuji dengan key sungguhan). **Tahap 4 Pengajuan + mesin templat + Antrian Verifikasi + konsep jawaban ✅ 2026-10-24** (menu Pengajuan, MCP `requests:*`; unit backend +14 & frontend +4, smoke +20, UI desktop & HP dengan Gemini sungguhan: analisis, telaah, isi templat Surat Dinas → ONLYOFFICE). **Tahap 5 bot WhatsApp ✅ 2026-10-24** (bot di LifeOS lewat Cloud API resmi + Simulator, grup kontak umum + hak akses + pengetahuan khusus grup + profil layanan, kontak, kabar status, MCP `list_whatsapp_followups`; unit +13, smoke +26, UI dengan Gemini sungguhan; webhook Meta sungguhan menunggu VPS/domain/akun Meta) + dokumen `docs/TODO-USER.md`. **Laporan Kinerja (Renaksi) e-Kinerja di Productivity ✅ 2026-10-25** (pilih item → bulan, SKP, RHK, uraian, link dokumen; SKP & RHK diambil robot, beberapa SKP per tahun; unit +16, UI & sinkron e-Kinerja sungguhan diuji). **Tahap 6b robot pengisian Renaksi ✅ 2026-10-31** (per indikator: renaksi + realisasi + bukti; Isi ke e-Kinerja idempoten, tidak pernah mengirim; unit robot +7, backend +3, frontend +2; diuji ke e-Kinerja sungguhan dengan data uji Oktober, data uji sudah dibersihkan lewat Edit Rencana Aksi Kerja atas izin user). **Pemantauan & sinkron dua arah Renaksi ✅ 2026-10-31** (Pantau e-Kinerja: status bulan draf/diajukan/dinilai + isi + feedback, impor isian e-Kinerja, kunci bulan diajukan, pengenal perubahan, Kirim perubahan dengan tulis ulang baris; unit robot +3, backend +4, frontend +3; diuji isi → ubah → hapus ke draf Oktober sungguhan, Oktober dipulihkan). **Tahap 6a mesin robot SRIKANDI & e-Kinerja ✅ 2026-10-25** (service Playwright, browser jarak jauh, sesi terenkripsi, brankas kredensial + login otomatis dengan CAPTCHA/OTP diketik user, eksplor halaman, tautan publik berkas; unit +12, smoke +28, UI dengan tayangan SRIKANDI sungguhan — login CAPTCHA/OTP oleh user). **Revisi 2026-10-31**: dokumen bertemplat dipindah ke skill agen Hermes (`docs/AI-AGENT.md` §22, AG-22…25 ✅; tool MCP skill agen ✅, smoke +7). **Tahap pertama integrasi Hermes ✅ 2026-10-31** (container profile `agent`, skrip `infra/hermes/up.sh`, backend `src/agent/`, menu Asisten Agen + Kerjakan dengan agen di Approval, skill uji `telaah-pengajuan`, compose produksi + DEPLOYMENT §14; unit +6, smoke +4; Hermes menyala & membaca skill, jaringan Hermes → LifeOS 200). **Siapkan agen tanpa terminal ✅ 2026-10-31** (proxy model lewat key Pengaturan → Model AI,
   token agen otomatis, kartu Siapkan agen, `configure.sh`; unit +7, smoke +6; Hermes → proxy & MCP terbukti, **jawaban model
-  sungguhan belum terlihat** karena Gemini 503 high demand saat uji). **Claude untuk Hermes lewat API native ✅ 2026-11-05** (unit +14, uji server tiruan; belum ke Claude sungguhan). **Audit & uji menyeluruh fitur AI Agent ✅ 2026-11-01**
+  sungguhan belum terlihat** karena Gemini 503 high demand saat uji). **Kebijakan Otomatis tahap 1 ✅ 2026-11-06** (peta jalan
+  no. 2: aturan + shadow/auto + verifikasi aset server dengan master tiruan + konsep SRIKANDI tertunda + run agen di DB; unit
+  backend +9 & frontend +4, smoke +5, uji API 12/12; run Hermes gagal karena key Gemini 401 → jalur lolos & kirim SRIKANDI belum
+  diuji; **toolset Hermes belum dibatasi**). **Claude untuk Hermes lewat API native ✅ 2026-11-05** (unit +14, uji server tiruan; belum ke Claude sungguhan). **Audit & uji menyeluruh fitur AI Agent ✅ 2026-11-01**
   (Asisten Agen, Laporan Kinerja + brankas, SRIKANDI, robot: 6 perbaikan, unit +2, uji API brankas 5/5, UI desktop & HP;
   sistem e-Kinerja/SRIKANDI sungguhan tidak disentuh). **Rancangan persetujuan otomatis ("Kebijakan Otomatis") ditulis
   2026-11-01** (`docs/AI-AGENT.md` §24; menunggu keputusan AG-26…29, belum ada kode). **Brankas digital bukti renaksi ✅ 2026-10-31** (satu tautan per poin, beberapa berkas, pemberitahuan PDP, log akses IP + lokasi; unit backend +3, frontend +2, smoke +11, UI diuji: halaman publik, dialog brankas, ubah berkas, hapus entri → tautan mati). **Register Naskah Keluar SRIKANDI — bagian LifeOS ✅ 2026-10-31** (riset formulir resmi, tab Register, tautan final; unit +9, smoke +2, UI diuji desktop & HP; **robot pendaftaran ✅** — diuji ke SRIKANDI sungguhan: simpan konsep, anti-ganda, konsep uji dihapus; unit robot +4, backend +3, smoke +1). Berikutnya skill `penetapan-psp` (menunggu contoh dokumen user, C5) / 5b OnTrack / Register: Naskah Banyak & E-Form / pesan templat WA |
@@ -1781,6 +1803,18 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   membuang `reasoning_details` di rute custom → blok giliran alat disimpan di memori backend (6 jam, 500 giliran); hilang saat
   restart = API menurunkan pemikiran untuk giliran itu, tidak error. Diuji dengan klien OpenAI + server Anthropic tiruan;
   **belum diuji ke Claude sungguhan** (belum ada API key; TODO-USER A7).
+- 2026-11-05 — **Peta jalan agen 5 tahap** (permintaan user, dikerjakan satu per satu; `docs/AI-AGENT.md` §25): komunikasi, skill &
+  kerja otomatis tanpa Approval (Kirim Konsep SRIKANDI tetap di tangan user), fitur Hermes di LifeOS, antarmuka Obsidian, pembagian
+  model. **Nomor 1**: LifeOS = satu-satunya perantara Obsidian ↔ Hermes; jalur terbukti kecuali jawaban model. Diperbaiki: embedding
+  gagal kini tidak membuat catatan hilang dari pencarian (disimpan tanpa vektor, menyusul), status vault & indeks di kartu Siapkan
+  agen, tautan ganda di `read_knowledge_note`. Vault `Pengetahuan-BMN` dibuat di akun admin dev. API key Gemini tersimpan ditolak
+  Google (401) → menunggu key baru dari user.
+- 2026-11-06 — **Kebijakan Otomatis tahap 1** (peta jalan no. 2; keputusan user: skill buatan Hermes = draf yang diaktifkan user,
+  shadow dulu lalu auto dinaikkan user, alat bawaan Hermes dibiarkan menyala **dengan pengingat sebelum auto dipakai**, data master
+  tiruan; AG-26…29 sesuai rekomendasi). Desain: yang memutuskan = server menurut aturan; agen hanya menyerahkan data aset terstruktur
+  dan server menghitung ulang skor sendiri (tahan *prompt injection*). Isian SRIKANDI tidak dikarang agen: disalin dari entri
+  Register yang dipilih user sebagai templat; tanpa templat = tidak pernah dikirim. Run agen dipindah dari memori ke tabel
+  `agent_runs` agar keputusan tetap terjadi walau backend restart. Run dari aturan menunggu berkas selesai dibaca (tenang 90 dtk).
 
 ## 13. Konvensi Kode
 
@@ -1913,6 +1947,11 @@ selalu disaring dengan `contact.group.code` dari database, **jangan** dari isi p
 `DEFAULT_SCHEDULES`, cabang `dispatch` di `automation-worker.service.ts`; frontend `AutomationKind` (`types/api.ts`),
 `KIND_INFO` & `KIND_RECORDS` (`automation-utils.ts`). Tugas non-robot kelak: tambahkan cabang `dispatch` sendiri (tetap lewat
 service aplikasi). Tanpa migrasi (kolom `kind` teks).
+
+**Menambah pemeriksa Kebijakan Otomatis** (jenis pengajuan lain, mis. panitia penghapusan): data terstruktur diserahkan agen
+lewat alat MCP baru yang memanggil service server (pola `submit_asset_check`), hasil disimpan di kolom pengajuan, lalu
+`decidePolicy` membaca hasil itu — jangan pernah mengambil skor/keputusan dari teks model. Sumber master baru (OnTrack) cukup
+mengganti `AssetVerificationService.masters`.
 
 **Menambah skill Hermes**: folder `agents/hermes/skills/<nama-skill>/SKILL.md` (frontmatter `name` = nama folder, huruf
 kecil + tanda hubung, `description` = kapan dipakai) → langkah kerja memakai alat MCP `lifeos` (lihat

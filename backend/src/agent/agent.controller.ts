@@ -1,13 +1,29 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Req, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, Res, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiExcludeController, ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
-import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator";
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from "class-validator";
 import type { Request, Response } from "express";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { AuthUser } from "../common/types/auth-user";
 import { API_SCOPES, bearerToken } from "../integrations/api-token-logic";
 import { ApiTokensService } from "../integrations/api-tokens.service";
+import { ASSET_FIELDS, POLICY_MODES } from "./agent-policy";
+import { AgentPolicyService } from "./agent-policy.service";
 import { AgentService } from "./agent.service";
 
 class AgentChatDto {
@@ -37,13 +53,111 @@ class AgentSkillRunDto {
   skill!: string;
 }
 
+/** Kebijakan Otomatis (docs/AI-AGENT.md §24). */
+class AgentPolicyDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  name!: string;
+
+  @Matches(/^[a-z0-9][a-z0-9-]{0,63}$/, { message: "Nama skill tidak valid." })
+  skill!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(40)
+  requestKind!: string;
+
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(40, { each: true })
+  groupCodes!: string[];
+
+  @IsIn(POLICY_MODES)
+  mode!: string;
+
+  @IsInt()
+  @Min(50)
+  @Max(100)
+  threshold!: number;
+
+  @IsArray()
+  @ArrayMaxSize(ASSET_FIELDS.length)
+  @IsIn(ASSET_FIELDS, { each: true })
+  criticalFields!: string[];
+
+  /** Selisih nilai yang masih diterima, persen dari nilai master */
+  @IsNumber()
+  @Min(0)
+  @Max(20)
+  valueTolerance!: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  dailyLimit!: number;
+
+  @IsInt()
+  @Min(5)
+  @Max(1440)
+  holdMinutes!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  registerTemplate?: string | null;
+}
+
+class AgentPauseDto {
+  @IsBoolean()
+  paused!: boolean;
+}
+
 /** Asisten Agen (Hermes) — hanya pemilik agen (`HERMES_OWNER_EMAIL`). docs/AI-AGENT.md §23. */
 @ApiTags("agent")
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller("agent")
 export class AgentController {
-  constructor(private readonly agent: AgentService) {}
+  constructor(
+    private readonly agent: AgentService,
+    private readonly policies: AgentPolicyService,
+  ) {}
+
+  @Get("policies")
+  listPolicies(@CurrentUser() user: AuthUser) {
+    return this.policies.list(user);
+  }
+
+  @Post("policies")
+  createPolicy(@CurrentUser() user: AuthUser, @Body() dto: AgentPolicyDto) {
+    return this.policies.save(user, dto);
+  }
+
+  /** Sakelar darurat Kebijakan Otomatis (didaftarkan sebelum `policies/:id`). */
+  @HttpCode(200)
+  @Post("policies/pause")
+  pausePolicies(@CurrentUser() user: AuthUser, @Body() dto: AgentPauseDto) {
+    return this.policies.setPaused(user, dto.paused);
+  }
+
+  @Patch("policies/:id")
+  updatePolicy(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: AgentPolicyDto) {
+    return this.policies.save(user, dto, id);
+  }
+
+  @Delete("policies/:id")
+  removePolicy(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.policies.remove(user, id);
+  }
+
+  /** Batalkan kiriman konsep SRIKANDI selama masa tunda. */
+  @HttpCode(200)
+  @Post("requests/:id/auto/cancel")
+  cancelAuto(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.policies.cancel(user, id);
+  }
 
   @Get("status")
   status(@CurrentUser() user: AuthUser) {

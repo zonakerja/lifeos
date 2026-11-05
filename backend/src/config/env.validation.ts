@@ -255,6 +255,15 @@ class EnvironmentVariables {
   @IsString()
   HERMES_SKILLS_DIR?: string;
 
+  /**
+   * Data master aset tiruan (berkas JSON) untuk menguji Kebijakan Otomatis sebelum OnTrack tersedia — hanya development.
+   * Kosong = verifikasi aset menyatakan data master tidak tersedia (pengajuan selalu diserahkan ke pemilik).
+   */
+  @Transform(emptyToUndefined)
+  @IsOptional()
+  @IsString()
+  AGENT_ASSET_MASTER_FILE?: string;
+
   /** Satu-satunya akun yang boleh memakai agen (Hermes memakai token MCP milik akun ini). */
   @Transform(emptyToUndefined)
   @IsOptional()

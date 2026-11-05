@@ -14,6 +14,7 @@ import {
   CheckCheck,
   ClipboardList,
   Contact,
+  Workflow,
   DatabaseZap,
   FilePen,
   FilePlus2,
@@ -145,6 +146,7 @@ export const MODULES: ModuleDef[] = [
       { id: "done", label: "Selesai", icon: CheckCheck },
       { id: "whatsapp", label: "Percakapan WA", icon: MessageCircle },
       { id: "contacts", label: "Grup & Kontak", icon: Contact },
+      { id: "policies", label: "Kebijakan Otomatis", icon: Workflow },
     ],
   },
   {

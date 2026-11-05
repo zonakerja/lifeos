@@ -1,4 +1,15 @@
-import type { RequestChecklistItem, RequestKind, RequestStatus, RequestSummary } from "@/types/api";
+import type {
+  AgentPolicy,
+  AgentPolicyInput,
+  AgentPolicyMode,
+  AssetField,
+  RequestAutoDecision,
+  RequestChecklistItem,
+  RequestHistoryEntry,
+  RequestKind,
+  RequestStatus,
+  RequestSummary,
+} from "@/types/api";
 
 /** Sama dengan `KIND_LABELS` backend (`requests/request-logic.ts`). */
 export const KIND_LABELS: Record<RequestKind, string> = {
@@ -100,3 +111,102 @@ export const tagLabel = (tag: string) => {
 /** Nama berkas bawaan dokumen dari templat. */
 export const defaultDocumentName = (templateName: string, title: string) =>
   `${templateName} - ${title}`.replace(/[\\/:*?"<>|]+/g, " ").slice(0, 150);
+
+// ---------------------------------------------------------------- Kebijakan Otomatis (docs/AI-AGENT.md §24)
+
+export const HISTORY_ACTOR: Record<RequestHistoryEntry["by"], string> = {
+  user: "Anda",
+  agen: "agen AI",
+  kebijakan: "Kebijakan Otomatis",
+};
+
+export const POLICY_MODE_LABELS: Record<AgentPolicyMode, string> = {
+  off: "Mati",
+  shadow: "Shadow (hanya dicatat)",
+  auto: "Otomatis",
+};
+
+export const ASSET_FIELD_LABELS: Record<AssetField, string> = {
+  nup: "NUP",
+  kodeBarang: "Kode barang",
+  nama: "Nama barang",
+  nilai: "Nilai",
+};
+
+/** Nilai awal formulir aturan baru: mode shadow, ambang 75%, NUP & kode barang wajib cocok. */
+export const defaultPolicyInput = (): AgentPolicyInput => ({
+  name: "",
+  skill: "",
+  requestKind: "psp",
+  groupCodes: [],
+  mode: "shadow",
+  threshold: 75,
+  criticalFields: ["nup", "kodeBarang"],
+  valueTolerance: 0,
+  dailyLimit: 5,
+  holdMinutes: 15,
+  registerTemplate: null,
+});
+
+/** Data aturan tersimpan → isian formulir (tanpa id/statistik yang ditolak validasi backend). */
+export const policyToInput = (p: AgentPolicyInput): AgentPolicyInput => ({
+  name: p.name,
+  skill: p.skill,
+  requestKind: p.requestKind,
+  groupCodes: p.groupCodes,
+  mode: p.mode,
+  threshold: p.threshold,
+  criticalFields: p.criticalFields,
+  valueTolerance: p.valueTolerance,
+  dailyLimit: p.dailyLimit,
+  holdMinutes: p.holdMinutes,
+  registerTemplate: p.registerTemplate,
+});
+
+/** "Kode grup" diketik dipisah koma/spasi → daftar huruf besar unik. */
+export const parseGroupCodes = (text: string) => [
+  ...new Set(
+    text
+      .split(/[\s,;]+/)
+      .map((c) => c.trim().toUpperCase())
+      .filter(Boolean),
+  ),
+];
+
+/** Kecocokan mode shadow: "8 dari 10 sama dengan keputusan Anda" (null bila belum ada pembanding). */
+export function policyAgreement(stats: AgentPolicy["stats"]) {
+  if (!stats.judged) return null;
+  return { agree: stats.agree, judged: stats.judged, percent: Math.round((stats.agree / stats.judged) * 100) };
+}
+
+export type AutoDecisionState = "shadow" | "review" | "waiting" | "sent" | "cancelled" | "failed" | "approved";
+
+/** Keadaan keputusan otomatis untuk penanda & panel detail. */
+export function autoDecisionState(d: RequestAutoDecision): AutoDecisionState {
+  if (!d.applied) return d.outcome === "approve" ? "shadow" : "review";
+  if (d.cancelledAt) return "cancelled";
+  if (d.sentAt) return "sent";
+  if (d.error) return "failed";
+  if (d.sendAt) return "waiting";
+  return "approved";
+}
+
+export const AUTO_STATE_LABELS: Record<AutoDecisionState, string> = {
+  shadow: "Shadow: akan disetujui",
+  review: "Perlu telaah",
+  waiting: "Menunggu dikirim ke SRIKANDI",
+  sent: "Konsep di SRIKANDI",
+  cancelled: "Kiriman dibatalkan",
+  failed: "Gagal dikirim",
+  approved: "Disetujui otomatis",
+};
+
+export const AUTO_STATE_TONE: Record<AutoDecisionState, string> = {
+  shadow: "bg-info/15 text-info",
+  review: "bg-warning/15 text-warning",
+  waiting: "bg-module-soft text-module",
+  sent: "bg-success/15 text-success",
+  cancelled: "bg-muted text-muted-foreground",
+  failed: "bg-destructive/15 text-destructive",
+  approved: "bg-success/15 text-success",
+};

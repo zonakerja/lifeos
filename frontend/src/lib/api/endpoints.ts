@@ -1,6 +1,9 @@
 import { apiUrl, request } from "@/lib/api/client";
 import { useAuthStore } from "@/stores/auth-store";
 import type {
+  AgentPolicy,
+  AgentPolicyInput,
+  AgentPolicyList,
   AddNotebookSourceInput,
   RequestDetail,
   PublicLinkInfo,
@@ -480,6 +483,8 @@ export interface AgentRunSummary {
   input: string | null;
   startedAt: string;
   status: string;
+  trigger?: "button" | "policy" | "chat";
+  error?: string | null;
 }
 
 /** Asisten Agen (Hermes lewat backend; docs/AI-AGENT.md §23). */
@@ -495,6 +500,15 @@ export const agentApi = {
     request<{ runId: string; status: string }>("/agent/chat", { method: "POST", body: { message, conversation } }),
   runSkill: (requestId: string, skill: string) =>
     request<{ runId: string; status: string }>(`/agent/requests/${requestId}/run`, { method: "POST", body: { skill } }),
+  policies: () => request<AgentPolicyList>("/agent/policies"),
+  createPolicy: (input: AgentPolicyInput) => request<AgentPolicy>("/agent/policies", { method: "POST", body: input }),
+  updatePolicy: (id: string, input: AgentPolicyInput) =>
+    request<AgentPolicy>(`/agent/policies/${id}`, { method: "PATCH", body: input }),
+  removePolicy: (id: string) => request<{ ok: boolean }>(`/agent/policies/${id}`, { method: "DELETE" }),
+  pausePolicies: (paused: boolean) =>
+    request<{ paused: boolean }>("/agent/policies/pause", { method: "POST", body: { paused } }),
+  cancelAuto: (requestId: string) =>
+    request<{ ok: boolean }>(`/agent/requests/${requestId}/auto/cancel`, { method: "POST" }),
 };
 
 /** Tools → Otomasi: jadwal sinkron robot (baca-saja) + riwayat. */

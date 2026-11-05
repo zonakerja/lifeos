@@ -8,6 +8,7 @@ import { KNOWLEDGE_COLLECTION, WORKSPACE_COLLECTION } from "../ai/index/index-te
 import { KnowledgeVaultService } from "../knowledge/knowledge-vault.service";
 import { RecordsService } from "../records/records.service";
 import { KIND_LABELS, REQUEST_KINDS, REQUEST_STATUSES, STATUS_LABELS } from "../requests/request-logic";
+import { AssetVerificationService } from "../requests/asset-verification.service";
 import { RequestsService } from "../requests/requests.service";
 import { formatPhone } from "../whatsapp/whatsapp-logic";
 import { WhatsappService } from "../whatsapp/whatsapp.service";
@@ -53,6 +54,7 @@ export class LifeosMcpService {
     private readonly records: RecordsService,
     private readonly requests: RequestsService,
     private readonly whatsapp: WhatsappService,
+    private readonly assets: AssetVerificationService,
   ) {}
 
   createServer(principal: TokenPrincipal) {
@@ -124,15 +126,17 @@ export class LifeosMcpService {
         },
         run("read_knowledge_note", async ({ noteId }: { noteId: string }) => {
           const note = await this.vault.note(userId, noteId);
+          // Satu catatan bisa tertaut dua kali (properti dasar_hukum + isi); agen cukup melihatnya sekali
+          const unique = <T>(items: T[]) => [...new Map(items.map((i) => [JSON.stringify(i), i])).values()];
           return text({
             title: note.title,
             path: note.path,
             properti: note.frontmatter,
             isi: note.content,
-            tautanKeluar: note.linksOut.map((l) =>
-              l.note ? { noteId: l.note.id, title: l.note.title } : { target: l.target },
+            tautanKeluar: unique(
+              note.linksOut.map((l) => (l.note ? { noteId: l.note.id, title: l.note.title } : { target: l.target })),
             ),
-            backlink: note.backlinks.map((l) => ({ noteId: l.note.id, title: l.note.title })),
+            backlink: unique(note.backlinks.map((l) => ({ noteId: l.note.id, title: l.note.title }))),
           });
         }),
       );
@@ -481,6 +485,41 @@ export class LifeosMcpService {
             );
             return text({ id: r.id, status: STATUS_LABELS[r.status as keyof typeof STATUS_LABELS] ?? r.status });
           },
+        ),
+      );
+
+      server.registerTool(
+        "submit_asset_check",
+        {
+          title: "Serahkan daftar aset untuk diverifikasi server",
+          description:
+            "Serahkan daftar aset (NUP, kode barang, nama, nilai) yang Anda baca dari berkas pemohon. Server mencocokkan " +
+            "dengan data master aset dan menghitung skornya sendiri; hasilnya disimpan di pengajuan. Ikuti `branch` di " +
+            "respons: 'lanjut' = buat dokumen untuk aset yang cocok saja, 'telaah' = susun telaah staf. Salin nilai apa adanya " +
+            "dari berkas — jangan menebak atau mengisi kolom yang tidak ada.",
+          inputSchema: {
+            requestId: z.string().min(1).max(40),
+            assets: z
+              .array(
+                z.object({
+                  nup: z.string().max(40).optional(),
+                  kodeBarang: z.string().max(60).optional(),
+                  nama: z.string().max(200).optional(),
+                  nilai: z.union([z.number(), z.string().max(40)]).optional(),
+                }),
+              )
+              .max(500),
+          },
+        },
+        run(
+          "submit_asset_check",
+          async ({
+            requestId,
+            assets,
+          }: {
+            requestId: string;
+            assets: { nup?: string; kodeBarang?: string; nama?: string; nilai?: number | string }[];
+          }) => text(await this.assets.submit(userId, requestId, assets)),
         ),
       );
 

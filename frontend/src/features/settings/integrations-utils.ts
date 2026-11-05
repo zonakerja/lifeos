@@ -41,6 +41,12 @@ export const TOOL_LABELS: Record<string, string> = {
   create_request: "Catat pengajuan",
   analyze_request: "Analisis pengajuan",
   list_whatsapp_followups: "Pertanyaan WA perlu dijawab",
+  read_request_files: "Baca berkas pengajuan",
+  list_templates: "Daftar templat",
+  get_template_fields: "Isian templat",
+  update_request: "Simpan hasil kerja agen",
+  create_request_document: "Buat dokumen dari templat",
+  submit_asset_check: "Verifikasi aset",
 };
 
 /** Ringkasan argumen untuk tabel log: "query: sewa · limit: 3". */

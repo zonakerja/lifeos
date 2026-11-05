@@ -110,7 +110,8 @@ export class AiIndexService {
       await this.prisma.aiChunk.deleteMany({ where: { userId, sourceType, sourceId } });
       return;
     }
-    await this.indexDocuments(userId, await this.ai.embeddingCredential(userId), [doc]);
+    const failure = await this.indexDocuments(userId, await this.ai.embeddingCredential(userId), [doc]);
+    if (failure) throw failure;
     await this.markSuccess(userId);
   }
 
@@ -118,7 +119,7 @@ export class AiIndexService {
   async rebuild(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { aiIndexEnabled: true } });
     if (!user?.aiIndexEnabled) return this.purge(userId);
-    const embedding = await this.ai.embeddingCredential(userId);
+    let embedding = await this.ai.embeddingCredential(userId);
     await this.requeueUnextractedAssets(userId);
     const docs = await this.loadAllSources(userId);
 
@@ -133,9 +134,16 @@ export class AiIndexService {
       await this.prisma.aiChunk.deleteMany({ where: { userId, ...stale } });
     }
 
+    // Embedding gagal → sumber berikutnya tetap diindeks untuk pencarian kata, error dilaporkan di akhir
+    let failure: AiProviderError | null = null;
     for (let i = 0; i < docs.length; i += REBUILD_BATCH) {
-      await this.indexDocuments(userId, embedding, docs.slice(i, i + REBUILD_BATCH));
+      const batchFailure = await this.indexDocuments(userId, embedding, docs.slice(i, i + REBUILD_BATCH));
+      if (batchFailure) {
+        failure ??= batchFailure;
+        embedding = null;
+      }
     }
+    if (failure) throw failure;
     await this.markSuccess(userId);
     this.logger.log(`Indeks AI user ${userId} dibangun ulang (${docs.length} sumber).`);
   }
@@ -172,9 +180,15 @@ export class AiIndexService {
    * Tulis ulang potongan dokumen yang isinya berubah (dibandingkan hash per potongan) dalam satu transaksi.
    * Dengan key Gemini: potongan di-embed (teks semua dokumen digabung per batch agar panggilan sedikit), termasuk
    * potongan lama yang belum ber-embedding. Tanpa key: potongan disimpan tanpa embedding (`model = "none"`) sehingga
-   * pencarian kata persis tetap jalan dan tidak ada data yang dikirim ke luar.
+   * pencarian kata persis tetap jalan dan tidak ada data yang dikirim ke luar. Embedding gagal (key ditolak, kuota,
+   * provider sibuk) → perlakuan sama, lalu error dikembalikan agar dicatat & dicoba ulang; isi baru tetap bisa dicari
+   * dan vektornya menyusul saat percobaan ulang / key diganti (`model` berbeda = dianggap berubah).
    */
-  private async indexDocuments(userId: string, embedding: EmbeddingCredential | null, docs: SourceDocument[]) {
+  private async indexDocuments(
+    userId: string,
+    embedding: EmbeddingCredential | null,
+    docs: SourceDocument[],
+  ): Promise<AiProviderError | null> {
     const prepared = docs.map((doc) => {
       const chunks = chunkSource(doc.sourceType, doc.text);
       // Sumber tanpa isi (mis. hanya judul) tetap diindeks satu potongan berisi judul
@@ -197,10 +211,19 @@ export class AiIndexService {
         current.some((e, i) => e.contentHash !== hashes[i] || (embedding !== null && e.model !== embedding.model))
       );
     });
-    if (changed.length === 0) return;
+    if (changed.length === 0) return null;
 
     const texts = changed.flatMap(({ doc, contents }) => contents.map((content) => ({ title: doc.title, content })));
-    const vectors = embedding ? await embedDocuments(embedding.provider, embedding.apiKey, texts) : null;
+    let vectors: Awaited<ReturnType<typeof embedDocuments>> | null = null;
+    let failure: AiProviderError | null = null;
+    if (embedding) {
+      try {
+        vectors = await embedDocuments(embedding.provider, embedding.apiKey, texts);
+      } catch (error) {
+        if (!(error instanceof AiProviderError)) throw error;
+        failure = error;
+      }
+    }
     const model = vectors && embedding ? embedding.model : KEYWORD_ONLY_MODEL;
 
     let offset = 0;
@@ -219,6 +242,7 @@ export class AiIndexService {
         ),
       ]);
     }
+    return failure;
   }
 
   // ---------------------------------------------------------------- Sumber data

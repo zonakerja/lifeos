@@ -1,4 +1,4 @@
-import { Bot, FileText, Inbox, Paperclip, Plus } from "lucide-react";
+import { Bot, FileText, Inbox, Paperclip, Plus, Workflow } from "lucide-react";
 import { useState } from "react";
 import { PaginationControl } from "@/components/common/pagination-control";
 import { SearchInput } from "@/components/common/search-input";
@@ -16,7 +16,18 @@ import { cn } from "@/lib/utils";
 import type { RequestKind, RequestSummary } from "@/types/api";
 import { CreateRequestDialog } from "./create-request-dialog";
 import { RequestDetailDialog } from "./request-detail-dialog";
-import { filterRequests, KIND_LABELS, KIND_OPTIONS, STATUS_LABELS, STATUS_TONE, TAB_STATUSES } from "./request-utils";
+import {
+  AUTO_STATE_LABELS,
+  AUTO_STATE_TONE,
+  autoDecisionState,
+  filterRequests,
+  KIND_LABELS,
+  KIND_OPTIONS,
+  STATUS_LABELS,
+  STATUS_TONE,
+  TAB_STATUSES,
+} from "./request-utils";
+import { PoliciesTab } from "./policies-tab";
 import { ContactsTab } from "./whatsapp/contacts-tab";
 import { ConversationsTab } from "./whatsapp/conversations-tab";
 
@@ -53,6 +64,8 @@ export function Component() {
             <ConversationsTab />
           ) : tab === "contacts" ? (
             <ContactsTab />
+          ) : tab === "policies" ? (
+            <PoliciesTab />
           ) : (
             <RequestList
               tab={tab === "done" ? "done" : "queue"}
@@ -158,6 +171,11 @@ function RequestRow({ request: r, onOpen }: { request: RequestSummary; onOpen: (
           {r.source !== "manual" && (
             <Badge variant="outline" className="shrink-0 gap-1">
               <Bot className="size-3" /> {r.source === "mcp" ? "Agen" : "WhatsApp"}
+            </Badge>
+          )}
+          {r.autoDecision && (
+            <Badge className={cn("shrink-0 gap-1", AUTO_STATE_TONE[autoDecisionState(r.autoDecision)])}>
+              <Workflow className="size-3" /> {AUTO_STATE_LABELS[autoDecisionState(r.autoDecision)]}
             </Badge>
           )}
         </span>

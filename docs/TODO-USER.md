@@ -19,7 +19,7 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
 ### A. Sekarang (di laptop, tanpa biaya tambahan)
 
 - [ ] **A1** Isi API key AI (OpenAI & Gemini) dan atur pembagian tugas AI
-- [ ] **A2** Pasang Obsidian dan sambungkan vault ke LifeOS
+- [ ] **A2** Pasang Obsidian dan sambungkan vault ke LifeOS (tinggal buka vault di Obsidian)
 - [ ] **A3** Isi basis pengetahuan (persyaratan, peraturan, FAQ)
 - [ ] **A4** Siapkan templat SK/surat dengan penanda `${…}` dan unggah
 - [ ] **A5** Atur profil layanan bot, grup & kontak WhatsApp, coba bot lewat Simulator
@@ -45,9 +45,10 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
 - [ ] **C4** Push ke GitHub bila ingin cadangan kode (minta Claude, lalu cek tab Actions)
 - [ ] **C5** Siapkan contoh nyata (surat permohonan + lampiran + dokumen jadi yang sudah disetujui) untuk **PSP** dan
   **panitia penghapusan** — bahan skill Hermes pertama (keputusan AG-22…25 sudah disetujui 31 Okt 2026)
-- [ ] **C6** Jawab keputusan **persetujuan otomatis** (`docs/AI-AGENT.md` §24.5): AG-26 arti "75% benar" & aset yang masuk
+- [x] **C6** ~~Jawab keputusan **persetujuan otomatis**~~ (diputuskan 6 Nov 2026; templat Telaah Staf tetap perlu diunggah) (`docs/AI-AGENT.md` §24.5): AG-26 arti "75% benar" & aset yang masuk
   PSP, AG-27 batas kirim ke SRIKANDI, AG-28 urutan kerja, AG-29 kabar WhatsApp ke pemohon. Siapkan juga **templat Telaah Staf**
   (unggah di Tools → ONLYOFFICE → Templat)
+- [ ] **C7** Coba **Kebijakan Otomatis** di Approval: templat Register → aturan Shadow → (minta Claude membatasi alat Hermes) → Otomatis
 
 ---
 
@@ -71,6 +72,12 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
 6. Nyalakan **Indeks pengetahuan** (kartu di halaman yang sama) bila belum.
 
 ## A2. Pasang Obsidian & sambungkan vault
+
+> **Status 5 Nov 2026**: Obsidian sudah terpasang dan vault `Pengetahuan-BMN` sudah dibuat & tersambung di akun admin laptop.
+> Yang tersisa hanya langkah 4 dengan folder `D:\Development\Application\LifeOS\infra\knowledge-vaults\Pengetahuan-BMN`.
+>
+> **API key Gemini tersimpan ditolak Google** (401): buat key baru di <https://aistudio.google.com/apikey>, lalu simpan di
+> **Pengaturan → Model AI**. Selama belum diganti, semua fitur AI berbasis Gemini gagal dan pencarian hanya per kata.
 
 **Obsidian** = aplikasi catatan gratis tempat Anda menulis pengetahuan (peraturan, persyaratan, FAQ). LifeOS membaca
 folder catatan itu (disebut **vault**) dan menjadikannya bahan jawaban AI.
@@ -470,6 +477,15 @@ Telegram Anda yang diizinkan. Minta Claude menyiapkan service otomatis (systemd)
   bila diperlukan. Server robot sebaiknya VPS di Indonesia (B1).
 - **C3 S Pen**: buka LifeOS di HP Android → Notes → Catatan Bebas → **Tulis tangan** → coba menulis & menghapus dengan
   tombol S Pen → laporkan hasilnya.
+- **C7 Kebijakan Otomatis** (Approval → tab Kebijakan Otomatis, setelah key AI diganti — A1):
+  1. Buat entri contoh di **SRIKANDI → Register Naskah Keluar** (jenis naskah, sifat, klasifikasi, penandatangan, tujuan).
+     Entri ini menjadi **templat** isian SRIKANDI untuk aturan.
+  2. Buat aturan, mode **Shadow**. Biarkan berjalan beberapa pengajuan dan putuskan pengajuannya seperti biasa; kartu aturan
+     menampilkan berapa keputusan aturan yang sama dengan keputusan Anda.
+  3. **Sebelum** menaikkan ke **Otomatis**, minta Claude membatasi alat bawaan Hermes (terminal, browser, eksekusi kode, dll.)
+     ke MCP LifeOS saja.
+  4. Mode Otomatis hanya menyimpan **konsep** di SRIKANDI setelah masa tunda (bisa dibatalkan di detail pengajuan).
+     Kirim Konsep & tanda tangan tetap Anda. Sakelar darurat menghentikan semuanya seketika.
 - **C4 GitHub**: minta Claude *"push ke GitHub"*, lalu buka tab **Actions** di repo untuk memastikan centang hijau.
 
 ---
@@ -492,6 +508,7 @@ Telegram Anda yang diizinkan. Minta Claude menyiapkan service otomatis (systemd)
 | 2026-10-25 | Tab Daftar Naskah Keluar & Referensi SRIKANDI; tautan ke konsep menunggu Register Naskah Keluar |
 | 2026-10-31 | Laporan Kinerja per indikator (rencana aksi + realisasi + bukti) & tombol Isi ke e-Kinerja (draf, Anda yang mengirim) |
 | 2026-10-31 | Approval kembali ke Workspace; dokumen bertemplat akan ditangani skill Hermes — C5 (keputusan AG-22…25 & contoh dokumen) |
+| 2026-11-06 | C6 selesai; C7 baru: cara memakai Kebijakan Otomatis (templat Register, shadow → otomatis, batasi alat Hermes) |
 | 2026-10-31 | A7 diganti: Hermes terpasang sebagai container — jalankan setup.sh (model + token), coba Asisten Agen & Kerjakan dengan agen |
 | 2026-10-31 | A7 disederhanakan: setup.sh dihapus — simpan key Gemini di Pengaturan → Model AI lalu tombol **Siapkan agen** di Asisten Agen |
 | 2026-10-31 | A8: rekam formulir Registrasi Naskah Keluar SRIKANDI + 3 pertanyaan untuk Register Naskah Keluar |
