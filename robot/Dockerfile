@@ -5,7 +5,7 @@
 # Versi image HARUS sama dengan versi `playwright` di package.json.
 # ============================================================================
 
-FROM mcr.microsoft.com/playwright:v1.63.0-noble AS build
+FROM mcr.microsoft.com/playwright:v1.65.0-noble AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -13,7 +13,7 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
-FROM mcr.microsoft.com/playwright:v1.63.0-noble AS runtime
+FROM mcr.microsoft.com/playwright:v1.65.0-noble AS runtime
 ENV NODE_ENV=production \
   NPM_CONFIG_UPDATE_NOTIFIER=false \
   PORT=4100
