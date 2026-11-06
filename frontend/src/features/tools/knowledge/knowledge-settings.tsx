@@ -4,13 +4,14 @@ import {
   DatabaseZap,
   FolderOpen,
   FolderPlus,
+  FolderSync,
   Info,
-  Link2Off,
   Network,
   RefreshCw,
   Save,
   Settings2,
   ShieldAlert,
+  Trash2,
   Unplug,
   UserRoundCog,
 } from "lucide-react";
@@ -18,35 +19,33 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
-import { PaginationControl } from "@/components/common/pagination-control";
-import { SearchInput } from "@/components/common/search-input";
 import { SectionCard } from "@/components/common/section-card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useAiProfile, useSaveAiProfile } from "@/data/use-ai-chat";
 import {
+  useKnowledgeExport,
+  useKnowledgeExportMutations,
   useKnowledgeFolders,
   useKnowledgeMutations,
-  useKnowledgeNotes,
   useKnowledgeStatus,
 } from "@/data/use-knowledge";
-import { openKnowledgeNote } from "@/features/knowledge/knowledge-note-dialog";
-import { filterKnowledgeNotes, STATUS_LABEL, STATUS_TONE } from "@/features/knowledge/knowledge-utils";
-import { usePagination } from "@/hooks/use-pagination";
 import { errorMessage } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/dates";
 import { cn } from "@/lib/utils";
-import type { KnowledgeNoteStatus, KnowledgeStatus } from "@/types/api";
+import type { KnowledgeExportKind, KnowledgeStatus } from "@/types/api";
 
 const MAX_PROFILE = 6000;
 
 /**
- * Tools → Basis Pengetahuan: profil kerja & instruksi tetap, vault Obsidian (sumber pengetahuan yang ditulis user),
- * daftar catatan yang sudah dibaca server, dan cara memakai. Rencana & keputusan: docs/AI-AGENT.md §10, §14.
+ * Tools → Basis Pengetahuan = **pengaturan** (sekali atur): profil kerja & instruksi tetap, vault Obsidian, cermin hasil
+ * kerja LifeOS ke vault (80-LifeOS), dan cara memakai. Bekerja dengan isi vault (daftar catatan, sunting, graf,
+ * kesehatan) ada di menu Pengetahuan. Rencana & keputusan: docs/AI-AGENT.md §10, §14, §25.
  */
 export function KnowledgeSettings() {
   const { data: status, isLoading } = useKnowledgeStatus();
@@ -54,7 +53,7 @@ export function KnowledgeSettings() {
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
       <ProfileCard />
       {isLoading || !status ? <Skeleton className="h-48 rounded-xl" /> : <VaultCard status={status} />}
-      {status?.folder && <NotesCard />}
+      {status?.folder && <MirrorCard />}
       <GuideCard />
     </div>
   );
@@ -176,23 +175,7 @@ function VaultCard({ status }: { status: KnowledgeStatus }) {
               <CircleAlert className="mt-0.5 size-3.5 shrink-0" /> {status.lastError}
             </p>
           )}
-          <IssueList
-            icon={CircleAlert}
-            title="Catatan perlu dirapikan"
-            hint="Isi properti jenis & status agar AI tahu cara memakai catatan ini."
-            items={status.problems.map((p) => ({ id: p.noteId, label: p.path, detail: p.issues.join(" · ") }))}
-          />
-          <IssueList
-            icon={Link2Off}
-            title="Tautan ke catatan yang belum ada"
-            hint="Buat catatannya di Obsidian, atau perbaiki nama tautannya."
-            items={status.unresolvedLinks.map((l, i) => ({
-              id: l.noteId,
-              key: `${l.noteId}-${i}`,
-              label: `[[${l.target}]]`,
-              detail: l.path,
-            }))}
-          />
+          <WorkspaceLinks status={status} />
         </div>
       ) : (
         <VaultPicker />
@@ -220,46 +203,171 @@ function Stat({ label, value, mono }: { label: string; value: string; mono?: boo
   );
 }
 
-function IssueList({
-  icon: Icon,
-  title,
-  hint,
-  items,
-}: {
-  icon: typeof CircleAlert;
-  title: string;
-  hint: string;
-  items: { id: string; key?: string; label: string; detail: string }[];
-}) {
-  const [showAll, setShowAll] = useState(false);
-  if (!items.length) return null;
-  const visible = showAll ? items : items.slice(0, 5);
+/** Pintasan ke menu Pengetahuan (tempat bekerja dengan isi vault) + ringkasan hal yang perlu dirapikan. */
+function WorkspaceLinks({ status }: { status: KnowledgeStatus }) {
+  const issues = status.problems.length + status.unresolvedLinks.length;
   return (
-    <div className="rounded-xl border border-warning/30 bg-warning/5 p-3">
-      <p className="flex items-center gap-1.5 text-xs font-semibold text-warning">
-        <Icon className="size-3.5" /> {title} ({items.length})
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 px-3 py-2">
+      <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+        Jelajahi, sunting, cari, dan lihat graf catatan di menu <strong>Pengetahuan</strong>.
+        {issues > 0 && (
+          <span className="ml-1 text-warning">
+            {status.problems.length > 0 && `${status.problems.length} catatan perlu dirapikan`}
+            {status.problems.length > 0 && status.unresolvedLinks.length > 0 && " · "}
+            {status.unresolvedLinks.length > 0 && `${status.unresolvedLinks.length} tautan rusak`}
+          </span>
+        )}
       </p>
-      <p className="mb-1.5 text-[11px] text-muted-foreground">{hint}</p>
-      <ul className="flex flex-col gap-0.5">
-        {visible.map((item) => (
-          <li key={item.key ?? item.id}>
-            <button
-              type="button"
-              className="flex w-full min-w-0 items-baseline gap-2 rounded px-1 text-left text-xs hover:bg-muted"
-              onClick={() => openKnowledgeNote(item.id)}
-            >
-              <span className="truncate font-mono">{item.label}</span>
-              <span className="shrink-0 truncate text-muted-foreground">{item.detail}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-      {items.length > 5 && (
-        <Button variant="link" size="xs" className="h-auto px-1" onClick={() => setShowAll((v) => !v)}>
-          {showAll ? "Ringkas" : `Lihat semua (${items.length})`}
+      <Button asChild size="sm" variant="outline">
+        <Link to="/knowledge/notes">
+          <BookOpenCheck /> Buka Pengetahuan
+        </Link>
+      </Button>
+      {issues > 0 && (
+        <Button asChild size="sm" variant="ghost">
+          <Link to="/knowledge/health">
+            <CircleAlert /> Kesehatan
+          </Link>
         </Button>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- Cermin LifeOS → Obsidian
+
+const EXPORT_KIND_INFO: { kind: KnowledgeExportKind; label: string; detail: string }[] = [
+  { kind: "notes", label: "Catatan Bebas", detail: "Teks catatan (tulisan tangan: hasil Ubah ke teks)" },
+  { kind: "lists", label: "List Bebas", detail: "Checklist beserta progres" },
+  { kind: "aiNotes", label: "Notes AI", detail: "Ringkasan AI, catatan kasar, transkrip" },
+  { kind: "notebooks", label: "My Notebook", detail: "Ringkasan, sumber, catatan Studio, riwayat chat" },
+  {
+    kind: "productivity",
+    label: "Productivity",
+    detail: "Project + Action, Area + strukturnya, Agenda yang punya hasil, Resource Global",
+  },
+];
+
+function MirrorCard() {
+  const { data, isLoading } = useKnowledgeExport(true);
+  const { update, run, clear } = useKnowledgeExportMutations();
+  const [confirmClear, setConfirmClear] = useState(false);
+  const onError = (error: unknown) => toast.error("Gagal", { description: errorMessage(error) });
+  const busy = !!data?.running || run.isPending;
+
+  return (
+    <SectionCard
+      icon={FolderSync}
+      title="Cermin hasil kerja ke Obsidian"
+      description="Salinan otomatis satu arah (LifeOS → vault) di folder 80-LifeOS: catatan, My Notebook, dan hasil Productivity tampil di Obsidian & graf, saling bertaut."
+      action={
+        data && (
+          <Switch
+            checked={data.enabled}
+            disabled={update.isPending}
+            aria-label="Nyalakan cermin"
+            onCheckedChange={(enabled) =>
+              update.mutate(
+                { enabled },
+                {
+                  onSuccess: () =>
+                    toast.success(enabled ? "Cermin dinyalakan — menyalin data ke vault…" : "Cermin dimatikan."),
+                  onError,
+                },
+              )
+            }
+          />
+        )
+      }
+    >
+      {isLoading || !data ? (
+        <Skeleton className="h-32 rounded-lg" />
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {EXPORT_KIND_INFO.map((info) => (
+              <label
+                key={info.kind}
+                className={cn(
+                  "flex min-w-0 cursor-pointer items-start gap-2 rounded-xl border p-2.5",
+                  !data.enabled && "opacity-60",
+                )}
+              >
+                <Checkbox
+                  className="mt-0.5"
+                  checked={data.kinds[info.kind]}
+                  disabled={!data.enabled || update.isPending}
+                  onCheckedChange={(checked) =>
+                    update.mutate({ kinds: { [info.kind]: checked === true } }, { onError })
+                  }
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium">{info.label}</span>
+                  <span className="block text-xs text-muted-foreground">{info.detail}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              disabled={!data.enabled || busy}
+              onClick={() =>
+                run.mutate(undefined, {
+                  onSuccess: (result) =>
+                    toast.success("Cermin diperbarui.", {
+                      description: `${result.files ?? 0} berkas · ${result.written ?? 0} ditulis · ${result.removed ?? 0} dihapus`,
+                    }),
+                  onError,
+                })
+              }
+            >
+              <RefreshCw className={cn(busy && "animate-spin")} /> Sinkronkan sekarang
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy || clear.isPending} onClick={() => setConfirmClear(true)}>
+              <Trash2 /> Hapus berkas cermin
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {busy
+                ? "Sedang menyalin…"
+                : data.lastRunAt
+                  ? `Terakhir: ${formatDateTime(data.lastRunAt)} · ${data.files ?? 0} berkas`
+                  : data.enabled
+                    ? "Belum pernah disinkronkan."
+                    : "Nonaktif."}
+            </span>
+          </div>
+          {data.lastError && (
+            <p className="flex items-start gap-1.5 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <CircleAlert className="mt-0.5 size-3.5 shrink-0" /> {data.lastError}
+            </p>
+          )}
+          <ul className="flex list-disc flex-col gap-1 pl-5 text-xs text-muted-foreground">
+            <li>
+              Diperbarui otomatis ± 1 menit setelah data berubah. Berkas di <code>80-LifeOS</code>{" "}
+              <strong>ditimpa</strong> setiap sinkron — sunting di LifeOS; tulis catatan Anda sendiri di folder lain
+              lalu tautkan ke sini dengan <code>[[…]]</code>.
+            </li>
+            <li>
+              Hanya data milik Anda (bukan item yang dibagikan orang lain). Berkas lampiran tidak disalin — cukup nama
+              dan tautan “Buka di LifeOS”.
+            </li>
+            <li>
+              Folder ini tidak diindeks ulang sebagai pengetahuan (datanya sudah diindeks sebagai data kerja), jadi
+              jawaban AI tidak ganda.
+            </li>
+          </ul>
+        </div>
+      )}
+      <ConfirmDialog
+        open={confirmClear}
+        onOpenChange={setConfirmClear}
+        title="Hapus berkas cermin?"
+        description="Semua berkas buatan LifeOS di folder 80-LifeOS dihapus dari vault (catatan Anda sendiri di folder itu tidak disentuh). Data di LifeOS tetap utuh; bila cermin masih menyala, berkas dibuat lagi saat data berubah."
+        confirmLabel="Hapus berkas"
+        onConfirm={() => clear.mutate(undefined, { onSuccess: () => toast.success("Berkas cermin dihapus."), onError })}
+      />
+    </SectionCard>
   );
 }
 
@@ -329,100 +437,6 @@ function VaultPicker() {
         </Button>
       </div>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------- Daftar catatan
-
-const STATUS_FILTERS: { value: "all" | KnowledgeNoteStatus | "none"; label: string }[] = [
-  { value: "all", label: "Semua status" },
-  { value: "berlaku", label: "Berlaku" },
-  { value: "draf", label: "Draf / Inbox" },
-  { value: "dicabut", label: "Dicabut" },
-  { value: "templat", label: "Templat" },
-  { value: "none", label: "Tanpa status" },
-];
-
-function NotesCard() {
-  const { data: notes = [], isLoading } = useKnowledgeNotes(true);
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<(typeof STATUS_FILTERS)[number]["value"]>("all");
-  const filtered = filterKnowledgeNotes(notes, query, status);
-  const { pageItems, setPage, controlProps } = usePagination(filtered, 20);
-
-  return (
-    <SectionCard
-      icon={BookOpenCheck}
-      title="Catatan pengetahuan"
-      description="Isi vault yang sudah dibaca server. Klik untuk melihat isi & tautannya; sunting tetap di Obsidian."
-    >
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <SearchInput
-            value={query}
-            onChange={(v) => {
-              setQuery(v);
-              setPage(1);
-            }}
-            placeholder="Cari judul, folder, jenis…"
-            className="flex-1"
-          />
-          <Select
-            value={status}
-            onValueChange={(v) => {
-              setStatus(v as typeof status);
-              setPage(1);
-            }}
-          >
-            <SelectTrigger className="sm:w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_FILTERS.map((f) => (
-                <SelectItem key={f.value} value={f.value}>
-                  {f.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        {isLoading ? (
-          <Skeleton className="h-40 rounded-lg" />
-        ) : !filtered.length ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            {notes.length ? "Tidak ada catatan yang cocok." : "Vault masih kosong — mulai menulis di Obsidian."}
-          </p>
-        ) : (
-          <ul className="divide-y rounded-xl border">
-            {pageItems.map((note) => (
-              <li key={note.id}>
-                <button
-                  type="button"
-                  onClick={() => openKnowledgeNote(note.id)}
-                  className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left hover:bg-muted/50"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{note.title}</p>
-                    <p className="truncate font-mono text-[11px] text-muted-foreground">{note.path}</p>
-                  </div>
-                  {note.kind === "file" && <Badge variant="outline">Berkas</Badge>}
-                  {note.jenis && (
-                    <Badge variant="secondary" className="hidden sm:inline-flex">
-                      {note.jenis}
-                    </Badge>
-                  )}
-                  {note.status && <Badge className={STATUS_TONE[note.status]}>{STATUS_LABEL[note.status]}</Badge>}
-                  <span className="hidden w-14 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums sm:block">
-                    ↗{note.links} ↙{note.backlinks}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <PaginationControl {...controlProps} />
-      </div>
-    </SectionCard>
   );
 }
 

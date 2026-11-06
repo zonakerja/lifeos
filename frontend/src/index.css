@@ -59,6 +59,7 @@
   --color-mod-overview: var(--mod-overview);
   --color-mod-planner: var(--mod-planner);
   --color-mod-notes: var(--mod-notes);
+  --color-mod-knowledge: var(--mod-knowledge);
   --color-mod-productivity: var(--mod-productivity);
   --color-mod-files: var(--mod-files);
   --color-mod-requests: var(--mod-requests);
@@ -128,6 +129,8 @@
   --mod-planner-2: oklch(0.6 0.2 275);
   --mod-notes: oklch(0.72 0.17 62);
   --mod-notes-2: oklch(0.66 0.21 25);
+  --mod-knowledge: oklch(0.56 0.19 350);
+  --mod-knowledge-2: oklch(0.6 0.17 15);
   --mod-productivity: oklch(0.63 0.16 160);
   --mod-productivity-2: oklch(0.66 0.13 200);
   --mod-files: oklch(0.6 0.21 12);
@@ -155,6 +158,15 @@
   --chart-3: var(--mod-productivity);
   --chart-4: var(--mod-notes);
   --chart-5: var(--mod-files);
+  /* Warna grup graf menu Pengetahuan (dibaca kanvas lewat getComputedStyle) */
+  --graph-blue: oklch(0.6 0.17 250);
+  --graph-green: oklch(0.62 0.16 150);
+  --graph-orange: oklch(0.7 0.17 55);
+  --graph-red: oklch(0.6 0.21 25);
+  --graph-violet: oklch(0.58 0.2 300);
+  --graph-teal: oklch(0.62 0.12 195);
+  --graph-pink: oklch(0.64 0.2 350);
+  --graph-yellow: oklch(0.78 0.16 95);
 
   --sidebar: oklch(0.995 0.003 285);
   --sidebar-foreground: oklch(0.3 0.03 280);
@@ -167,6 +179,14 @@
 }
 
 .dark {
+  --graph-blue: oklch(0.72 0.14 250);
+  --graph-green: oklch(0.74 0.14 150);
+  --graph-orange: oklch(0.78 0.14 55);
+  --graph-red: oklch(0.7 0.17 25);
+  --graph-violet: oklch(0.72 0.16 300);
+  --graph-teal: oklch(0.74 0.11 195);
+  --graph-pink: oklch(0.74 0.16 350);
+  --graph-yellow: oklch(0.84 0.14 95);
   --background: oklch(0.155 0.02 280);
   --foreground: oklch(0.96 0.008 285);
   --card: oklch(0.205 0.024 280);
@@ -199,6 +219,8 @@
   --mod-planner-2: oklch(0.68 0.17 275);
   --mod-notes: oklch(0.78 0.15 65);
   --mod-notes-2: oklch(0.72 0.18 30);
+  --mod-knowledge: oklch(0.72 0.15 350);
+  --mod-knowledge-2: oklch(0.74 0.13 15);
   --mod-productivity: oklch(0.72 0.15 160);
   --mod-productivity-2: oklch(0.74 0.12 200);
   --mod-files: oklch(0.7 0.18 15);
@@ -241,6 +263,10 @@
 [data-module="notes"] {
   --module: var(--mod-notes);
   --module-2: var(--mod-notes-2);
+}
+[data-module="knowledge"] {
+  --module: var(--mod-knowledge);
+  --module-2: var(--mod-knowledge-2);
 }
 [data-module="productivity"] {
   --module: var(--mod-productivity);

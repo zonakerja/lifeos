@@ -69,6 +69,10 @@ export interface AiSettings {
     agent: AiProviderId | null;
     ocr: AiProviderId | null;
     embedding: AiEmbeddingProvider | null;
+    /** Cadangan pertama yang benar-benar dipakai bila provider tugas gagal (null = tidak ada cadangan) */
+    chatBackup: AiProviderId | null;
+    generalBackup: AiProviderId | null;
+    agentBackup: AiProviderId | null;
   };
   providers: AiProviderSettings[];
 }
@@ -81,6 +85,10 @@ export interface AiRouting {
   agent?: AiProviderId | null;
   ocr?: AiProviderId | null;
   embedding?: AiEmbeddingProvider | null;
+  /** Cadangan pertama per tugas (kuota habis / provider sibuk / tak terjangkau); kosong = urutan bawaan */
+  chatBackup?: AiProviderId | null;
+  generalBackup?: AiProviderId | null;
+  agentBackup?: AiProviderId | null;
 }
 
 export interface AiIndexStatus {
@@ -189,6 +197,22 @@ export interface AiChatResult {
   used: { knowledge: number; workspace: number };
 }
 
+export type KnowledgeExportKind = "notes" | "lists" | "aiNotes" | "notebooks" | "productivity";
+
+/** Cermin satu arah hasil kerja LifeOS ke folder `80-LifeOS` vault (`GET /knowledge/export`). */
+export interface KnowledgeExport {
+  enabled: boolean;
+  kinds: Record<KnowledgeExportKind, boolean>;
+  folder: string;
+  vaultReady: boolean;
+  running: boolean;
+  lastRunAt: string | null;
+  lastError: string | null;
+  files: number | null;
+  written: number | null;
+  removed: number | null;
+}
+
 export interface KnowledgeStatus {
   /** Server punya folder vault (KNOWLEDGE_VAULTS_DIR) */
   configured: boolean;
@@ -217,6 +241,10 @@ export interface KnowledgeNoteListItem {
   jenis: string | null;
   status: KnowledgeNoteStatus | null;
   publik: boolean | null;
+  /** Tag properti + tag inline `#tag` */
+  tags: string[];
+  /** Properti tersimpan (frontmatter) */
+  properties: Record<string, unknown> | null;
   links: number;
   backlinks: number;
 }
@@ -244,6 +272,8 @@ export interface KnowledgeNoteDetail {
   };
   problems: string[];
   assetId: string | null;
+  /** SHA-256 isi berkas saat terakhir dipindai */
+  hash: string;
   updatedAt: string;
   linksOut: { target: string; kind: string; note: KnowledgeNoteRef | null }[];
   backlinks: { kind: string; note: KnowledgeNoteRef }[];
@@ -1130,4 +1160,69 @@ export interface PublicVaultView {
   updatedAt: string;
   files: VaultFile[];
   visitor: { ip: string | null; location: string; browser: string | null; at: string };
+}
+
+/** Menu Pengetahuan (antarmuka Obsidian di LifeOS). */
+export interface KnowledgeTree {
+  folders: string[];
+  notes: KnowledgeNoteListItem[];
+}
+
+export interface KnowledgeGraphNode {
+  id: string;
+  title: string;
+  path: string;
+  kind: "note" | "file";
+  status: KnowledgeNoteStatus | null;
+  jenis: string | null;
+  tags: string[];
+  links: number;
+  backlinks: number;
+  /** Perkiraan waktu dibuat (urutan animasi graf) */
+  createdAt: string;
+}
+
+export interface KnowledgeGraph {
+  nodes: KnowledgeGraphNode[];
+  /** Tautan ke catatan yang belum ada (node bayangan, id `missing:<target>`) */
+  missing: { id: string; title: string; count: number }[];
+  edges: { source: string; target: string; kind: string }[];
+}
+
+export interface KnowledgeSearchHit {
+  id: string;
+  path: string;
+  title: string;
+  kind: "note" | "file";
+  snippet: string;
+  score: number;
+}
+
+export interface KnowledgeSource {
+  id: string;
+  path: string;
+  raw: string;
+  hash: string;
+  frontmatter: Record<string, unknown> | null;
+}
+
+export interface KnowledgeHealth {
+  problems: { noteId: string; path: string; issues: string[] }[];
+  broken: { target: string; note: KnowledgeNoteRef }[];
+  orphans: KnowledgeNoteRef[];
+  duplicates: { name: string; notes: KnowledgeNoteRef[] }[];
+}
+
+export type KnowledgeGraphColor = "blue" | "green" | "orange" | "red" | "violet" | "teal" | "pink" | "yellow";
+
+export interface KnowledgePrefs {
+  bookmarks: string[];
+  graphGroups: { query: string; color: KnowledgeGraphColor }[];
+}
+
+export interface KnowledgeUnlinkedMention {
+  id: string;
+  path: string;
+  title: string;
+  snippet: string;
 }

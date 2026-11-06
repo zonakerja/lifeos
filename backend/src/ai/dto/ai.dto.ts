@@ -83,6 +83,24 @@ export class AiRoutingDto {
   @IsEnum(AiProvider, { message: "Provider AI tidak dikenal." })
   ocr?: AiProvider | null;
 
+  @ApiPropertyOptional({ enum: AiProvider, nullable: true, description: "Cadangan pertama chat" })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsEnum(AiProvider, { message: "Provider AI tidak dikenal." })
+  chatBackup?: AiProvider | null;
+
+  @ApiPropertyOptional({ enum: AiProvider, nullable: true, description: "Cadangan pertama fitur AI lain" })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsEnum(AiProvider, { message: "Provider AI tidak dikenal." })
+  generalBackup?: AiProvider | null;
+
+  @ApiPropertyOptional({ enum: AiProvider, nullable: true, description: "Cadangan pertama model agen Hermes" })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsEnum(AiProvider, { message: "Provider AI tidak dikenal." })
+  agentBackup?: AiProvider | null;
+
   @ApiPropertyOptional({ enum: ["gemini", "openai"], nullable: true, description: "Embedding indeks pengetahuan" })
   @IsOptional()
   @ValidateIf((_, value) => value !== null)

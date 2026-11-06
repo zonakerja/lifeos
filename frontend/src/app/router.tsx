@@ -24,6 +24,7 @@ export const router = createBrowserRouter([
               { index: true, lazy: () => import("@/features/overview/overview-page") },
               { path: "planner/:tab?", lazy: () => import("@/features/planner/planner-page") },
               { path: "notes/:tab?", lazy: () => import("@/features/notes/notes-page") },
+              { path: "knowledge/:tab?", lazy: () => import("@/features/knowledge/workspace/knowledge-page") },
               { path: "productivity/:tab?", lazy: () => import("@/features/productivity/productivity-page") },
               { path: "file-control/:tab?", lazy: () => import("@/features/file-control/file-control-page") },
               { path: "requests/:tab?", lazy: () => import("@/features/requests/requests-page") },

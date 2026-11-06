@@ -14,6 +14,8 @@ export const isIgnoredDir = (name: string) => name.startsWith(".") || name === "
 export const INBOX_DIR = "00-Inbox";
 /** Templat catatan Obsidian — dibaca tetapi tidak dipakai untuk menjawab (isinya kerangka, bukan pengetahuan). */
 export const TEMPLATE_DIR = "90-Templat";
+/** Folder cermin hasil kerja LifeOS (vault-export.ts) — dibaca untuk graf, tidak diindeks ulang & tidak diperiksa. */
+export const EXPORT_DIR = "80-LifeOS";
 
 /** Berkas lampiran vault yang disalin ke storage agar diekstrak (PDF peraturan, DOCX, XLSX, teks). */
 export const VAULT_FILE_TYPES: Record<string, string> = {
@@ -221,7 +223,7 @@ export function noteIndexText(note: { title: string; content: string; frontmatte
 /** Masalah catatan yang ditampilkan di halaman Pengetahuan agar user merapikannya. */
 export function noteProblems(path: string, frontmatter: Record<string, unknown> | null) {
   const top = path.split("/")[0];
-  if (top === INBOX_DIR || top === TEMPLATE_DIR) return [];
+  if (top === INBOX_DIR || top === TEMPLATE_DIR || top === EXPORT_DIR) return [];
   const problems: string[] = [];
   if (!frontmatter) problems.push("Tanpa properti (frontmatter)");
   else {

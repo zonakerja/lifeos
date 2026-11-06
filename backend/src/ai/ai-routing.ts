@@ -8,7 +8,8 @@ const catalogSupports: SupportsOf = (provider) => AI_PROVIDERS[provider].support
 
 /**
  * Urutan provider yang dicoba untuk satu permintaan: provider aktif lebih dulu, lalu (bila cadangan otomatis menyala)
- * provider lain yang punya key sesuai urutan katalog. Provider yang tidak mendukung semua jenis lampiran dilewati.
+ * cadangan pilihan user untuk tugas itu, lalu provider lain yang punya key sesuai urutan katalog. Provider yang tidak
+ * mendukung semua jenis lampiran dilewati.
  */
 export function providerCandidates(
   active: AiProvider,
@@ -16,11 +17,13 @@ export function providerCandidates(
   kinds: readonly AttachmentKind[],
   fallbackEnabled: boolean,
   supports: SupportsOf = catalogSupports,
+  backup: AiProvider | null = null,
 ): AiProvider[] {
+  const preferred = backup && backup !== active && configured.includes(backup) ? [backup] : [];
   const order = fallbackEnabled
-    ? [active, ...AI_PROVIDER_IDS.filter((id) => id !== active && configured.includes(id))]
+    ? [active, ...preferred, ...AI_PROVIDER_IDS.filter((id) => id !== active && configured.includes(id))]
     : [active];
-  return order.filter((id) => kinds.every((kind) => supports(id)[kind]));
+  return [...new Set(order)].filter((id) => kinds.every((kind) => supports(id)[kind]));
 }
 
 /**
@@ -36,19 +39,28 @@ export const AI_TASKS: readonly AiTask[] = ["chat", "general", "agent", "ocr"];
 export type EmbeddingProvider = "gemini" | "openai";
 export const EMBEDDING_PROVIDERS: readonly EmbeddingProvider[] = ["gemini", "openai"];
 
+/** Tugas yang punya provider cadangan pilihan user (`<tugas>Backup`). */
+export type BackupTask = "chat" | "general" | "agent";
+export const BACKUP_TASKS: readonly BackupTask[] = ["chat", "general", "agent"];
+export const backupKey = (task: BackupTask) => `${task}Backup` as const;
+
 export interface AiRouting {
   chat?: AiProvider | null;
   general?: AiProvider | null;
   agent?: AiProvider | null;
   ocr?: AiProvider | null;
   embedding?: EmbeddingProvider | null;
+  /** Cadangan pertama bila provider tugas gagal (kuota, sibuk, tak terjangkau); kosong = urutan bawaan */
+  chatBackup?: AiProvider | null;
+  generalBackup?: AiProvider | null;
+  agentBackup?: AiProvider | null;
 }
 
 /** Baca kolom jsonb `ai_routing` dengan aman (nilai asing dibuang). */
 export function parseRouting(value: unknown): AiRouting {
   const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const routing: AiRouting = {};
-  for (const task of AI_TASKS) {
+  for (const task of [...AI_TASKS, ...BACKUP_TASKS.map(backupKey)] as const) {
     const v = raw[task];
     if (typeof v === "string" && (AI_PROVIDER_IDS as readonly string[]).includes(v)) routing[task] = v as AiProvider;
   }
@@ -67,6 +79,22 @@ export function taskProvider(
 ): AiProvider | null {
   const chosen = routing[task];
   return chosen && configured.includes(chosen) ? chosen : active;
+}
+
+/** Cadangan yang benar-benar dipakai untuk tugas (tanpa lampiran): kandidat kedua; null = tidak ada cadangan. */
+export function taskBackup(
+  routing: AiRouting,
+  task: BackupTask,
+  active: AiProvider | null,
+  configured: readonly AiProvider[],
+  fallbackEnabled: boolean,
+  supports: SupportsOf = catalogSupports,
+): AiProvider | null {
+  const primary = taskProvider(routing, task, active, configured);
+  if (!primary) return null;
+  return (
+    providerCandidates(primary, configured, [], fallbackEnabled, supports, routing[backupKey(task)] ?? null)[1] ?? null
+  );
 }
 
 /** Urutan provider OCR: pilihan user, lalu Gemini → OpenAI → Claude; hanya yang punya key & mendukung jenis berkas. */

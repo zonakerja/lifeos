@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { knowledgeApi } from "@/lib/api/endpoints";
-import type { KnowledgeStatus } from "@/types/api";
+import type { KnowledgeExport, KnowledgeStatus } from "@/types/api";
 import { queryKeys } from "./query-keys";
 
 /** Status vault Obsidian user; dipantau berkala saat server sedang memindai. */
@@ -60,4 +60,28 @@ export function useAddToKnowledgeInbox() {
       }, 2_000);
     },
   });
+}
+
+/** Pengaturan & status cermin 80-LifeOS; dipantau selama sinkron berjalan. */
+export function useKnowledgeExport(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.knowledgeExport,
+    queryFn: knowledgeApi.exportSettings,
+    enabled,
+    refetchInterval: (query) => (query.state.data?.running ? 1_500 : false),
+  });
+}
+
+export function useKnowledgeExportMutations() {
+  const client = useQueryClient();
+  const apply = (data: KnowledgeExport) => {
+    client.setQueryData(queryKeys.knowledgeExport, data);
+    // Berkas cermin ikut terbaca sebagai catatan vault (menu Pengetahuan & status vault)
+    void client.invalidateQueries({ queryKey: ["knowledge"] });
+  };
+  return {
+    update: useMutation({ mutationFn: knowledgeApi.updateExport, onSuccess: apply }),
+    run: useMutation({ mutationFn: knowledgeApi.runExport, onSuccess: apply }),
+    clear: useMutation({ mutationFn: knowledgeApi.clearExport, onSuccess: apply }),
+  };
 }

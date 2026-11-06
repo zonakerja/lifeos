@@ -44,7 +44,16 @@ import type {
   AiConversation,
   AiGenerateResult,
   KnowledgeNoteDetail,
+  KnowledgeGraph,
+  KnowledgeHealth,
   KnowledgeNoteListItem,
+  KnowledgePrefs,
+  KnowledgeSearchHit,
+  KnowledgeSource,
+  KnowledgeTree,
+  KnowledgeUnlinkedMention,
+  KnowledgeExport,
+  KnowledgeExportKind,
   KnowledgeStatus,
   NotebookChatResult,
   NotebookDetail,
@@ -338,6 +347,40 @@ export const knowledgeApi = {
   note: (id: string) => request<KnowledgeNoteDetail>(`/knowledge/notes/${id}`),
   addToInbox: (input: { title: string; content: string; question?: string }) =>
     request<{ path: string }>("/knowledge/inbox", { method: "POST", body: input }),
+  tree: () => request<KnowledgeTree>("/knowledge/tree"),
+  /** Cermin hasil kerja LifeOS → folder 80-LifeOS di vault */
+  exportSettings: () => request<KnowledgeExport>("/knowledge/export"),
+  updateExport: (input: { enabled?: boolean; kinds?: Partial<Record<KnowledgeExportKind, boolean>> }) =>
+    request<KnowledgeExport>("/knowledge/export", { method: "PUT", body: input }),
+  runExport: () => request<KnowledgeExport>("/knowledge/export/run", { method: "POST" }),
+  clearExport: () => request<KnowledgeExport>("/knowledge/export/files", { method: "DELETE" }),
+  graph: () => request<KnowledgeGraph>("/knowledge/graph"),
+  search: (q: string, mode: "text" | "semantic") =>
+    request<KnowledgeSearchHit[]>("/knowledge/search", { query: { q, mode } }),
+  health: () => request<KnowledgeHealth>("/knowledge/health"),
+  prefs: () => request<KnowledgePrefs>("/knowledge/prefs"),
+  setPrefs: (prefs: KnowledgePrefs) => request<KnowledgePrefs>("/knowledge/prefs", { method: "PUT", body: prefs }),
+  source: (id: string) => request<KnowledgeSource>(`/knowledge/notes/${id}/source`),
+  save: (id: string, input: { content: string; baseHash: string }) =>
+    request<KnowledgeSource>(`/knowledge/notes/${id}`, { method: "PUT", body: input }),
+  setProperties: (id: string, input: { set?: Record<string, unknown>; remove?: string[]; baseHash: string }) =>
+    request<KnowledgeSource>(`/knowledge/notes/${id}/properties`, { method: "PATCH", body: input }),
+  createNote: (input: { folder?: string; title: string; content?: string; templateId?: string }) =>
+    request<{ id: string | null; path: string }>("/knowledge/notes", { method: "POST", body: input }),
+  moveNote: (id: string, input: { path: string; updateLinks?: boolean }) =>
+    request<{ id: string | null; path: string; updatedLinks: number }>(`/knowledge/notes/${id}/move`, {
+      method: "POST",
+      body: input,
+    }),
+  deleteNote: (id: string) => request<{ trash: string }>(`/knowledge/notes/${id}`, { method: "DELETE" }),
+  unlinked: (id: string) => request<KnowledgeUnlinkedMention[]>(`/knowledge/notes/${id}/unlinked`),
+  linkMention: (id: string, sourceId: string) =>
+    request<{ ok: true }>(`/knowledge/notes/${id}/link-mention`, { method: "POST", body: { sourceId } }),
+  createFolder: (path: string) => request<{ path: string }>("/knowledge/folders", { method: "POST", body: { path } }),
+  moveFolder: (from: string, to: string) =>
+    request<{ path: string }>("/knowledge/folders/move", { method: "POST", body: { from, to } }),
+  deleteFolder: (path: string) =>
+    request<{ trash: string }>("/knowledge/folders", { method: "DELETE", query: { path } }),
 };
 
 /** My Notebook: sumber + chat RAG bersitasi + ringkasan Studio + catatan notebook. */
@@ -447,6 +490,8 @@ export interface AgentSetupState {
     model: string;
     error?: string;
     usage?: { input: number; output: number; cacheRead: number; cacheWrite: number };
+    /** Provider tugas Agen yang gagal sebelum cadangan ini dipakai */
+    fallbackFrom?: { provider: string; error: string };
   } | null;
 }
 

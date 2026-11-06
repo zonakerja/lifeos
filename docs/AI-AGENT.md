@@ -1546,8 +1546,8 @@ mode auto dipakai sungguhan), sumber master OnTrack.
 | 1 | Komunikasi Hermes ↔ Obsidian ↔ LifeOS | ✅ kecuali jawaban model sungguhan | Hasil di §25.1 |
 | 2 | Hermes membentuk skill & bekerja otomatis tanpa Approval; **Kirim Konsep di SRIKANDI tetap di tangan user** | 🚧 tahap 1 ✅ 2026-11-06 (§24.6) | Sisa: skill `penetapan-psp` (C5), draf skill dari Hermes, pembatasan toolset Hermes, uji dengan model sungguhan |
 | 3 | Fitur Hermes seperti di aplikasi desktopnya, di dalam LifeOS | Belum | Daftar fitur yang diinginkan perlu dipastikan dengan user |
-| 4 | Antarmuka Obsidian di LifeOS (Graph View, dsb.) | Belum | Data graf sudah ada (`knowledge_links`) |
-| 5 | Pembagian model: penalaran agen Claude dengan cadangan OpenAI; tugas biasa, RAG, chatbot dengan Gemini | Belum | Pembagian tugas per provider sudah ada (`ai_routing`); **cadangan otomatis belum ada di proxy agen**. Uji Claude sungguhan menunggu API key |
+| 4 | Antarmuka Obsidian di LifeOS (Graph View, dsb.) | ✅ 2026-11-06 | Menu **Pengetahuan** — rencana §25.2, hasil §25.4 |
+| 5 | Pembagian model: penalaran agen Claude dengan cadangan OpenAI; tugas biasa, RAG, chatbot dengan Gemini | ✅ 2026-11-06 | Cadangan per tugas di Pembagian tugas AI + cadangan di proxy agen (§25.3). Uji Claude sungguhan menunggu key/router user |
 
 ### 25.1 Hasil nomor 1 (2026-11-05)
 
@@ -1576,3 +1576,116 @@ berhasil 31 Okt), jadi run agen berhenti di panggilan model pertama. Menunggu ke
 **Temuan untuk nomor 2**: Hermes menyalakan toolset bawaan `terminal`, `file`, `browser`, `web`, `code_execution`, `cronjob`,
 `delegation`, dan `computer_use` di container (backend terminal `local`, tanpa sandbox). Sebelum agen dibuat otomatis, toolset
 perlu dibatasi ke yang dipakai skill LifeOS.
+
+### 25.2 Rencana nomor 4 — menu **Pengetahuan** (antarmuka Obsidian di LifeOS, riset 2026-11-06)
+
+Keputusan user: menu baru **Pengetahuan** di sidebar (Tools → Basis Pengetahuan tetap untuk pengaturan vault & profil kerja),
+"full feature": Graph View, penjelajah vault, pencarian, sunting catatan + fitur lain yang berguna. Riset: fitur inti Obsidian
+1.12 (Graph view global & lokal, File explorer, Backlinks + Unlinked mentions, Outgoing links, Outline, Tags, Properties,
+Search beroperator, Quick switcher, Page preview, Bookmarks, Bases = tampilan tabel dari properti) — dipilih yang berguna
+untuk basis pengetahuan BMN, bukan meniru Obsidian utuh (Canvas, plugin, tema tidak dibawa).
+
+**Prinsip**
+- Vault di disk tetap **sumber kebenaran**; LifeOS membaca dari `knowledge_notes`/`knowledge_links` dan menulis ke berkas
+  (pemantau vault yang sudah ada membaca ulang ± 3 detik → indeks RAG & graf ikut).
+- Menulis dari LifeOS **aman terhadap Obsidian/Syncthing**: setiap simpan membawa `hash` versi yang dibuka; bila berkas di disk
+  sudah berubah → 409 + pilihan "Muat versi terbaru / Simpan sebagai salinan" (tidak pernah menimpa diam-diam). Tulis atomik
+  (berkas sementara → rename), hanya `.md`, path dijaga tetap di dalam vault, ukuran ≤ `MAX_NOTE_BYTES`.
+- Hapus = pindah ke folder `.trash` vault (sama dengan Obsidian), bukan hapus permanen.
+- Agen Hermes **tetap hanya** menulis ke `00-Inbox` (alat MCP tidak berubah); menyunting catatan berlaku hanya untuk user di UI.
+
+**Tata letak** (desktop ≥ 1024 px, 3 kolom seperti Obsidian; HP = tab Penjelajah | Catatan | Graf)
+- Kiri: **Penjelajah** (pohon folder, jumlah catatan, ikon jenis/status, buat catatan/folder, ganti nama, pindah, hapus ke
+  `.trash`) | tab **Pencarian** | **Tag** | **Penanda** (bookmark).
+- Tengah: **Catatan** — mode Baca (Markdown + `[[tautan]]` bisa diklik, `![[sematan]]` gambar/PDF/catatan, callout `> [!note]`,
+  pratinjau saat hover tautan) dan mode Sunting (editor Markdown sumber + bilah alat, pelengkap otomatis `[[` judul catatan,
+  simpan otomatis bertanda hash). Tab beberapa catatan, riwayat maju/mundur, `?note=<id>` deep link.
+- Kanan: **Properti** (frontmatter sebagai formulir: status, jenis, publik, grup, dasar_hukum, tag; bisa diubah), **Garis besar**
+  (judul/BAB/Pasal → lompat), **Backlink** + **Sebutan tanpa tautan** (catatan yang menyebut judul tanpa `[[ ]]` → tombol
+  "Tautkan"), **Tautan keluar** (termasuk yang belum ada → "Buat catatan"), **Graf lokal** (kedalaman 1–3).
+- Tampilan **Graf** penuh: graf global force-directed, filter folder / tag / status / jenis / tampilkan yatim & lampiran /
+  tautan tak ditemukan, **grup warna** (aturan folder/tag/status → warna token), kedalaman graf lokal, gaya (ukuran node =
+  jumlah backlink, tebal garis, label saat zoom), klik = buka catatan, hover = sorot tetangga.
+- Tampilan **Tabel** (setara Bases sederhana): catatan sebagai baris, kolom = properti terpilih, saring & urutkan (mis. semua
+  peraturan `status: berlaku` + `jenis: peraturan`), ubah properti langsung di sel.
+
+**Fitur pendukung**
+- **Pencarian**: kata (judul, isi, path) dengan penyorot cuplikan + operator `path:`, `tag:`, `status:`, `jenis:`, dan mode
+  **Makna (AI)** memakai `AiIndexService.search` koleksi `knowledge` (sudah ada).
+- **Pembuka cepat** Ctrl+O (cari judul/alias → buka) dan **palet perintah** sederhana (catatan baru, buka graf, Inbox).
+- **Inbox**: tampilan khusus `00-Inbox` (usulan agen/chatbot) dengan tombol **Pindahkan ke folder…** + set `status: berlaku`
+  → kurasi bisa dilakukan tanpa membuka Obsidian.
+- **Templat**: catatan baru dari `90-Templat` (isian `{{judul}}`, `{{tanggal}}`), sesuai struktur vault §10.3.
+- **Kesehatan vault**: catatan bermasalah (`noteProblems`), tautan rusak, catatan yatim, duplikat judul — dipindah dari kartu
+  Tools.
+- **Tanya pengetahuan**: tombol "Tanya AI tentang catatan ini" → chatbot melayang dengan catatan sebagai konteks; sitasi
+  chatbot yang menunjuk catatan vault membuka menu Pengetahuan (menggantikan dialog `KnowledgeNoteHost`).
+
+**Teknologi**: graf `react-force-graph-2d` 1.29 (MIT, canvas, d3-force, dimuat malas) — dipilih atas sigma.js (WebGL, lebih
+cocok > 10 rb node; vault user ratusan–ribuan). Markdown baca = komponen `Markdown` yang ada + plugin wikilink/callout;
+editor = CodeMirror 6 mode Markdown (ringan, sama dengan Obsidian, dimuat malas) — bukan Tiptap, agar sintaks Obsidian
+(`[[…]]`, frontmatter, callout) tidak rusak saat disimpan.
+
+**Backend baru**: `GET /knowledge/graph` (node + edge ringkas), `GET /knowledge/tree`, `GET /knowledge/search?q=&mode=`,
+`GET /knowledge/notes/:id/unlinked`, `PUT /knowledge/notes/:id { content, frontmatter?, baseHash }`, `POST /knowledge/notes`
+(baru/dari templat), `POST /knowledge/notes/:id/move`, `DELETE /knowledge/notes/:id` (→ `.trash`), `POST /knowledge/folders`;
+tag dibaca dari frontmatter + `#tag` di isi (kolom `tags` jsonb baru di `knowledge_notes`, migrasi). Penanda & grup warna graf
+disimpan per user (`users.knowledge_prefs` jsonb).
+
+**Tahapan** (masing-masing diuji & bisa dipakai sendiri): (a) Penjelajah + pembaca + panel kanan + pencarian kata & pembuka
+cepat → (b) Graf global & lokal + filter & grup warna → (c) Sunting (editor, properti, buat/ganti nama/pindah/hapus, templat,
+konflik hash) + Inbox kurasi → (d) Tabel properti, pencarian makna, sebutan tanpa tautan, kesehatan vault, Tanya AI.
+
+### 25.3 Hasil nomor 5 (2026-11-06)
+
+Pengaturan → Model AI → **Pembagian tugas AI**: baris Chat & telaah, Fitur AI lain, dan Agen (Hermes) punya pilihan
+**Cadangan** (bawaan "Otomatis" = urutan katalog). Urutan percobaan: provider tugas → cadangan pilihan → provider lain yang
+punya key; semuanya hanya bila sakelar **Cadangan otomatis** menyala. Proxy model agen kini ikut berpindah: gagal karena
+kuota/limit (429), saldo (402), waktu habis, atau provider sibuk/rusak (5xx, 529) **sebelum** jawaban mulai dikirim → provider
+berikutnya; key ditolak / model tidak ada tidak dialihkan. Kartu **Siapkan agen** menulis "Memakai cadangan karena … gagal".
+
+Untuk rencana user: Agen = Claude (langsung atau lewat router) + cadangan OpenAI; Chat & telaah / Fitur AI lain = Gemini (+ cadangan
+OpenAI); OCR & embedding = Gemini. Cukup diatur di kartu itu, tanpa kode.
+
+### 25.4 Hasil nomor 4 (2026-11-06)
+
+Menu **Pengetahuan** (Workspace, setelah Notes Space) dibangun sesuai rencana §25.2 dalam satu tahap (a–d sekaligus):
+- **Catatan**: penjelajah (pohon folder + jumlah, menu klik kanan, seret-lepas ke folder, buat catatan/folder, ganti nama,
+  pindah, hapus ke `.trash`), Cari (kata beroperator / makna AI), Tag (bertingkat), Penanda; pembaca dengan `[[tautan]]` +
+  pratinjau saat hover, `![[sematan]]` gambar/berkas/catatan, callout; editor sumber (simpan otomatis + Ctrl+S, pelengkap `[[`,
+  penolak bentrok); panel Properti, Garis besar, Backlink, Sebutan tanpa tautan (+ Tautkan), Tautan keluar (+ Buat catatan), Graf
+  lokal (kedalaman 1–3), Tanya AI (jawaban → Inbox); Buka di Obsidian (`obsidian://`).
+- **Graf** global (filter, Inbox/Templat/yatim/berkas/tautan belum ada, warna menurut status + grup warna tersimpan, label,
+  ukuran, jarak), **Tabel** (kolom properti, urutkan, ubah status/jenis/publik di sel), **Inbox** (kurasi), **Kesehatan**,
+  pembuka cepat Ctrl+O.
+
+Uji: unit backend +26 (`vault-editor.spec.ts`) & frontend +9 (`knowledge-logic.test.ts`), uji API vault sementara 29/31 (2 sisa =
+pemindaian awal belum selesai saat dicek, bukan bug), smoke +11, UI desktop 1024 px & HP 375 px (buat → sunting → properti →
+hapus di vault dev; catatan uji dibersihkan). Bug yang ditemukan saat uji & diperbaiki: catatan di akar vault gagal dibuat,
+properti ditolak (`id` ikut body), pembuka cepat crash (`CommandDialog` tanpa `<Command>`), id judul bergeser di StrictMode.
+
+Belum / catatan: frontmatter di editor sumber tampil seperti judul (kosmetik parser Markdown); gambar sematan hanya PNG/JPG/GIF/
+WEBP/BMP dan tidak ikut diindeks; Canvas, plugin, dan tema Obsidian memang tidak dibawa.
+
+### 25.5 Lanjutan nomor 4: cermin hasil kerja, graf ala Obsidian, Tools dirapikan (2026-11-06)
+
+Permintaan user: hasil kerja LifeOS (catatan, My Notebook, Productivity) harus tampil di Obsidian; graf seperti aplikasi
+Obsidian; tumpang tindih menu Pengetahuan vs Tools → Basis Pengetahuan diselesaikan.
+
+- **Cermin `80-LifeOS/`** (`KnowledgeExportService`, `vault-export.ts`): satu arah LifeOS → vault, diperbarui ± 1 menit setelah
+  data berubah (sidik jari jumlah + waktu ubah per tabel) atau lewat **Sinkronkan sekarang**. Isi: `Catatan Bebas/`,
+  `List Bebas/`, `Notes AI/` (tanggal + judul), `My Notebook/<notebook>.md` + `Catatan/` + `Riwayat Chat - …`, `Productivity/`
+  `Project/` (Action berbobot sebagai checklist, Dasar Pelaksanaan, Agenda), `Area/` (struktur Sub Area → Kegiatan → Sub Kegiatan
+  + task), `Agenda/` (yang punya hasil / induk / Notes AI), `Resource/`; indeks `LifeOS.md`. Frontmatter `sumber: lifeos`, `jenis:
+  lifeos-…`, `lifeos_id`, alamat Buka di LifeOS. Tautan memakai path lengkap sehingga tidak ambigu.
+- Aman: hanya berkas bertanda `sumber: lifeos` yang ditimpa/dihapus (catatan user di folder itu tidak disentuh); tidak diindeks
+  ulang sebagai pengetahuan; baca saja di menu Pengetahuan (server menolak sunting/pindah/hapus); hanya data milik sendiri;
+  berkas lampiran tidak disalin. Pengaturan per user di `knowledge_prefs.export` (bawaan mati).
+- **Graf**: panel Filter / Grup / Tampilan / Gaya + tombol Animasi mengikuti Graph view Obsidian; tag bisa menjadi node; posisi
+  node dipertahankan saat difilter; pengaturan disimpan per browser.
+- **Tools → Basis Pengetahuan** = pengaturan (profil kerja, vault, cermin, cara memakai); daftar catatan & masalah hanya di menu
+  Pengetahuan (tab Catatan & Kesehatan).
+
+Uji: unit backend +4 (`vault-export.spec.ts`, termasuk "semua tautan terselesaikan") & frontend +3 (`graph-settings.test.ts`),
+smoke +7 (aktifkan, sinkron, berkas ada, baca saja 400, hapus berkas, matikan), vault dev 47 berkas dicerminkan tanpa potongan
+indeks, UI (Tools, graf + tag + animasi, catatan cermin → Buka di LifeOS).

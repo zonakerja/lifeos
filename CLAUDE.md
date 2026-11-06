@@ -262,7 +262,11 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   lain yang punya key; respons `fallback`). **Pembagian tugas** `users.ai_routing` (jsonb; `ai-routing.ts` + test):
   provider per tugas `chat` (asisten & My Notebook) / `general` (bawaan `generate`) / `ocr` (pilihan → Gemini → OpenAI
   → Claude) / `embedding` (Gemini | OpenAI, `index/embedding.ts`, 768 dimensi; pencarian hanya vektor model sama; ganti
-  ⇒ indeks dibangun ulang); `generate(userId, prompt, files, task)`. Error
+  ⇒ indeks dibangun ulang); `generate(userId, prompt, files, task)`. **Cadangan per tugas** (`chatBackup` /
+  `generalBackup` / `agentBackup` di `ai_routing`, keputusan user 2026-11-06): dicoba tepat setelah provider tugas, lalu
+  provider lain (hanya bila cadangan otomatis menyala; `taskBackup` = cadangan efektif di `effective`). **Proxy agen** ikut:
+  `AiService.agentCredentials` = urutan kandidat, `AgentService.proxyChat` pindah ke berikutnya bila gagal **sebelum
+  menjawab** dengan `isFallbackStatus` (429/402/408/5xx; 401/403/404/400 tidak) — `lastModelCall.fallbackFrom`. Error
   provider → 429 (kuota) / 422 (lainnya) — **jangan** 401 atau ≥ 502 (lihat §15). Semua role boleh memakai AI.
   **Jalur lewat router** (keputusan user 2026-11-06; `ai-endpoint.ts` + test): setiap kredensial bisa **langsung** (SDK resmi)
   atau **lewat router** pihak ketiga mana pun (`ai_credentials.base_url` + `api_format` openai | anthropic (khusus Claude) +
@@ -292,6 +296,24 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   `knowledge_vault`, disembunyikan dari `GET /uploads`) + `knowledge_links` → indeks `sourceType = "obsidian"`; folder
   `00-Inbox` = draf (LifeOS hanya menulis di sini lewat `POST /knowledge/inbox`), `90-Templat` = tidak diindeks. Logika
   murni + test `vault-parser.ts`. Endpoint `/knowledge/status|folders|vault|vault/create|scan|notes|notes/:id|inbox`.
+  **Menu Pengetahuan menulis ke vault** (keputusan user 2026-11-06, `docs/AI-AGENT.md` §25.2): `tree`, `graph` (node + edge +
+  node bayangan `missing:<target>`), `search?q=&mode=text|semantic` (operator `path:` `tag:` `status:` `jenis:` `file:`),
+  `health`, `prefs` (`users.knowledge_prefs`: penanda path + grup warna graf), `attachment?path=` (gambar sematan dibaca
+  langsung dari disk, tidak di-OCR), `notes/:id/source` (isi mentah + hash), `PUT notes/:id` & `PATCH notes/:id/properties`
+  (wajib `baseHash`; berkas berubah di disk → **409** `currentHash`, tidak pernah menimpa; YAML diubah lewat dokumen `yaml`
+  agar komentar/urutan tetap), `POST notes` (nama sama → bernomor, templat `{{judul}}`/`{{tanggal}}`), `notes/:id/move`
+  (perbarui `[[tautan]]` catatan perujuk; **id catatan berganti** — dibaca ulang dari path baru), `DELETE notes/:id` &
+  `DELETE folders` = pindah ke `.trash` vault, `notes/:id/unlinked` + `link-mention`, `folders` / `folders/move`. Tulis
+  atomik (berkas sementara → rename) lalu `scanNow`. Logika murni + test `vault-editor.ts`. Agen tetap hanya menulis `00-Inbox`.
+  **Cermin hasil kerja → vault** (keputusan user 2026-11-06, `KnowledgeExportService` + logika murni & test `vault-export.ts`):
+  satu arah LifeOS → folder `80-LifeOS/` (Catatan Bebas, List Bebas, Notes AI, My Notebook = indeks + catatan Studio + riwayat
+  chat, Productivity = Project + Action, Area + struktur, Agenda yang punya hasil/induk, Resource Global), saling bertaut
+  `[[path|judul]]`, frontmatter `sumber: lifeos` + `lifeos_id` + `lifeos` (alamat "Buka di LifeOS" dari `CORS_ORIGIN`).
+  Pengaturan di `users.knowledge_prefs.export` (`setPrefs` mempertahankannya); pemicu = sidik jari tabel (jumlah + `updated_at`)
+  dicek tiap menit + `PUT /knowledge/export` + `POST /knowledge/export/run`; `DELETE /knowledge/export/files` = hapus berkas
+  cermin. Hanya berkas bertanda `sumber: lifeos` yang ditimpa/dihapus; hanya data milik sendiri. `EXPORT_DIR` **tidak
+  diindeks** (`noteDocument`), tidak diperiksa (`noteProblems`/`vaultHealth`), dan baca saja (`findEditable` → 400 untuk
+  sunting/properti/pindah/hapus/sematkan tautan). Jenis data baru → `SOURCES` (service) + `buildExport` + `EXPORT_KINDS`.
 - **Integrasi agen / MCP** (`src/integrations/`, detail `docs/ARCHITECTURE.md` §3.7): token akses pribadi `api_tokens`
   (`lifeos_pat_…`, hash SHA-256, cakupan `knowledge:read|knowledge:write|workspace:read|workspace:write|ai:chat|requests:read|requests:write`,
   kedaluwarsa; `/integrations/tokens|scopes|activity`) + **MCP server** `POST /api/v1/mcp` (Streamable HTTP stateless,
@@ -416,7 +438,7 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   `20261025160000_srikandi_letters` (record type `srikandi_letter`) + `20261025170000_srikandi_references` (record type
   `srikandi_reference`) + `20261031120000_srikandi_outgoing` (record type `srikandi_outgoing` — Register Naskah Keluar) + `20261031130000_action_plan_months`
   (record type `action_plan_month` — potret bulan Rencana Aksi e-Kinerja) + `20261031140000_public_vaults` (brankas digital + log
-  akses) + `20261101120000_automation_jobs` (jadwal & riwayat otomasi) + `20261106130000_ai_router_endpoints` (jalur router per kredensial AI) + `20261106120000_agent_policies` (Kebijakan Otomatis,
+  akses) + `20261101120000_automation_jobs` (jadwal & riwayat otomasi) + `20261106130000_ai_router_endpoints` (jalur router per kredensial AI) + `20261106140000_knowledge_prefs` (preferensi menu Pengetahuan) + `20261106120000_agent_policies` (Kebijakan Otomatis,
   `agent_runs`, sakelar darurat, `requests.asset_check`/`auto_decision`). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
@@ -493,7 +515,8 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
 - **Bundle**: rute, halaman login, `Markdown` (react-markdown + KaTeX, `markdown-renderer.tsx`), `html5-qrcode`, dan
   editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±440 kB (termasuk host editor ONLYOFFICE; sejak tahap 3 floating-ui/popper ikut chunk utama —
   sebelumnya chunk terpisah yang tetap dimuat saat start); tanpa
-  peringatan ukuran chunk. Tab My Notebook = chunk `notebook-tab` (±42 kB).
+  peringatan ukuran chunk. Tab My Notebook = chunk `notebook-tab` (±42 kB). Menu Pengetahuan: `knowledge-page` ±82 kB,
+  `graph-canvas` ±185 kB, `note-editor` (CodeMirror) ±375 kB — keduanya dimuat malas.
 - **CSP produksi** (`nginx.conf`): `script-src 'self'`, `connect-src 'self'` (AI lewat backend), `style-src 'self'
   'unsafe-inline'`, `img/media blob: data:`. Domain eksternal baru → tambahkan di sini (lebih baik lewat backend).
 
@@ -528,10 +551,27 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   (`data/use-ai-chat.ts`), bukan `useAi()`; percakapan baru / riwayat (popover) / hapus; ringkasan data aplikasi tetap
   dikirim sebagai `snapshot` (`buildLifeosContext`); chip sitasi → `citationTarget` (`features/knowledge/knowledge-utils.ts`
   + test: catatan vault → `openKnowledgeNote(id)` = dialog global `KnowledgeNoteHost` di AppShell, berkas → `previewFile`,
-  record → `recordSourcePath`); "Simpan ke Inbox" (`answerForInbox`: `[n]` → `[[judul]]`). **Tools → Basis Pengetahuan**
-  (`features/tools/knowledge/knowledge-settings.tsx`, hook `data/use-knowledge.ts`): profil kerja, vault (pakai folder /
-  buat dari templat / pindai / lepas, catatan bermasalah, tautan tak ditemukan), daftar catatan (`filterKnowledgeNotes`),
-  cara memakai + peringatan kuota gratis Gemini (juga di Tools → Indeks Pengetahuan). **Tools → Indeks Pengetahuan**
+  record → `recordSourcePath`); "Simpan ke Inbox" (`answerForInbox`: `[n]` → `[[judul]]`). **Menu Pengetahuan** (`/knowledge/:tab`,
+  Workspace setelah Notes Space, warna `--mod-knowledge`, `features/knowledge/workspace/`, hook `data/use-knowledge-workspace.ts`,
+  logika murni + test `knowledge-logic.ts`): tab **Catatan** (`?note=<id>&h=<judul>`; ≥ 1280 px tiga kolom penjelajah | catatan |
+  info, 1024–1279 px penjelajah + Catatan/Info, di bawahnya tab — satu tata letak saja yang dirender; penjelajah dengan menu klik
+  kanan & seret-lepas, Cari kata/makna, Tag, Penanda; pembaca `NoteMarkdown` = `[[tautan]]` + pratinjau hover, `![[sematan]]`,
+  callout, id judul dari nomor baris `outline()`; editor CodeMirror 6 dimuat malas `note-editor.tsx` — simpan otomatis 1,5 dtk,
+  Ctrl+S, pelengkap `[[`, bentrok → Muat versi terbaru / Simpan sebagai salinan; panel info Properti (formulir frontmatter),
+  Garis besar, Backlink, Sebutan tanpa tautan, Tautan keluar, Graf lokal, Tanya AI), **Graf** (`graph-canvas.tsx`
+  react-force-graph-2d dimuat malas; bergaya Graph view Obsidian — panel Filter (cari, tag sebagai node, lampiran, hanya berkas
+  yang ada, yatim, cermin 80-LifeOS, Inbox/Templat), Grup (warna status + grup kueri tersimpan per akun), Tampilan (panah, ambang
+  pudar teks, ukuran node, tebal tautan, **Animasi** = pertumbuhan vault dari catatan tertua), Gaya (pusat, tolak, tautan, jarak);
+  pengaturan per browser `graph-settings.ts` (+ test, localStorage `lifeos.knowledgeGraph`); objek node dipakai ulang per id agar
+  posisi tidak melompat saat difilter; catatan cermin `isMirrorNote` = baca saja + tombol Buka di LifeOS), **Tabel** (properti per
+  kolom, ubah status/jenis/publik di sel), **Inbox** (kurasi: status + publik + pindah folder), **Kesehatan**; pembuka cepat
+  Ctrl+O (`CommandDialog` + `<Command>`); dialog bersama `workspace-dialogs.tsx` + store `workspace-store.ts`. Dialog sitasi
+  `KnowledgeNoteHost` punya "Buka di menu Pengetahuan" (`links.knowledgeNote(id, heading?)`). **Tools → Basis Pengetahuan**
+  (`features/tools/knowledge/knowledge-settings.tsx`, hook `data/use-knowledge.ts`) = **pengaturan saja** (keputusan user
+  2026-11-06: daftar catatan & daftar masalah pindah ke menu Pengetahuan): profil kerja, vault (pakai folder / buat dari templat /
+  pindai / lepas + pintasan Buka Pengetahuan / Kesehatan), kartu **Cermin hasil kerja ke Obsidian** (sakelar, jenis data,
+  Sinkronkan sekarang, Hapus berkas cermin; `useKnowledgeExport`), cara memakai + peringatan kuota gratis Gemini (juga di Tools →
+  Indeks Pengetahuan). **Tools → Indeks Pengetahuan**
   (tab `index`, `features/tools/knowledge-index/knowledge-index-settings.tsx`; keputusan user 2026-10-31, dulu kartu di
   Pengaturan → AI): sakelar indeks, statistik, Indeks ulang, uji pencarian. **Pengaturan → Model AI** (tab URL tetap
   `api`; dulu "AI"): provider, API key, model, cadangan otomatis, kartu **Pembagian tugas AI** (`ai-routing-card.tsx`);
@@ -857,7 +897,7 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
     Rutinitas: judul + pola frekuensi. Referensi: nama tipe + label ikon. Mengetik → halaman paginasi kembali ke 1.
   - Form agenda: mengubah Tanggal Mulai menggeser Tanggal Selesai (durasi tetap); konten form di-`key` per sesi buka &
     per agenda (`useOpenSession`).
-- **Layout & Pengaturan** (keputusan user 2026-10-15): sidebar = modul Workspace (… Productivity, **Approval**, File Control) + grup **AI Agent** khusus modul agen (Laporan Kinerja, SRIKANDI — `sidebarGroup: "agent"`; keputusan user 2026-10-25, Approval kembali ke Workspace 2026-10-31) + grup Sistem berisi **Tools** dan **Pengaturan**
+- **Layout & Pengaturan** (keputusan user 2026-10-15): sidebar = modul Workspace (… Notes Space, **Pengetahuan**, Productivity, **Approval**, File Control) + grup **AI Agent** khusus modul agen (Laporan Kinerja, SRIKANDI — `sidebarGroup: "agent"`; keputusan user 2026-10-25, Approval kembali ke Workspace 2026-10-31) + grup Sistem berisi **Tools** dan **Pengaturan**
   (`ModuleDef.sidebarGroup: "system"`, keduanya menu ber-sub-menu `SubmenuModuleItem`); Pengaturan
   (sub menu berurutan **Aplikasi, Manajemen User, Berbagi, Model AI, Integrasi** — urutan tab di `navigation.ts` sama dengan sub menu).
   **Profil Saya bukan bagian Pengaturan**: halaman sendiri `/profile` (`features/profile/`, modul `profile` dengan
@@ -1117,7 +1157,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
   sungguhan belum terlihat** karena Gemini 503 high demand saat uji). **Kebijakan Otomatis tahap 1 ✅ 2026-11-06** (peta jalan
   no. 2: aturan + shadow/auto + verifikasi aset server dengan master tiruan + konsep SRIKANDI tertunda + run agen di DB; unit
   backend +9 & frontend +4, smoke +5, uji API 12/12; run Hermes gagal karena key Gemini 401 → jalur lolos & kirim SRIKANDI belum
-  diuji; **toolset Hermes belum dibatasi**). **Claude untuk Hermes lewat API native ✅ 2026-11-05** (unit +14, uji server tiruan; belum ke Claude sungguhan). **Audit & uji menyeluruh fitur AI Agent ✅ 2026-11-01**
+  diuji; **toolset Hermes belum dibatasi**). **Claude untuk Hermes lewat API native ✅ 2026-11-05** (unit +14, uji server tiruan; belum ke Claude sungguhan). **Provider lewat router + cadangan per tugas (peta jalan no. 5) ✅ 2026-11-06** (proxy agen berpindah ke cadangan; diuji router tiruan; belum ke router sungguhan). **Menu Pengetahuan (no. 4) ✅ 2026-11-06** (antarmuka Obsidian: penjelajah, pembaca, editor, properti, graf, tabel, Inbox, kesehatan; unit backend +26 & frontend +9, uji API 29/31 (2 = waktu pindai awal), smoke +11, UI desktop & HP). **Cermin hasil kerja → Obsidian (80-LifeOS) + graf ala Obsidian + Tools → Basis Pengetahuan jadi pengaturan saja ✅ 2026-11-06** (unit backend +4 & frontend +3, smoke +7, vault dev 47 berkas dicerminkan dengan 0 potongan indeks, UI diuji; cermin di akun admin dev **menyala**). **Audit & uji menyeluruh fitur AI Agent ✅ 2026-11-01**
   (Asisten Agen, Laporan Kinerja + brankas, SRIKANDI, robot: 6 perbaikan, unit +2, uji API brankas 5/5, UI desktop & HP;
   sistem e-Kinerja/SRIKANDI sungguhan tidak disentuh). **Rancangan persetujuan otomatis ("Kebijakan Otomatis") ditulis
   2026-11-01** (`docs/AI-AGENT.md` §24; menunggu keputusan AG-26…29, belum ada kode). **Brankas digital bukti renaksi ✅ 2026-10-31** (satu tautan per poin, beberapa berkas, pemberitahuan PDP, log akses IP + lokasi; unit backend +3, frontend +2, smoke +11, UI diuji: halaman publik, dialog brankas, ubah berkas, hapus entri → tautan mati). **Register Naskah Keluar SRIKANDI — bagian LifeOS ✅ 2026-10-31** (riset formulir resmi, tab Register, tautan final; unit +9, smoke +2, UI diuji desktop & HP; **robot pendaftaran ✅** — diuji ke SRIKANDI sungguhan: simpan konsep, anti-ganda, konsep uji dihapus; unit robot +4, backend +3, smoke +1). Berikutnya skill `penetapan-psp` (menunggu contoh dokumen user, C5) / 5b OnTrack / Register: Naskah Banyak & E-Form / pesan templat WA |
@@ -1827,6 +1867,26 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   melihat isi permintaan → peringatan di UI; key router disimpan terenkripsi seperti key resmi. Diuji dengan router tiruan
   (15/15: simpan, uji koneksi, model salah, Claude + ulang tanpa beta, generate, embedding & pencarian), unit +13, smoke +5;
   **belum diuji ke router sungguhan** (key dipegang user) dan proxy agen lewat router belum diuji ujung-ke-ujung.
+- 2026-11-06 — **Peta jalan no. 4: menu Pengetahuan** (disetujui user, "full feature" + riset dulu; rencana §25.2). Berkas vault tetap
+  sumber kebenaran: LifeOS menulis berkas (atomik, cek hash → 409 alih-alih menimpa perubahan Obsidian/Syncthing), lalu pemantau
+  yang sama membaca ulang sehingga indeks RAG & graf ikut. Hapus = `.trash` vault. Editor CodeMirror (bukan Tiptap) agar sintaks
+  Obsidian tidak berubah saat disimpan; parser `@lezer/markdown` langsung karena `@codemirror/lang-markdown` menarik HTML/CSS/JS
+  (chunk 563 kB). Graf `react-force-graph-2d` (MIT, kanvas) atas sigma.js. Gambar sematan dibaca dari disk (tanpa OCR/biaya AI).
+  Agen tetap hanya menulis `00-Inbox`. Belum: frontmatter di editor tampil sebagai judul (setext) — kosmetik.
+- 2026-11-06 — **Cermin hasil kerja LifeOS → Obsidian, graf ala Obsidian, tumpang tindih Tools** (disetujui user). Cermin = satu
+  arah ke `80-LifeOS/` (sinkron dua arah rawan bentrok & merusak data); berkas cermin ditimpa setiap sinkron dan baca saja di
+  LifeOS, catatan user sendiri menautkannya. Tidak diindeks ulang sebagai pengetahuan (data sudah diindeks sebagai data kerja →
+  jawaban AI tidak ganda). Hanya data milik sendiri; lampiran = nama + tautan (berkas tidak disalin); berkas lampiran yang juga
+  Resource Global ditautkan ke berkas Resource-nya. Pemicu = sidik jari tabel tiap menit (tanpa kait di RecordsService/Notebooks).
+  Graf: panel Filter/Grup/Tampilan/Gaya + Animasi seperti Obsidian, pengaturan tampilan per browser. Tools → Basis Pengetahuan =
+  pengaturan (vault, profil, cermin, cara memakai); bekerja dengan isi vault = menu Pengetahuan. Hermes: user mengatur tugas Agen =
+  Claude (lewat router) dengan cadangan OpenAI.
+- 2026-11-06 — **Peta jalan no. 5: cadangan per tugas AI** (keputusan user: "pilih cadangan per tugas", rencana Agen = Claude →
+  cadangan OpenAI, chat/RAG/umum = Gemini). Disimpan di `ai_routing` yang ada (tanpa migrasi); sakelar cadangan otomatis tetap
+  sakelar utama. Proxy agen kini punya cadangan: hanya sebelum respons dimulai (aliran yang sudah berjalan tidak bisa dipindah)
+  dan hanya untuk kuota/saldo/sibuk/tak terjangkau — key ditolak tetap terlihat. Diuji router tiruan 6/6 (non-stream, stream,
+  401 tidak dialihkan, sakelar mati), unit +6, smoke +3. **No. 4 menu Pengetahuan**: riset & rencana ditulis
+  (`docs/AI-AGENT.md` §25.2), menunggu persetujuan user sebelum dibangun.
 - 2026-11-06 — **Kebijakan Otomatis tahap 1** (peta jalan no. 2; keputusan user: skill buatan Hermes = draf yang diaktifkan user,
   shadow dulu lalu auto dinaikkan user, alat bawaan Hermes dibiarkan menyala **dengan pengingat sebelum auto dipakai**, data master
   tiruan; AG-26…29 sesuai rekomendasi). Desain: yang memutuskan = server menurut aturan; agen hanya menyerahkan data aset terstruktur
@@ -1925,6 +1985,11 @@ di `backend/src/ai/ai-providers.ts` (`defaultModel`, `suggestedModels`) saat gen
 nilai enum `AiProvider` di `schema.prisma` + migrasi, entri katalog `AI_PROVIDERS`, klien `providers/<nama>.client.ts`
 (SDK resmi, petakan error ke `AiProviderError`), daftarkan di `CLIENTS` (`ai.service.ts`), tipe `AiProviderId` di
 frontend `types/api.ts`; tambah kasus di `ai.spec.ts` & smoke test.
+
+**Menambah data ke cermin 80-LifeOS** (ekspor ke Obsidian): record type → `SOURCES` (`knowledge-export.service.ts`, juga ikut
+sidik jari), penulis berkas + alokasi path di `buildExport` (`vault-export.ts`, tautan lewat `ref()`/`wikilink` agar tidak
+ambigu), jenis baru → `EXPORT_KINDS` (backend), `KnowledgeExportKind` + `EXPORT_KIND_INFO` (frontend). Tambah kasus di
+`vault-export.spec.ts` (tes "semua tautan terselesaikan").
 
 **Menambah tipe data ke indeks RAG**: tambah record type + labelnya di `INDEXED_TYPES`
 (`backend/src/ai/index/index-text.ts`) dan label sumber di `frontend/src/features/tools/knowledge-index/knowledge-index-settings.tsx`; field
@@ -2164,6 +2229,12 @@ utama tetap < 500 kB (cek output `npm run build`).
 - `sed -i 's|…|…\\n…|'` di Git Bash mengubah `\n` pada teks pengganti menjadi **baris baru sungguhan** (string JS di test
   jadi rusak: "Tests no tests") → untuk teks berisi `\n` pakai tool Edit. `npx prettier --write docker-compose.prod.yml`
   ikut memecah baris `command` Redis (isi sama, diff tidak perlu) → jangan memformat compose dengan Prettier.
+- shadcn `CommandDialog` (versi proyek) **tidak** membungkus isi dengan `<Command>` → `CommandItem` di dalamnya crash "Cannot
+  read properties of undefined (reading 'subscribe')". Selalu `<CommandDialog><Command>…</Command></CommandDialog>`.
+- Id judul yang dihitung dengan penghitung bersama selama render (`uniqueId` di komponen anak react-markdown) bergeser di
+  StrictMode dev (render ganda → `judul-1`). Ambil id dari data turunan (nomor baris `outline()` lewat `node.position`).
+- `@codemirror/lang-markdown` mengimpor `lang-html` (+ CSS/JS) di tingkat modul → chunk editor > 500 kB. Pakai
+  `new Language(defineLanguageFacet(), parser.configure(GFM))` dari `@lezer/markdown` (`note-editor.tsx`).
 - Uji UI: `PopoverContent` Radix juga ber-`role="dialog"` → `[role=dialog][data-state=open]` bisa menangkap popover;
   bedakan lewat isi/tombolnya.
 - Bash tool: heredoc panjang berisi tanda kutip tunggal (mis. "Anda's", `'EOF'` + teks ber-apostrof) bisa gagal

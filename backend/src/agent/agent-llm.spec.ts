@@ -3,6 +3,7 @@ import { API_SCOPES } from "../integrations/api-token-logic";
 import {
   AGENT_MODEL_ID,
   DEFAULT_AGENT_SCOPES,
+  isFallbackStatus,
   modelsResponse,
   prepareChatBody,
   upstreamErrorSummary,
@@ -45,5 +46,14 @@ describe("proxy model agen", () => {
   it("izin bawaan agen = semua cakupan, termasuk ai:model", () => {
     expect(DEFAULT_AGENT_SCOPES).toEqual([...API_SCOPES]);
     expect(DEFAULT_AGENT_SCOPES).toContain("ai:model");
+  });
+});
+
+describe("cadangan model agen", () => {
+  it("kuota, saldo, waktu habis, dan provider bermasalah boleh dialihkan", () => {
+    for (const status of [429, 402, 408, 500, 502, 503, 504, 529]) expect(isFallbackStatus(status)).toBe(true);
+  });
+  it("key ditolak, model tidak ada, dan permintaan salah tidak dialihkan", () => {
+    for (const status of [400, 401, 403, 404, 422]) expect(isFallbackStatus(status)).toBe(false);
   });
 });

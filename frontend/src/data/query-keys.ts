@@ -40,6 +40,7 @@ export const queryKeys = {
   publicLinks: (uploadId: string) => ["public-links", uploadId] as const,
   knowledgeStatus: ["knowledge", "status"] as const,
   knowledgeFolders: ["knowledge", "folders"] as const,
+  knowledgeExport: ["knowledge", "export"] as const,
   knowledgeNotes: ["knowledge", "notes"] as const,
   knowledgeNote: (id: string) => ["knowledge", "note", id] as const,
   userStats: ["users", "stats"] as const,

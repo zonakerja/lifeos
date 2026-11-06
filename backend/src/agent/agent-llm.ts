@@ -83,3 +83,10 @@ export function upstreamErrorSummary(status: number, text: string) {
   }
   return `${status}: ${message.replace(/\s+/g, " ").trim().slice(0, 300) || "tanpa keterangan"}`;
 }
+
+/**
+ * Status error model agen yang boleh dialihkan ke provider cadangan: kuota/limit (429), saldo habis (402), waktu habis
+ * (408), dan provider bermasalah / sibuk (5xx, 529). Key ditolak (401/403), model tidak ada (404), dan permintaan tidak
+ * valid (400/422) tidak dialihkan — itu konfigurasi yang harus diperbaiki user.
+ */
+export const isFallbackStatus = (status: number) => status === 429 || status === 402 || status === 408 || status >= 500;

@@ -1,5 +1,18 @@
+import { Type } from "class-transformer";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsOptional, IsString, MaxLength, MinLength, ValidateIf } from "class-validator";
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsObject,
+  IsOptional,
+  IsString,
+  Length,
+  MaxLength,
+  MinLength,
+  ValidateIf,
+  ValidateNested,
+} from "class-validator";
 
 export class SetVaultDto {
   @ApiProperty({ nullable: true, description: "Nama subfolder vault di folder vault server; null = lepas vault" })
@@ -44,4 +57,135 @@ export class InboxNoteDto {
   @IsString()
   @MaxLength(8_000)
   question?: string;
+}
+
+export class KnowledgeSearchQueryDto {
+  @ApiProperty({ description: "Kata/frasa + operator path:, tag:, status:, jenis:, file:" })
+  @IsString()
+  @MaxLength(300)
+  q: string;
+
+  @ApiPropertyOptional({ enum: ["text", "semantic"] })
+  @IsOptional()
+  @IsIn(["text", "semantic"])
+  mode?: "text" | "semantic";
+}
+
+export class SaveNoteDto {
+  @ApiProperty({ description: "Isi lengkap berkas (termasuk properti)" })
+  @IsString()
+  @MaxLength(2_000_000)
+  content: string;
+
+  @ApiProperty({ description: "Hash isi saat dibuka (penolak tulisan bentrok)" })
+  @IsString()
+  @Length(64, 64)
+  baseHash: string;
+}
+
+export class NotePropertiesDto {
+  @ApiPropertyOptional({ description: "Properti yang ditambah/diganti; nilai kosong = dihapus" })
+  @IsOptional()
+  @IsObject()
+  set?: Record<string, unknown>;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  remove?: string[];
+
+  @ApiProperty()
+  @IsString()
+  @Length(64, 64)
+  baseHash: string;
+}
+
+export class CreateNoteDto {
+  @ApiPropertyOptional({ description: "Folder tujuan (kosong = akar vault)" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(400)
+  folder?: string;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(1, { message: "Judul wajib diisi." })
+  @MaxLength(120)
+  title: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2_000_000)
+  content?: string;
+
+  @ApiPropertyOptional({ description: "Id catatan templat (folder 90-Templat)" })
+  @IsOptional()
+  @IsString()
+  templateId?: string;
+}
+
+export class MoveNoteDto {
+  @ApiProperty({ description: "Path baru di dalam vault" })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(400)
+  path: string;
+
+  @ApiPropertyOptional({ description: "Perbarui [[tautan]] di catatan lain (bawaan ya)" })
+  @IsOptional()
+  @IsBoolean()
+  updateLinks?: boolean;
+}
+
+export class FolderDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(400)
+  path: string;
+}
+
+export class MoveFolderDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(400)
+  from: string;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(400)
+  to: string;
+}
+
+export class LinkMentionDto {
+  @ApiProperty({ description: "Catatan yang menyebut judul (akan diberi [[tautan]])" })
+  @IsString()
+  sourceId: string;
+}
+
+/** Jenis data cermin 80-LifeOS (sama dengan `EXPORT_KINDS`). */
+export class ExportKindsDto {
+  @IsOptional() @IsBoolean() notes?: boolean;
+  @IsOptional() @IsBoolean() lists?: boolean;
+  @IsOptional() @IsBoolean() aiNotes?: boolean;
+  @IsOptional() @IsBoolean() notebooks?: boolean;
+  @IsOptional() @IsBoolean() productivity?: boolean;
+}
+
+export class ExportSettingsDto {
+  @ApiPropertyOptional({ description: "Nyalakan cermin hasil kerja LifeOS ke folder 80-LifeOS di vault" })
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @ApiPropertyOptional({ type: ExportKindsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ExportKindsDto)
+  kinds?: ExportKindsDto;
 }

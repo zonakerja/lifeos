@@ -28,8 +28,10 @@ import {
   embeddingProvider,
   isFallbackError,
   ocrCandidates,
+  backupKey,
   parseRouting,
   providerCandidates,
+  taskBackup,
   taskProvider,
 } from "./ai-routing";
 import { EMBEDDING_MODELS } from "./index/embedding";
@@ -122,6 +124,23 @@ export class AiService {
         agent: taskProvider(routing, "agent", user.aiProvider, configured),
         ocr: ocrCandidates(routing, configured, "pdf", supportsOf(credentials))[0] ?? null,
         embedding: embeddingProvider(routing, configured),
+        chatBackup: taskBackup(routing, "chat", user.aiProvider, configured, user.aiFallback, supportsOf(credentials)),
+        generalBackup: taskBackup(
+          routing,
+          "general",
+          user.aiProvider,
+          configured,
+          user.aiFallback,
+          supportsOf(credentials),
+        ),
+        agentBackup: taskBackup(
+          routing,
+          "agent",
+          user.aiProvider,
+          configured,
+          user.aiFallback,
+          supportsOf(credentials),
+        ),
       },
       providers: AI_PROVIDER_IDS.map((id) => {
         const info = AI_PROVIDERS[id];
@@ -297,14 +316,39 @@ export class AiService {
 
   /** Provider, key & model untuk agen Hermes (Pembagian tugas → Agen; kosong = provider aktif). Null = belum ada key. */
   async agentCredential(userId: string) {
+    return (await this.agentCredentials(userId))[0] ?? null;
+  }
+
+  /**
+   * Urutan model agen: provider tugas Agen, lalu (cadangan otomatis menyala) cadangan pilihan user, lalu provider lain yang
+   * punya key. Proxy agen mencoba berikutnya bila kuota habis / provider sibuk / tak terjangkau.
+   */
+  async agentCredentials(userId: string) {
     const [user, credentials] = await Promise.all([
-      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { aiProvider: true, aiRouting: true } }),
-      this.prisma.aiCredential.findMany({ where: { userId }, select: { provider: true } }),
+      this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { aiProvider: true, aiRouting: true, aiFallback: true },
+      }),
+      this.prisma.aiCredential.findMany({ where: { userId } }),
     ]);
+    const routing = parseRouting(user.aiRouting);
     const configured = credentials.map((c) => c.provider);
-    const provider = taskProvider(parseRouting(user.aiRouting), "agent", user.aiProvider, configured);
-    const credential = provider ? await this.getCredentialKey(userId, provider) : null;
-    return provider && credential ? { provider, ...credential } : null;
+    const primary = taskProvider(routing, "agent", user.aiProvider, configured);
+    if (!primary || !configured.includes(primary)) return [];
+    const order = providerCandidates(
+      primary,
+      configured,
+      [],
+      user.aiFallback,
+      supportsOf(credentials),
+      routing.agentBackup ?? null,
+    );
+    const result: ({ provider: AiProvider } & NonNullable<Awaited<ReturnType<AiService["getCredentialKey"]>>>)[] = [];
+    for (const provider of order) {
+      const credential = await this.getCredentialKey(userId, provider);
+      if (credential) result.push({ provider, ...credential });
+    }
+    return result;
   }
 
   /** Key & model embedding indeks (Gemini atau OpenAI sesuai pembagian tugas); null = pencarian kata saja. */
@@ -393,6 +437,7 @@ export class AiService {
       kinds,
       user.aiFallback,
       supports,
+      parseRouting(user.aiRouting)[backupKey(task)] ?? null,
     );
     if (candidates.length === 0) throw this.unsupportedAttachments(credentials, active, kinds, user.aiFallback);
 

@@ -25,6 +25,11 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
 - [ ] **A5** Atur profil layanan bot, grup & kontak WhatsApp, coba bot lewat Simulator
 - [ ] **A6** Coba satu alur Approval (pengajuan) sampai dokumen jadi
 - [ ] **A7** Siapkan agen Hermes di laptop (model AI + token LifeOS) lalu coba **Asisten Agen** & **Kerjakan dengan agen**
+- [ ] **A10** Coba menu **Pengetahuan** (sidebar Workspace): jelajahi vault, sunting catatan, lihat Graf, kurasi Inbox. Perubahan
+  langsung ditulis ke berkas vault dan tersinkron ke Obsidian; hapus = pindah ke folder `.trash` vault.
+- [ ] **A11** Lihat hasil kerja LifeOS di Obsidian: Tools → Basis Pengetahuan → kartu **Cermin hasil kerja ke Obsidian** (di akun
+  admin dev sudah menyala) → buka folder `80-LifeOS` di Obsidian & Graf. Jangan menyunting berkas di folder itu (ditimpa saat
+  sinkron) — tulis catatan sendiri di folder lain lalu tautkan `[[…]]`. Atur tampilan graf di tab Graf → Pengaturan graf.
 - [ ] **A9** (opsional, hemat biaya) Pakai **router AI** untuk Claude / OpenAI / Gemini: Pengaturan → Model AI → kartu provider →
   **Lewat router** → isi alamat API (mis. `https://router.classai.id/v1`), key router, dan **ID model sesuai dokumentasi router**
   (mis. `claude-opus-5.5`) → Simpan → **Uji koneksi**. Untuk Claude pilih format **Anthropic Messages**. Ingat: isi permintaan AI
@@ -525,3 +530,5 @@ Telegram Anda yang diizinkan. Minta Claude menyiapkan service otomatis (systemd)
 | 2026-11-01 | A8: Jaga sesi login + notifikasi sesi kedaluwarsa (lonceng, toast, browser) |
 | 2026-11-01 | C6: keputusan persetujuan otomatis (Kebijakan Otomatis, alur Generasi PSP) + templat Telaah Staf |
 | 2026-11-06 | A9 baru: provider AI lewat router (alamat API + key router + ID model router) |
+| 2026-11-06 | A10 baru: coba menu Pengetahuan (antarmuka Obsidian di LifeOS) |
+| 2026-11-06 | A11 baru: cermin hasil kerja LifeOS ke Obsidian (`80-LifeOS`) |

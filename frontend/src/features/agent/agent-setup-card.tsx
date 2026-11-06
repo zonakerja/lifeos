@@ -142,6 +142,12 @@ export function AgentSetupCard({ status }: { status: AgentStatus }) {
           Panggilan model terakhir {formatDateTime(setup.lastModelCall.at)} (
           {providerLabel(setup.lastModelCall.provider)}
           ): {setup.lastModelCall.ok ? "berhasil" : setup.lastModelCall.error}
+          {setup.lastModelCall.fallbackFrom && (
+            <span className="mt-1 block">
+              Memakai cadangan karena {providerLabel(setup.lastModelCall.fallbackFrom.provider)} gagal:{" "}
+              {setup.lastModelCall.fallbackFrom.error}
+            </span>
+          )}
           {setup.lastModelCall.usage && (
             <span className="mt-1 block">
               Token: masuk {setup.lastModelCall.usage.input.toLocaleString("id-ID")} · dari cache{" "}

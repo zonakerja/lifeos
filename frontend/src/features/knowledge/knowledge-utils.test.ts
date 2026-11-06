@@ -73,6 +73,8 @@ describe("tampilan & saringan", () => {
       path: "20-Topik/Sewa.md",
       kind: "note",
       title: "Sewa BMN",
+      tags: [],
+      properties: null,
       assetId: null,
       updatedAt: "",
       jenis: "topik",

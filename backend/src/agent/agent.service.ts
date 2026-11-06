@@ -21,7 +21,7 @@ import { AiService } from "../ai/ai.service";
 import type { AuthUser } from "../common/types/auth-user";
 import { type ApiScope, hashToken, looksLikeToken, normalizeScopes } from "../integrations/api-token-logic";
 import type { TokenPrincipal } from "../integrations/api-tokens.service";
-import type { AgentRun } from "../generated/prisma/client";
+import type { AgentRun, AiProvider } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { RequestsService } from "../requests/requests.service";
 import {
@@ -39,6 +39,7 @@ import {
   DEFAULT_AGENT_SCOPES,
   modelsResponse,
   OPENAI_COMPAT_BASE,
+  isFallbackStatus,
   prepareChatBody,
   upstreamErrorSummary,
 } from "./agent-llm";
@@ -75,6 +76,8 @@ export interface ModelCall {
   error?: string;
   /** Pemakaian token (saat ini hanya Claude): dasar memeriksa prompt caching & biaya */
   usage?: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  /** Provider tugas Agen yang gagal sebelum cadangan ini dipakai */
+  fallbackFrom?: { provider: string; error: string };
 }
 
 /** Error berformat OpenAI untuk Hermes (klien OpenAI membaca `error.message`). */
@@ -353,22 +356,47 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
     if (!principal.scopes.includes("ai:model")) {
       return llmError(res, 403, "Token agen tidak punya izin Model AI (ai:model). Siapkan ulang agen di LifeOS.");
     }
-    const credential = await this.ai.agentCredential(principal.user.id);
-    if (!credential) {
+    const candidates = await this.ai.agentCredentials(principal.user.id);
+    if (!candidates.length) {
       return llmError(res, 400, "Model AI agen belum diatur: simpan API key di LifeOS → Pengaturan → Model AI.");
     }
-    const endpoint = credential.endpoint;
-    // Messages API: Claude langsung, atau Claude lewat router berformat Anthropic
-    if (endpoint ? endpoint.format === "anthropic" : credential.provider === "anthropic") {
-      return this.proxyClaude(principal.user.id, { ...credential, endpoint }, body, res);
+    // Provider tugas Agen dulu; gagal karena kuota / sibuk / tak terjangkau sebelum menjawab → cadangan berikutnya
+    let fallbackFrom: { provider: string; error: string } | null = null;
+    for (const [index, credential] of candidates.entries()) {
+      const canFallback = index < candidates.length - 1;
+      const endpoint = credential.endpoint;
+      // Messages API: Claude langsung, atau Claude lewat router berformat Anthropic
+      const outcome: string | null = (endpoint ? endpoint.format === "anthropic" : credential.provider === "anthropic")
+        ? await this.proxyClaude(principal.user.id, { ...credential, endpoint }, body, res, canFallback, fallbackFrom)
+        : await this.proxyOpenAiCompatible(credential, body, res, canFallback, fallbackFrom);
+      if (!outcome) return;
+      this.logger.warn(`Model agen ${credential.provider} gagal (${outcome}), dialihkan ke cadangan.`);
+      fallbackFrom ??= { provider: credential.provider, error: outcome };
     }
+  }
+
+  /**
+   * Endpoint OpenAI-compatible (Gemini/OpenAI resmi atau router). Mengembalikan ringkasan error bila gagal sebelum menjawab
+   * dengan error yang boleh dialihkan dan masih ada cadangan (`canFallback`); selain itu menulis respons & mengembalikan null.
+   */
+  private async proxyOpenAiCompatible(
+    credential: { provider: AiProvider; apiKey: string; model: string; endpoint: AiEndpoint | null },
+    body: unknown,
+    res: ExpressResponse,
+    canFallback: boolean,
+    fallbackFrom: { provider: string; error: string } | null,
+  ): Promise<string | null> {
+    const endpoint = credential.endpoint;
     // Lewat router: kunci khusus OpenAI dibuang (router pihak ketiga belum tentu mengenalnya)
     const payload = prepareChatBody(
       body,
       endpoint ? "router" : (credential.provider as "gemini" | "openai"),
       credential.model,
     );
-    if (!payload) return llmError(res, 400, "Permintaan chat tidak valid (messages kosong).");
+    if (!payload) {
+      llmError(res, 400, "Permintaan chat tidak valid (messages kosong).");
+      return null;
+    }
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
@@ -378,6 +406,7 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
       ok: true,
       provider: credential.provider,
       model: credential.model,
+      ...(fallbackFrom ? { fallbackFrom } : {}),
     };
     try {
       const base = endpoint?.baseUrl ?? OPENAI_COMPAT_BASE[credential.provider as "gemini" | "openai"];
@@ -391,7 +420,9 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
         const summary = upstreamErrorSummary(upstream.status, await upstream.text().catch(() => ""));
         this.lastModelCall = { ...call, ok: false, error: summary };
         this.logger.warn(`Model agen ${credential.provider}/${credential.model} ditolak ${summary}`);
-        return llmError(res, upstream.status || 502, `${credential.provider}: ${summary}`);
+        if (canFallback && isFallbackStatus(upstream.status)) return summary;
+        llmError(res, upstream.status || 502, `${credential.provider}: ${summary}`);
+        return null;
       }
       this.lastModelCall = call;
       res.status(upstream.status);
@@ -410,11 +441,17 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
       const aborted = controller.signal.aborted;
       const message = aborted ? "waktu habis / dibatalkan" : error instanceof Error ? error.message : String(error);
       this.lastModelCall = { ...call, ok: false, error: message };
-      if (!res.headersSent) return llmError(res, aborted ? 504 : 502, `Provider tidak dapat dihubungi: ${message}`);
+      if (!res.headersSent) {
+        // Dibatalkan Hermes (koneksi ditutup) = jangan coba cadangan; waktu habis / jaringan = boleh
+        if (canFallback && !res.destroyed && !res.writableEnded) return `tidak dapat dihubungi: ${message}`;
+        llmError(res, aborted ? 504 : 502, `Provider tidak dapat dihubungi: ${message}`);
+        return null;
+      }
       res.end();
     } finally {
       clearTimeout(timer);
     }
+    return null;
   }
 
   /** Proxy untuk Claude: Messages API native (prompt caching, blok pemikiran) dengan keluaran format OpenAI. */
@@ -423,10 +460,15 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
     credential: { apiKey: string; model: string; endpoint: AiEndpoint | null },
     body: unknown,
     res: ExpressResponse,
-  ) {
+    canFallback = false,
+    fallbackFrom: { provider: string; error: string } | null = null,
+  ): Promise<string | null> {
     const { apiKey, model, endpoint } = credential;
     const request = claudeRequest(body, model, (toolIds) => this.claudeTurns.recall(userId, toolIds));
-    if (!request) return llmError(res, 400, "Permintaan chat tidak valid (messages kosong).");
+    if (!request) {
+      llmError(res, 400, "Permintaan chat tidak valid (messages kosong).");
+      return null;
+    }
 
     const streaming = (body as { stream?: unknown }).stream === true;
     const client = new Anthropic({
@@ -437,7 +479,13 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
     });
     const controller = new AbortController();
     res.on("close", () => controller.abort());
-    const call: ModelCall = { at: new Date().toISOString(), ok: true, provider: "anthropic", model };
+    const call: ModelCall = {
+      at: new Date().toISOString(),
+      ok: true,
+      provider: "anthropic",
+      model,
+      ...(fallbackFrom ? { fallbackFrom } : {}),
+    };
     const created = Math.floor(Date.now() / 1000);
     const id = `chatcmpl-${randomUUID()}`;
     const chunks = chunkFactory(id, model, created);
@@ -482,11 +530,12 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
       };
       if (!streaming) {
         res.json(chatCompletion(message, created));
-        return;
+        return null;
       }
       chunks.finish(message).forEach(send);
       res.write("data: [DONE]\n\n");
       res.end();
+      return null;
     } catch (error) {
       const aborted = controller.signal.aborted;
       const status = error instanceof Anthropic.APIError && error.status ? error.status : aborted ? 504 : 502;
@@ -495,13 +544,17 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
       const summary = upstreamErrorSummary(status, detail);
       this.lastModelCall = { ...call, ok: false, error: summary };
       this.logger.warn(`Model agen anthropic/${model} gagal ${summary}`);
-      if (res.writableEnded || res.destroyed) return;
+      if (res.writableEnded || res.destroyed) return null;
       if (!res.headersSent) {
         // Saldo kredit habis dikembalikan Anthropic sebagai 400 → 402 agar Hermes tidak mengira permintaannya salah
-        return llmError(res, /credit balance/i.test(raw) ? 402 : status, `anthropic: ${summary}`);
+        const finalStatus = /credit balance/i.test(raw) ? 402 : status;
+        if (canFallback && isFallbackStatus(finalStatus)) return summary;
+        llmError(res, finalStatus, `anthropic: ${summary}`);
+        return null;
       }
       send({ error: { message: `anthropic: ${summary}`, code: status } });
       res.end();
+      return null;
     }
   }
 

@@ -9,6 +9,7 @@ import {
   Bot,
   CalendarClock,
   BotMessageSquare,
+  BrainCircuit,
   CalendarDays,
   CalendarRange,
   CheckCheck,
@@ -19,10 +20,12 @@ import {
   FilePen,
   FilePlus2,
   FileSignature,
+  FileText,
   FileX,
   FolderTree,
   Grid2x2,
   HardDrive,
+  HeartPulse,
   Hourglass,
   Inbox,
   Layers,
@@ -40,9 +43,11 @@ import {
   Share2,
   Sparkles,
   StickyNote,
+  Table2,
   Tag,
   UserRound,
   Users,
+  Waypoints,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -52,6 +57,7 @@ export type ModuleKey =
   | "overview"
   | "planner"
   | "notes"
+  | "knowledge"
   | "productivity"
   | "files"
   | "requests"
@@ -118,6 +124,20 @@ export const MODULES: ModuleDef[] = [
       { id: "lists", label: "List Bebas", icon: ListChecks },
       { id: "ai", label: "Notes AI", icon: Sparkles },
       { id: "notebook", label: "My Notebook", icon: BookOpenText },
+    ],
+  },
+  {
+    key: "knowledge",
+    label: "Pengetahuan",
+    description: "Vault Obsidian Anda di LifeOS: jelajahi, sunting, graf tautan, tabel properti, dan kurasi Inbox.",
+    path: "/knowledge",
+    icon: BrainCircuit,
+    tabs: [
+      { id: "notes", label: "Catatan", icon: FileText },
+      { id: "graph", label: "Graf", icon: Waypoints },
+      { id: "table", label: "Tabel", icon: Table2 },
+      { id: "inbox", label: "Inbox", icon: Inbox },
+      { id: "health", label: "Kesehatan", icon: HeartPulse },
     ],
   },
   {

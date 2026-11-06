@@ -1,4 +1,5 @@
-import { ArrowLeft, ArrowRight, FileText, Link2, Paperclip, TriangleAlert } from "lucide-react";
+import { ArrowLeft, ArrowRight, BrainCircuit, FileText, Link2, Paperclip, TriangleAlert } from "lucide-react";
+import { useNavigate } from "react-router";
 import { create } from "zustand";
 import { previewFile } from "@/components/common/file-preview";
 import { Markdown } from "@/components/common/markdown";
@@ -8,12 +9,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Spinner } from "@/components/ui/spinner";
 import { useKnowledgeNote } from "@/data/use-knowledge";
 import { errorMessage } from "@/lib/api/client";
+import { links } from "@/lib/deep-links";
 import type { KnowledgeNoteRef } from "@/types/api";
 import { noteDisplayMarkdown, STATUS_LABEL, STATUS_TONE } from "./knowledge-utils";
 
 /**
  * Lihat catatan basis pengetahuan (vault Obsidian) dari mana saja: `openKnowledgeNote(id)` — dipakai sitasi chatbot &
- * daftar catatan Tools → Basis Pengetahuan. Catatan hanya dibaca di sini; menyunting tetap di Obsidian.
+ * daftar catatan Tools → Basis Pengetahuan. Catatan hanya dibaca di sini; menyunting di menu Pengetahuan / Obsidian.
  */
 const useKnowledgeNoteStore = create<{ id: string | null; set: (id: string | null) => void }>((set) => ({
   id: null,
@@ -71,6 +73,7 @@ function NoteLinks({
 
 function NoteBody({ id, onOpen }: { id: string; onOpen: (id: string) => void }) {
   const { data: note, isLoading, error } = useKnowledgeNote(id);
+  const navigate = useNavigate();
 
   if (isLoading) {
     return (
@@ -151,7 +154,21 @@ function NoteBody({ id, onOpen }: { id: string; onOpen: (id: string) => void }) 
           onOpen={onOpen}
         />
       </div>
-      <p className="text-[11px] text-muted-foreground">Sunting catatan ini di Obsidian — perubahan terbaca otomatis.</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="flex-1 text-[11px] text-muted-foreground">
+          Sunting di menu Pengetahuan atau di Obsidian — perubahan terbaca otomatis.
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            useKnowledgeNoteStore.getState().set(null);
+            void navigate(links.knowledgeNote(note.id));
+          }}
+        >
+          <BrainCircuit /> Buka di menu Pengetahuan
+        </Button>
+      </div>
     </>
   );
 }

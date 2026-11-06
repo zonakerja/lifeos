@@ -57,6 +57,8 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 | | Tailwind CSS / shadcn CLI (Radix, lucide) | 4.3 / 4.21 | Design system berbasis token |
 | | react-markdown / KaTeX | 10.1 / **0.18.9** | Render Markdown & matematika (dimuat malas) |
 | | Tiptap (`@tiptap/*` + `@tiptap/markdown`, MIT) / perfect-freehand | **3.31** / 1.2 | Editor teks kaya + tulisan tangan stylus di Catatan Bebas (dimuat malas); Markdown → dokumen editor (salin dari My Notebook) |
+| | CodeMirror (`@codemirror/*` view 6.43, state 6.7, `@lezer/markdown` 1.8, `@lezer/highlight` 1.2, MIT) | **6** | Editor sumber Markdown menu Pengetahuan (dimuat malas; tanpa `@codemirror/lang-markdown` agar chunk < 500 kB) |
+| | react-force-graph-2d (MIT, kanvas, d3-force) | **1.29** | Graf vault menu Pengetahuan (dimuat malas) |
 | | pdf.js (`pdfjs-dist`, Apache-2.0) | **6.4** | Penampil PDF modal halaman publik brankas digital (kanvas; HP & desktop), dimuat malas (chunk `pdf-pages` + worker `.mjs`) |
 | | oxlint / Vitest | 1.87 / 5.0 | Lint (0 warning) & unit test |
 | Data | PostgreSQL + pgvector | **18** (18.6) + 0.8.7 (`pgvector/pgvector:0.8.7-pg18`, Debian 12; volume `postgres18-data` di `/var/lib/postgresql`) | Data relasional + vector search (RAG) |
@@ -159,7 +161,10 @@ unduhan disensor; health check tidak dicatat.
   LifeOS & My Notebook), `general` (fitur lain, bawaan `generate`), `ocr` (urutan pilihan → Gemini → OpenAI → Claude,
   kuota/tak terjangkau → berikutnya), `embedding` (Gemini | OpenAI, `index/embedding.ts`, 768 dimensi; pencarian hanya
   membandingkan vektor model yang sama, ganti provider ⇒ indeks dibangun ulang). Kosong = provider aktif / urutan bawaan.
-  `generate(userId, prompt, files, task)`; `GET /ai/settings` mengembalikan `routing` + `effective`.
+  `generate(userId, prompt, files, task)`; `GET /ai/settings` mengembalikan `routing` + `effective`. **Cadangan per tugas**
+  (`chatBackup`, `generalBackup`, `agentBackup`): provider yang dicoba pertama bila provider tugas gagal (berlaku bila cadangan
+  otomatis menyala); `effective.<tugas>Backup` = cadangan yang benar-benar dipakai. Proxy agen Hermes mencoba kandidat
+  berikutnya (`agentCredentials`) bila gagal sebelum respons dimulai dengan 429/402/408/5xx.
 - **Cadangan otomatis** (`users.ai_fallback`, default menyala; logika murni di `ai-routing.ts`): urutan provider =
   provider aktif lalu provider lain yang punya key (urutan katalog); provider yang tidak mendukung semua jenis lampiran
   dilewati (mis. audio saat aktif Claude → Gemini). Kuota habis, provider tidak terjangkau, atau key tidak terbaca →
@@ -326,6 +331,12 @@ tetap Asset LifeOS di object storage.
 
 Rencana & keputusan: [AI-AGENT.md](AI-AGENT.md) §9–§17 (tahap 1 "fondasi pengetahuan" & tahap 2 "konektor Obsidian").
 
+**Cermin hasil kerja → vault** (`knowledge-export.service.ts`, logika murni `vault-export.ts`): satu arah ke folder
+`80-LifeOS/` (catatan, List, Notes AI, My Notebook, Productivity) bertanda `sumber: lifeos`; dipicu sidik jari tabel tiap menit /
+tombol; hanya berkas bertanda yang ditimpa/dihapus; folder ini tidak diindeks ulang (`noteDocument`) dan baca saja di menu
+Pengetahuan (`findEditable`). Pengaturan di `users.knowledge_prefs.export`. Endpoint `GET/PUT /knowledge/export`,
+`POST /knowledge/export/run`, `DELETE /knowledge/export/files`.
+
 **Koleksi & metadata indeks** (migrasi `20261024120000_knowledge_base`): `ai_chunks.collection` = `knowledge` (catatan
 vault Obsidian + berkas vault) atau `workspace` (data kerja: record, berkas biasa, sumber notebook), `ai_chunks.metadata`
 (jsonb: `path`, `jenis`, `status` berlaku/draf/dicabut/templat, `publik`, `topik`, `tags`, `diperbarui`). Koleksi &
@@ -351,6 +362,16 @@ data bukan perintah) → `AiService.generate` (provider & cadangan user) → sit
 `GET /ai/chat/conversations` (30 terbaru), `GET /ai/chat/conversations/:id/messages?take=`, `DELETE
 /ai/chat/conversations/:id`, `GET/PUT /ai/profile` (**profil kerja & instruksi tetap** `users.ai_profile`, maks. 6.000
 karakter; ikut di chat LifeOS & chat My Notebook). Logika murni + test: `ai-chat-context.ts`.
+
+**Menu Pengetahuan** (antarmuka Obsidian, [AI-AGENT.md](AI-AGENT.md) §25.2): endpoint `/knowledge/tree|graph|search|health|prefs|
+attachment`, `notes/:id/source`, `PUT notes/:id`, `PATCH notes/:id/properties`, `POST notes`, `notes/:id/move`, `DELETE notes/:id`,
+`notes/:id/unlinked|link-mention`, `folders`, `folders/move`, `DELETE folders`. Setiap tulisan membawa `baseHash` (SHA-256 isi
+berkas saat dibuka); berkas berubah di disk → 409 berisi `currentHash` (tidak pernah menimpa perubahan Obsidian/Syncthing). Tulis
+atomik (berkas `*.lifeos-tmp` → rename), lalu `scanNow` → id catatan dibaca ulang dari path (pindah = id baru). Properti diubah
+lewat dokumen YAML (`updateFrontmatter`, komentar & urutan tetap). Ganti nama memperbarui `[[tautan]]` di catatan perujuk
+(`renameWikilinks`). Hapus = pindah ke `.trash` (folder bertitik tidak dipindai). Gambar sematan dibaca langsung dari disk
+(`attachment`, ≤ 10 MB, `CSP: sandbox`, tanpa OCR). Preferensi `users.knowledge_prefs` (penanda path ikut pindah/hapus, grup warna
+graf). Logika murni + test: `vault-editor.ts`.
 
 **Vault Obsidian** (`KnowledgeVaultService`): env `KNOWLEDGE_VAULTS_DIR` (kosong = nonaktif); vault user =
 subfolder `users.knowledge_vault` (nama aman, langsung di bawah root, satu folder satu user). Pemantau `fs.watch`

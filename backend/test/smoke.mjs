@@ -212,6 +212,21 @@ try {
   ok("ai activate unconfigured 400", r.s === 400, r);
   r = await j("PATCH", "/ai/settings", { activeProvider: "anthropic" }, at);
   ok("ai switch provider", r.s === 200 && r.d.activeProvider === "anthropic", r);
+  // Cadangan per tugas: hanya provider yang punya key; efektif = cadangan yang benar-benar dipakai
+  r = await j("PATCH", "/ai/settings", { routing: { agentBackup: "openai" } }, at);
+  ok("ai task backup without key 400", r.s === 400, r);
+  r = await j("PATCH", "/ai/settings", { routing: { agent: "anthropic", agentBackup: "gemini" } }, at);
+  ok(
+    "ai task backup saved",
+    r.s === 200 &&
+      r.d.routing.agentBackup === "gemini" &&
+      r.d.effective.agent === "anthropic" &&
+      r.d.effective.agentBackup === "gemini" &&
+      r.d.effective.chatBackup === "gemini",
+    r,
+  );
+  r = await j("PATCH", "/ai/settings", { routing: { agent: null, agentBackup: null } }, at);
+  ok("ai task backup reset", r.s === 200 && r.d.routing.agentBackup === undefined, r);
   // Cadangan dimatikan: audio tidak dialihkan ke Gemini (yang akan memanggil Google dengan key palsu)
   r = await j("PATCH", "/ai/settings", { fallbackEnabled: false }, at);
   ok("ai fallback off", r.s === 200 && r.d.fallbackEnabled === false && r.d.activeProvider === "anthropic", r);
@@ -1412,6 +1427,68 @@ try {
     ok("knowledge note isolated 404", r.s === 404, r);
     r = await j("POST", "/knowledge/inbox", { title: "Usulan smoke", content: "Isi usulan", question: "Tanya?" }, at);
     ok("knowledge inbox note written", r.s === 201 && r.d.path.startsWith("00-Inbox/"), r);
+    // Menu Pengetahuan: pohon, buat, properti (cek hash), cari, graf, ganti nama + tautan, hapus ke .trash, isolasi
+    r = await j("GET", "/knowledge/tree", null, at);
+    ok("knowledge tree", r.s === 200 && r.d.folders.includes("00-Inbox") && r.d.notes.length >= 8, r.d?.folders);
+    const smokeTitle = `Smoke Catatan ${Date.now()}`;
+    r = await j("POST", "/knowledge/notes", { folder: "20-Topik", title: smokeTitle, content: "status: uji\n" }, at);
+    const smokeNote = r.d?.id;
+    ok("knowledge create note", r.s === 201 && !!smokeNote, r);
+    r = await j("POST", "/knowledge/notes", { title: "Rujukan smoke", content: `Lihat [[${smokeTitle}]].\n` }, at);
+    const smokeRef = r.d?.id;
+    r = await j("GET", `/knowledge/notes/${smokeNote}/source`, null, at);
+    const smokeHash = r.d?.hash;
+    ok("knowledge note source", r.s === 200 && smokeHash?.length === 64, r);
+    r = await j(
+      "PATCH",
+      `/knowledge/notes/${smokeNote}/properties`,
+      { set: { status: "berlaku" }, baseHash: smokeHash },
+      at,
+    );
+    ok("knowledge set properties", r.s === 200 && r.d.raw.startsWith("---\nstatus: berlaku"), r);
+    r = await j("PUT", `/knowledge/notes/${smokeNote}`, { content: "menimpa", baseHash: smokeHash }, at);
+    ok("knowledge stale hash 409", r.s === 409, r);
+    r = await j("GET", `/knowledge/search?q=${encodeURIComponent(`status:berlaku "${smokeTitle}"`)}`, null, at);
+    ok("knowledge search operators", r.s === 200 && r.d[0]?.id === smokeNote, r.d);
+    r = await j("GET", "/knowledge/graph", null, at);
+    ok(
+      "knowledge graph edge",
+      r.s === 200 && r.d.edges.some((e) => e.source === smokeRef && e.target === smokeNote),
+      r.d?.edges?.length,
+    );
+    r = await j("DELETE", `/knowledge/notes/${smokeNote}`, null, pt);
+    ok("knowledge delete other user 404", r.s === 404 || r.s === 400, r);
+    r = await j("POST", `/knowledge/notes/${smokeNote}/move`, { path: `20-Topik/${smokeTitle} baru` }, at);
+    ok("knowledge rename updates links", r.s === 200 && r.d.updatedLinks === 1, r);
+    const smokeRenamed = r.d?.id;
+    r = await j("GET", `/knowledge/notes/${smokeRef}/source`, null, at);
+    ok("knowledge link renamed", r.d?.raw?.includes(`[[${smokeTitle} baru]]`), r.d);
+    for (const id of [smokeRenamed, smokeRef]) r = await j("DELETE", `/knowledge/notes/${id}`, null, at);
+    ok("knowledge delete to trash", r.s === 200 && r.d.trash.startsWith(".trash/"), r);
+    r = await j("GET", `/knowledge/attachment?path=${encodeURIComponent("Mulai di sini.md")}`, null, at);
+    ok("knowledge attachment only images 400", r.s === 400, r);
+    r = await j("GET", `/knowledge/attachment?path=${encodeURIComponent("tidak-ada.png")}`, null, at);
+    ok("knowledge attachment missing image 404", r.s === 404, r);
+    // Cermin hasil kerja LifeOS → 80-LifeOS (satu arah, baca saja di menu Pengetahuan)
+    r = await j("GET", "/knowledge/export", null, at);
+    ok("knowledge export default off", r.s === 200 && r.d.enabled === false && r.d.vaultReady === true, r);
+    const mirrorId = `smoke-mirror-${Date.now()}`;
+    await j("PUT", `/records/free_note/${mirrorId}`, { payload: { title: "Cermin smoke", content: "isi cermin" } }, at);
+    r = await j("PUT", "/knowledge/export", { enabled: true, kinds: { productivity: false } }, at);
+    ok("knowledge export enable", r.s === 200 && r.d.enabled && r.d.kinds.productivity === false, r);
+    r = await j("POST", "/knowledge/export/run", null, at);
+    ok("knowledge export run", r.s === 200 && r.d.files >= 2 && !r.d.lastError, r.d);
+    r = await j("GET", "/knowledge/tree", null, at);
+    const mirrorNote = r.d?.notes?.find?.((n) => n.path === "80-LifeOS/Catatan Bebas/Cermin smoke.md");
+    ok("knowledge export file in vault", !!mirrorNote && mirrorNote.properties?.sumber === "lifeos", r.d?.notes?.length);
+    r = await j("GET", `/knowledge/notes/${mirrorNote?.id}/source`, null, at);
+    r = await j("PUT", `/knowledge/notes/${mirrorNote?.id}`, { content: "ubah", baseHash: r.d?.hash }, at);
+    ok("knowledge mirror note read-only 400", r.s === 400, r);
+    r = await j("DELETE", "/knowledge/export/files", null, at);
+    ok("knowledge export clear", r.s === 200 && r.d.removed >= 2, r.d);
+    r = await j("PUT", "/knowledge/export", { enabled: false }, at);
+    await j("DELETE", `/records/free_note/${mirrorId}`, null, at);
+    ok("knowledge export disable", r.s === 200 && r.d.enabled === false, r);
     r = await j("PUT", "/knowledge/vault", { folder: null }, at);
     ok("knowledge release vault clears notes", r.s === 200 && r.d.folder === null && r.d.notes === 0, r);
   } else {

@@ -98,6 +98,8 @@ model User {
   aiProfile      String?     @map("ai_profile")
   // Nama folder vault Obsidian milik user di dalam KNOWLEDGE_VAULTS_DIR (basis pengetahuan)
   knowledgeVault String?     @map("knowledge_vault")
+  /// Preferensi menu Pengetahuan: penanda (path) & grup warna graf
+  knowledgePrefs Json?       @map("knowledge_prefs")
   createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
