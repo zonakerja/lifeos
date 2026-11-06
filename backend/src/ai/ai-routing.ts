@@ -2,6 +2,10 @@ import { AiProvider } from "../generated/prisma/client";
 import { AI_PROVIDER_IDS, AI_PROVIDERS, type AttachmentKind } from "./ai-providers";
 import type { AiErrorKind } from "./providers/ai-client";
 
+/** Jenis lampiran yang didukung sebuah provider (bergantung jalurnya: langsung / lewat router). */
+export type SupportsOf = (provider: AiProvider) => Record<AttachmentKind, boolean>;
+const catalogSupports: SupportsOf = (provider) => AI_PROVIDERS[provider].supports;
+
 /**
  * Urutan provider yang dicoba untuk satu permintaan: provider aktif lebih dulu, lalu (bila cadangan otomatis menyala)
  * provider lain yang punya key sesuai urutan katalog. Provider yang tidak mendukung semua jenis lampiran dilewati.
@@ -11,11 +15,12 @@ export function providerCandidates(
   configured: readonly AiProvider[],
   kinds: readonly AttachmentKind[],
   fallbackEnabled: boolean,
+  supports: SupportsOf = catalogSupports,
 ): AiProvider[] {
   const order = fallbackEnabled
     ? [active, ...AI_PROVIDER_IDS.filter((id) => id !== active && configured.includes(id))]
     : [active];
-  return order.filter((id) => kinds.every((kind) => AI_PROVIDERS[id].supports[kind]));
+  return order.filter((id) => kinds.every((kind) => supports(id)[kind]));
 }
 
 /**
@@ -65,11 +70,16 @@ export function taskProvider(
 }
 
 /** Urutan provider OCR: pilihan user, lalu Gemini → OpenAI → Claude; hanya yang punya key & mendukung jenis berkas. */
-export function ocrCandidates(routing: AiRouting, configured: readonly AiProvider[], kind: AttachmentKind) {
+export function ocrCandidates(
+  routing: AiRouting,
+  configured: readonly AiProvider[],
+  kind: AttachmentKind,
+  supports: SupportsOf = catalogSupports,
+) {
   const order = [routing.ocr, AiProvider.gemini, AiProvider.openai, AiProvider.anthropic].filter(
     (p): p is AiProvider => !!p,
   );
-  return [...new Set(order)].filter((p) => configured.includes(p) && AI_PROVIDERS[p].supports[kind]);
+  return [...new Set(order)].filter((p) => configured.includes(p) && supports(p)[kind]);
 }
 
 /** Provider embedding: pilihan user bila key-nya ada, selain itu Gemini lalu OpenAI; null = pencarian kata saja. */

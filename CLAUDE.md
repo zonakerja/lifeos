@@ -264,6 +264,16 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   → Claude) / `embedding` (Gemini | OpenAI, `index/embedding.ts`, 768 dimensi; pencarian hanya vektor model sama; ganti
   ⇒ indeks dibangun ulang); `generate(userId, prompt, files, task)`. Error
   provider → 429 (kuota) / 422 (lainnya) — **jangan** 401 atau ≥ 502 (lihat §15). Semua role boleh memakai AI.
+  **Jalur lewat router** (keputusan user 2026-11-06; `ai-endpoint.ts` + test): setiap kredensial bisa **langsung** (SDK resmi)
+  atau **lewat router** pihak ketiga mana pun (`ai_credentials.base_url` + `api_format` openai | anthropic (khusus Claude) +
+  `embedding_model`). Format OpenAI → `providers/openai-compatible.client.ts` (Chat Completions, gambar + PDF `file`, tanpa
+  audio); format Anthropic → SDK Claude dengan `baseURL` (akhiran `/v1` dibuang), fitur beta ditolak router → diulang
+  sekali tanpa fitur itu (`isUnsupportedFeatureError`; agen: `basicClaudeRequest`). Embedding lewat router = `/embeddings`
+  OpenAI-compatible dengan ID model isian user. Proxy agen Hermes ikut (OpenAI → `{base}/chat/completions`, Anthropic →
+  `proxyClaude`). ID model ditulis sesuai dokumentasi router; kemampuan Claude dikenali dari nama yang dinormalkan
+  (`canonicalClaudeModel`: `claude-opus-5.5` = `claude-opus-5-5`). Alamat wajib https publik (`normalizeBaseUrl`; http/host
+  lokal hanya di luar production); ganti jalur wajib key baru (key lama tidak pernah dikirim ke alamat lain). Label error &
+  cadangan menyebut jalur ("Google Gemini lewat host").
 - **Indeks pengetahuan / RAG** (`src/ai/index/`, detail: `docs/ARCHITECTURE.md` §3.2): tabel `ai_chunks` (pgvector 768,
   `gemini-embedding-2` dengan key Gemini pemilik data; tanpa key → tanpa embedding, pencarian kata saja), antrian BullMQ
   `ai-index` dipicu `RecordsService` & ekstraksi, sakelar `users.ai_index_enabled`, `GET /ai/index`,
@@ -406,7 +416,7 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   `20261025160000_srikandi_letters` (record type `srikandi_letter`) + `20261025170000_srikandi_references` (record type
   `srikandi_reference`) + `20261031120000_srikandi_outgoing` (record type `srikandi_outgoing` — Register Naskah Keluar) + `20261031130000_action_plan_months`
   (record type `action_plan_month` — potret bulan Rencana Aksi e-Kinerja) + `20261031140000_public_vaults` (brankas digital + log
-  akses) + `20261101120000_automation_jobs` (jadwal & riwayat otomasi) + `20261106120000_agent_policies` (Kebijakan Otomatis,
+  akses) + `20261101120000_automation_jobs` (jadwal & riwayat otomasi) + `20261106130000_ai_router_endpoints` (jalur router per kredensial AI) + `20261106120000_agent_policies` (Kebijakan Otomatis,
   `agent_runs`, sakelar darurat, `requests.asset_check`/`auto_decision`). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
@@ -1809,6 +1819,14 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   gagal kini tidak membuat catatan hilang dari pencarian (disimpan tanpa vektor, menyusul), status vault & indeks di kartu Siapkan
   agen, tautan ganda di `read_knowledge_note`. Vault `Pengetahuan-BMN` dibuat di akun admin dev. API key Gemini tersimpan ditolak
   Google (401) → menunggu key baru dari user.
+- 2026-11-06 — **Provider AI lewat router** (permintaan user: token Claude/OpenAI/Gemini dibeli lewat router pihak ketiga yang
+  lebih murah, tidak terbatas satu router). Desain: jalur menjadi sifat **kredensial per provider** (bukan provider baru), sehingga
+  pembagian tugas, cadangan otomatis, OCR, embedding, dan proxy agen tetap memakai provider Gemini/Claude/OpenAI apa adanya dan
+  tiap provider boleh berbeda jalur (mis. Gemini & OpenAI langsung, Claude lewat router). Dua format umum: OpenAI Chat
+  Completions (semua provider) dan Anthropic Messages (Claude, agar cache & pemikiran tetap jalan). Router = pihak ketiga yang
+  melihat isi permintaan → peringatan di UI; key router disimpan terenkripsi seperti key resmi. Diuji dengan router tiruan
+  (15/15: simpan, uji koneksi, model salah, Claude + ulang tanpa beta, generate, embedding & pencarian), unit +13, smoke +5;
+  **belum diuji ke router sungguhan** (key dipegang user) dan proxy agen lewat router belum diuji ujung-ke-ujung.
 - 2026-11-06 — **Kebijakan Otomatis tahap 1** (peta jalan no. 2; keputusan user: skill buatan Hermes = draf yang diaktifkan user,
   shadow dulu lalu auto dinaikkan user, alat bawaan Hermes dibiarkan menyala **dengan pengingat sebelum auto dipakai**, data master
   tiruan; AG-26…29 sesuai rekomendasi). Desain: yang memutuskan = server menurut aturan; agen hanya menyerahkan data aset terstruktur
@@ -1896,6 +1914,11 @@ DTO class-validator), daftarkan di `app.module.ts`, guard `JwtAuthGuard` + `Role
    baru; ulangi satu siklus `backup.sh --once` → ubah data → restore (DEPLOYMENT §4); `down -v` + hapus volume
    lama project uji.
 6. Volume dev lama boleh dihapus setelah verifikasi (data dev dummy); volume produksi lama baru dihapus setelah stabil.
+
+**Memakai router AI baru** (OpenRouter, router lokal, dll.): tanpa kode — user mengisi alamat API, format, key, dan ID model
+di Pengaturan → Model AI → kartu provider → **Lewat router**. Kode hanya perlu diubah bila router memakai format selain
+OpenAI Chat Completions / Anthropic Messages (tambah nilai `AiApiFormat` + klien di `providers/` + cabang di `AiService.call` &
+`AgentService.proxyChat`).
 
 **Menambah provider/model AI**: model baru dari provider yang sama cukup diganti user di Pengaturan → Model AI; ubah default
 di `backend/src/ai/ai-providers.ts` (`defaultModel`, `suggestedModels`) saat generasi model berganti. Provider baru:

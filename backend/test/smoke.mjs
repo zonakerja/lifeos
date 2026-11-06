@@ -179,6 +179,35 @@ try {
   ok("ai reset model keeps key", r.s === 200 && geminiReset.model === null && geminiReset.configured, r);
   r = await j("PUT", "/ai/settings/anthropic", { apiKey: fakeKey }, at);
   ok("ai second provider not auto-active", r.s === 200 && r.d.activeProvider === "gemini", r);
+  // Jalur lewat router: hanya https publik / format sah; ganti jalur wajib key baru (key lama tidak dikirim ke alamat lain)
+  r = await j("PUT", "/ai/settings/anthropic", { baseUrl: "ftp://router.example.com" }, at);
+  ok("ai router url not https 400", r.s === 400, r);
+  r = await j("PUT", "/ai/settings/anthropic", { baseUrl: "https://router.example.com/v1/" }, at);
+  ok("ai router change without new key 400", r.s === 400 && /key/i.test(r.d.message), r);
+  r = await j(
+    "PUT",
+    "/ai/settings/openai",
+    { apiKey: fakeKey, baseUrl: "https://router.example.com/v1", apiFormat: "anthropic" },
+    at,
+  );
+  ok("ai router format not allowed 400", r.s === 400, r);
+  r = await j(
+    "PUT",
+    "/ai/settings/anthropic",
+    { apiKey: fakeKey, baseUrl: "https://router.example.com/v1/", model: "claude-opus-5.5" },
+    at,
+  );
+  const viaRouter = r.d.providers?.find((p) => p.id === "anthropic");
+  ok(
+    "ai router saved (normalized, anthropic format, label host)",
+    r.s === 200 &&
+      viaRouter.baseUrl === "https://router.example.com/v1" &&
+      viaRouter.apiFormat === "anthropic" &&
+      viaRouter.via === "router.example.com",
+    r,
+  );
+  r = await j("PUT", "/ai/settings/anthropic", { apiKey: fakeKey, baseUrl: null }, at);
+  ok("ai router back to direct", r.s === 200 && r.d.providers?.find((p) => p.id === "anthropic").baseUrl === null, r);
   r = await j("PATCH", "/ai/settings", { activeProvider: "openai" }, at);
   ok("ai activate unconfigured 400", r.s === 400, r);
   r = await j("PATCH", "/ai/settings", { activeProvider: "anthropic" }, at);
@@ -1713,7 +1742,12 @@ try {
     ok("agent policies pause non-owner rejected", r.s === 403 || r.s === 422, r);
     r = await j("POST", `/agent/requests/${reqId}/auto/cancel`, null, pt);
     ok("agent auto cancel non-owner rejected", r.s === 403 || r.s === 422, r);
-    r = await j("POST", "/agent/policies", { name: "x", skill: "Bad", requestKind: "psp", groupCodes: [], mode: "selalu" }, at);
+    r = await j(
+      "POST",
+      "/agent/policies",
+      { name: "x", skill: "Bad", requestKind: "psp", groupCodes: [], mode: "selalu" },
+      at,
+    );
     ok("agent policy invalid input 400", r.s === 400, r);
 
     r = await j("DELETE", `/requests/${reqId}`, null, at);

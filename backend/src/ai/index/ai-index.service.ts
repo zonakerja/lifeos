@@ -218,7 +218,7 @@ export class AiIndexService {
     let failure: AiProviderError | null = null;
     if (embedding) {
       try {
-        vectors = await embedDocuments(embedding.provider, embedding.apiKey, texts);
+        vectors = await embedDocuments(embedding, texts);
       } catch (error) {
         if (!(error instanceof AiProviderError)) throw error;
         failure = error;
@@ -482,7 +482,7 @@ export class AiIndexService {
   /** Embedding pertanyaan; gagal (kuota, key ditolak) → null sehingga pencarian tetap jalan dengan kata kunci saja. */
   private async embedQuery(userId: string, embedding: EmbeddingCredential, query: string) {
     try {
-      return await embedQuery(embedding.provider, embedding.apiKey, query);
+      return await embedQuery(embedding, query);
     } catch (error) {
       if (!(error instanceof AiProviderError)) throw error;
       this.logger.warn(

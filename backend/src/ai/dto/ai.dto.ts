@@ -32,6 +32,29 @@ export class SaveAiProviderDto {
   @MaxLength(100)
   @Matches(/^[A-Za-z0-9._:/-]+$/, { message: "Nama model hanya boleh huruf, angka, dan . _ : / -" })
   model?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: "Alamat API router (mis. https://router.example.com/v1); null/kosong = langsung ke API resmi provider",
+  })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== "")
+  @IsString()
+  @MaxLength(300)
+  baseUrl?: string | null;
+
+  @ApiPropertyOptional({ enum: ["openai", "anthropic"], description: "Format API router (anthropic hanya Claude)" })
+  @IsOptional()
+  @IsIn(["openai", "anthropic"], { message: "Format API hanya openai atau anthropic." })
+  apiFormat?: "openai" | "anthropic";
+
+  @ApiPropertyOptional({ nullable: true, description: "ID model embedding di router; kosong = ID resmi provider" })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== "")
+  @IsString()
+  @MaxLength(100)
+  @Matches(/^[A-Za-z0-9._:/-]+$/, { message: "Nama model hanya boleh huruf, angka, dan . _ : / -" })
+  embeddingModel?: string | null;
 }
 
 /** Pembagian tugas AI; null = kembali ke bawaan (provider aktif / urutan bawaan). Field yang tidak dikirim = tetap. */

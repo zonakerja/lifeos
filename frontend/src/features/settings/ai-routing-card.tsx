@@ -49,7 +49,10 @@ const ROWS: { key: RoutingKey; label: string; hint: string; defaultLabel: string
 export function AiRoutingCard({ settings }: { settings: AiSettings }) {
   const update = useUpdateAiSettings();
   const configured = settings.providers.filter((p) => p.configured);
-  const label = (id: string | null) => settings.providers.find((p) => p.id === id)?.label ?? "—";
+  const label = (id: string | null) => {
+    const p = settings.providers.find((x) => x.id === id);
+    return p ? (p.via ? `${p.label} lewat ${p.via}` : p.label) : "—";
+  };
 
   const change = async (key: RoutingKey, value: string) => {
     try {

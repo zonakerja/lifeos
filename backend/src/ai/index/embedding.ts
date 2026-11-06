@@ -57,19 +57,19 @@ async function geminiEmbed(apiKey: string, texts: string[]) {
 }
 
 /** OpenAI (`text-embedding-3-small`, dinormalisasi) dipotong ke 768 dimensi lewat parameter `dimensions`. */
-async function openaiEmbed(apiKey: string, texts: string[]) {
-  const client = new OpenAI({ apiKey, timeout: AI_TIMEOUT_MS, maxRetries: 1 });
+async function openaiEmbed(apiKey: string, texts: string[], model: string, baseURL?: string) {
+  const client = new OpenAI({ apiKey, timeout: AI_TIMEOUT_MS, maxRetries: 1, ...(baseURL ? { baseURL } : {}) });
   const vectors: number[][] = [];
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const batch = texts.slice(i, i + BATCH_SIZE);
     try {
       const response = await client.embeddings.create({
-        model: EMBEDDING_MODELS.openai,
+        model,
         input: batch,
         dimensions: EMBEDDING_DIMENSIONS,
       });
       const values = [...response.data].sort((a, b) => a.index - b.index).map((d) => d.embedding);
-      checkDimensions(values, batch.length, "OpenAI");
+      checkDimensions(values, batch.length, baseURL ? "router" : "OpenAI");
       vectors.push(...values);
     } catch (error) {
       if (error instanceof AiProviderError) throw error;
@@ -89,13 +89,27 @@ export const documentText = (provider: EmbeddingProvider, doc: EmbeddingDocument
 export const queryText = (provider: EmbeddingProvider, query: string) =>
   provider === "gemini" ? queryEmbeddingText(query) : query;
 
-export function embedDocuments(provider: EmbeddingProvider, apiKey: string, docs: EmbeddingDocument[]) {
-  const texts = docs.map((doc) => documentText(provider, doc));
-  return provider === "gemini" ? geminiEmbed(apiKey, texts) : openaiEmbed(apiKey, texts);
+export function embedDocuments(embedding: EmbeddingTarget, docs: EmbeddingDocument[]) {
+  return embed(
+    embedding,
+    docs.map((doc) => documentText(embedding.provider, doc)),
+  );
 }
 
-export async function embedQuery(provider: EmbeddingProvider, apiKey: string, query: string) {
-  const text = queryText(provider, query);
-  const [vector] = provider === "gemini" ? await geminiEmbed(apiKey, [text]) : await openaiEmbed(apiKey, [text]);
+export async function embedQuery(embedding: EmbeddingTarget, query: string) {
+  const [vector] = await embed(embedding, [queryText(embedding.provider, query)]);
   return vector;
+}
+
+/** Key, model, dan jalur embedding (lewat router = endpoint OpenAI-compatible `/embeddings` milik router). */
+export interface EmbeddingTarget {
+  provider: EmbeddingProvider;
+  apiKey: string;
+  model: string;
+  baseUrl?: string | null;
+}
+
+function embed({ provider, apiKey, model, baseUrl }: EmbeddingTarget, texts: string[]) {
+  if (baseUrl) return openaiEmbed(apiKey, texts, model, baseUrl);
+  return provider === "gemini" ? geminiEmbed(apiKey, texts) : openaiEmbed(apiKey, texts, model);
 }

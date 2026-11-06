@@ -10,6 +10,16 @@ import { ConfigService } from "@nestjs/config";
 import { AiCredential, AiProvider, Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AiCrypto, keyHint } from "./ai-crypto";
+import {
+  type AiApiFormat,
+  allowedFormats,
+  credentialLabel,
+  defaultFormat,
+  endpointHost,
+  endpointOf,
+  endpointSupports,
+  normalizeBaseUrl,
+} from "./ai-endpoint";
 import { AI_PROVIDER_IDS, AI_PROVIDERS, type AttachmentKind, attachmentKind } from "./ai-providers";
 import {
   type AiRouting,
@@ -29,6 +39,7 @@ import { type AiAttachment, type AiClient, AiProviderError } from "./providers/a
 import { anthropicClient } from "./providers/anthropic.client";
 import { geminiClient } from "./providers/gemini.client";
 import { openaiClient } from "./providers/openai.client";
+import { openaiCompatibleClient } from "./providers/openai-compatible.client";
 
 const CLIENTS: Record<AiProvider, AiClient> = {
   gemini: geminiClient,
@@ -54,12 +65,19 @@ export interface AiFile {
   buffer: Buffer;
 }
 
-/** Key & model embedding yang dipakai indeks pengetahuan user. */
+/** Key, model & jalur embedding yang dipakai indeks pengetahuan user (`baseUrl` = lewat router). */
 export interface EmbeddingCredential {
   provider: EmbeddingProvider;
   apiKey: string;
   model: string;
+  baseUrl: string | null;
 }
+
+/** Jenis lampiran per provider sesuai jalur kredensialnya (provider tanpa key = katalog). */
+const supportsOf = (credentials: AiCredential[]) => (provider: AiProvider) => {
+  const credential = credentials.find((c) => c.provider === provider);
+  return credential ? endpointSupports(credential) : AI_PROVIDERS[provider].supports;
+};
 
 /** Alasan jawaban diberikan oleh provider selain provider aktif. */
 export type AiFallbackReason = "attachment" | "quota" | "unavailable" | "credential";
@@ -68,6 +86,8 @@ export type AiFallbackReason = "attachment" | "quota" | "unavailable" | "credent
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly crypto: AiCrypto;
+  /** Production: alamat router harus host publik (lihat `normalizeBaseUrl`). */
+  private readonly production: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -75,6 +95,7 @@ export class AiService {
     config: ConfigService,
   ) {
     this.crypto = new AiCrypto(config.getOrThrow<string>("AI_ENCRYPTION_KEY"));
+    this.production = config.get<string>("NODE_ENV") === "production";
   }
 
   // ---------------------------------------------------------------- Pengaturan
@@ -99,18 +120,27 @@ export class AiService {
         chat: taskProvider(routing, "chat", user.aiProvider, configured),
         general: taskProvider(routing, "general", user.aiProvider, configured),
         agent: taskProvider(routing, "agent", user.aiProvider, configured),
-        ocr: ocrCandidates(routing, configured, "pdf")[0] ?? null,
+        ocr: ocrCandidates(routing, configured, "pdf", supportsOf(credentials))[0] ?? null,
         embedding: embeddingProvider(routing, configured),
       },
       providers: AI_PROVIDER_IDS.map((id) => {
         const info = AI_PROVIDERS[id];
         const credential = credentials.find((c) => c.provider === id);
+        const endpoint = credential ? endpointOf(credential) : null;
         return {
           ...info,
+          supports: credential ? endpointSupports(credential) : info.supports,
           configured: !!credential,
           keyHint: credential?.keyHint ?? null,
           model: credential?.model ?? null,
           updatedAt: credential?.updatedAt ?? null,
+          /** Jalur: null = langsung ke API resmi; isi = lewat router */
+          baseUrl: endpoint?.baseUrl ?? null,
+          apiFormat: endpoint?.format ?? null,
+          embeddingModel: credential?.embeddingModel ?? null,
+          via: endpoint ? endpointHost(endpoint.baseUrl) : null,
+          formats: allowedFormats(id),
+          defaultEmbeddingModel: id === "anthropic" ? null : EMBEDDING_MODELS[id as EmbeddingProvider],
         };
       }),
     };
@@ -122,16 +152,55 @@ export class AiService {
     const existing = await this.findCredential(userId, provider);
     if (!existing && !apiKey) throw new BadRequestException("API key wajib diisi.");
 
+    // Jalur: undefined = tetap; null/"" = langsung ke API resmi; alamat = lewat router
+    let baseUrl: string | null | undefined;
+    if (dto.baseUrl !== undefined) {
+      if (!dto.baseUrl?.trim()) baseUrl = null;
+      else {
+        const parsed = normalizeBaseUrl(dto.baseUrl, this.production);
+        if (!parsed.ok) throw new BadRequestException(parsed.error);
+        baseUrl = parsed.url;
+      }
+    }
+    const nextBaseUrl = baseUrl === undefined ? (existing?.baseUrl ?? null) : baseUrl;
+    // Ganti jalur = key lama (milik layanan lain) tidak boleh dikirim ke alamat baru
+    if (existing && nextBaseUrl !== existing.baseUrl && !apiKey) {
+      throw new BadRequestException(
+        nextBaseUrl
+          ? "Isi API key milik router untuk alamat API baru."
+          : "Isi API key resmi provider untuk koneksi langsung.",
+      );
+    }
+    let apiFormat: AiApiFormat | null = null;
+    if (nextBaseUrl) {
+      const wanted = (dto.apiFormat ?? existing?.apiFormat ?? defaultFormat(provider)) as AiApiFormat;
+      if (!allowedFormats(provider).includes(wanted)) {
+        throw new BadRequestException(`Format API "${wanted}" tidak tersedia untuk ${AI_PROVIDERS[provider].label}.`);
+      }
+      apiFormat = wanted;
+    }
+    const embeddingModel = !nextBaseUrl
+      ? null
+      : dto.embeddingModel === undefined
+        ? (existing?.embeddingModel ?? null)
+        : dto.embeddingModel?.trim() || null;
+    const endpointFields = { baseUrl: nextBaseUrl, apiFormat, embeddingModel };
+    const endpointChanged =
+      !existing ||
+      existing.baseUrl !== nextBaseUrl ||
+      existing.apiFormat !== apiFormat ||
+      existing.embeddingModel !== embeddingModel;
+
     const secret = apiKey ? { encryptedKey: this.crypto.encrypt(apiKey), keyHint: keyHint(apiKey) } : {};
     await this.prisma.aiCredential.upsert({
       where: { userId_provider: { userId, provider } },
-      create: { userId, provider, encryptedKey: "", keyHint: "", ...secret, model: model ?? null },
-      update: { ...secret, ...(model !== undefined ? { model } : {}) },
+      create: { userId, provider, encryptedKey: "", keyHint: "", ...secret, model: model ?? null, ...endpointFields },
+      update: { ...secret, ...(model !== undefined ? { model } : {}), ...endpointFields },
     });
     // Provider pertama yang dikonfigurasi langsung aktif
     await this.prisma.user.updateMany({ where: { id: userId, aiProvider: null }, data: { aiProvider: provider } });
     // Key baru milik provider embedding yang dipakai → indeks dibangun (ulang) dengan embedding baru
-    if (apiKey && (await this.embeddingCredential(userId))?.provider === (provider as string)) {
+    if ((apiKey || endpointChanged) && (await this.embeddingCredential(userId))?.provider === (provider as string)) {
       await this.indexQueue.enqueueRebuild(userId);
     }
     return this.getSettings(userId);
@@ -210,7 +279,7 @@ export class AiService {
     return !!(await this.findCredential(userId, provider));
   }
 
-  /** API key terdekripsi + model user untuk satu provider (null bila belum ada / tidak bisa didekripsi). */
+  /** API key terdekripsi + model + jalur user untuk satu provider (null bila belum ada / tidak bisa didekripsi). */
   async getCredentialKey(userId: string, provider: AiProvider) {
     const credential = await this.findCredential(userId, provider);
     if (!credential) return null;
@@ -218,6 +287,8 @@ export class AiService {
       return {
         apiKey: this.crypto.decrypt(credential.encryptedKey),
         model: credential.model || AI_PROVIDERS[provider].defaultModel,
+        endpoint: endpointOf(credential),
+        embeddingModel: credential.embeddingModel,
       };
     } catch {
       return null;
@@ -248,7 +319,12 @@ export class AiService {
     );
     if (!provider) return null;
     const credential = await this.getCredentialKey(userId, provider as AiProvider);
-    return credential ? { provider, apiKey: credential.apiKey, model: EMBEDDING_MODELS[provider] } : null;
+    if (!credential) return null;
+    // Lewat router: model embedding = isian user (ID di router), bawaan = ID resmi; endpoint OpenAI-compatible
+    const model = credential.endpoint
+      ? credential.embeddingModel || EMBEDDING_MODELS[provider]
+      : EMBEDDING_MODELS[provider];
+    return { provider, apiKey: credential.apiKey, model, baseUrl: credential.endpoint?.baseUrl ?? null };
   }
 
   /**
@@ -266,6 +342,7 @@ export class AiService {
       parseRouting(user?.aiRouting),
       credentials.map((c) => c.provider),
       kind,
+      supportsOf(credentials),
     );
     let firstError: unknown;
     for (const [index, provider] of candidates.entries()) {
@@ -309,13 +386,15 @@ export class AiService {
 
     const attachments = this.toAttachments(files);
     const kinds = [...new Set(attachments.map((a) => a.kind))];
+    const supports = supportsOf(credentials);
     const candidates = providerCandidates(
       active,
       credentials.map((c) => c.provider),
       kinds,
       user.aiFallback,
+      supports,
     );
-    if (candidates.length === 0) throw this.unsupportedAttachments(active, kinds, user.aiFallback);
+    if (candidates.length === 0) throw this.unsupportedAttachments(credentials, active, kinds, user.aiFallback);
 
     let primaryError: unknown;
     for (const [index, provider] of candidates.entries()) {
@@ -329,7 +408,11 @@ export class AiService {
         ) as AiFallbackReason;
         return {
           ...result,
-          fallback: { from: active, reason, message: this.fallbackMessage(active, provider, reason, kinds) },
+          fallback: {
+            from: active,
+            reason,
+            message: this.fallbackMessage(credentials, active, provider, reason, kinds),
+          },
         };
       } catch (error) {
         primaryError ??= error;
@@ -362,24 +445,41 @@ export class AiService {
     });
   }
 
-  private unsupportedAttachments(active: AiProvider, kinds: AttachmentKind[], fallbackEnabled: boolean) {
-    const missing = kinds.filter((k) => !AI_PROVIDERS[active].supports[k]).map((k) => KIND_LABELS[k]);
+  private unsupportedAttachments(
+    credentials: AiCredential[],
+    active: AiProvider,
+    kinds: AttachmentKind[],
+    fallbackEnabled: boolean,
+  ) {
+    const supports = supportsOf(credentials);
+    const missing = kinds.filter((k) => !supports(active)[k]).map((k) => KIND_LABELS[k]);
     const supporters = AI_PROVIDER_IDS.filter((id) => kinds.every((k) => AI_PROVIDERS[id].supports[k])).map(
       (id) => AI_PROVIDERS[id].label,
     );
+    const activeLabel = this.labelOf(credentials, active);
     const hint = fallbackEnabled
       ? `Simpan API key ${supporters.join(" / ")} di Pengaturan → Model AI agar dipakai otomatis untuk lampiran ini.`
       : `Nyalakan "Cadangan otomatis" atau ganti provider ke ${supporters.join(" / ")} di Pengaturan → Model AI.`;
-    return new BadRequestException(
-      `${AI_PROVIDERS[active].label} tidak mendukung lampiran ${missing.join(", ")}. ${hint}`,
-    );
+    return new BadRequestException(`${activeLabel} tidak mendukung lampiran ${missing.join(", ")}. ${hint}`);
   }
 
-  private fallbackMessage(from: AiProvider, to: AiProvider, reason: AiFallbackReason, kinds: AttachmentKind[]) {
-    const fromLabel = AI_PROVIDERS[from].label;
-    const toLabel = AI_PROVIDERS[to].label;
+  private labelOf(credentials: AiCredential[], provider: AiProvider) {
+    const credential = credentials.find((c) => c.provider === provider);
+    return credential ? credentialLabel(credential) : AI_PROVIDERS[provider].label;
+  }
+
+  private fallbackMessage(
+    credentials: AiCredential[],
+    from: AiProvider,
+    to: AiProvider,
+    reason: AiFallbackReason,
+    kinds: AttachmentKind[],
+  ) {
+    const fromLabel = this.labelOf(credentials, from);
+    const toLabel = this.labelOf(credentials, to);
     if (reason === "attachment") {
-      const missing = kinds.filter((k) => !AI_PROVIDERS[from].supports[k]).map((k) => KIND_LABELS[k]);
+      const supports = supportsOf(credentials)(from);
+      const missing = kinds.filter((k) => !supports[k]).map((k) => KIND_LABELS[k]);
       return `Lampiran ${missing.join(", ")} diproses oleh ${toLabel} karena ${fromLabel} tidak mendukungnya.`;
     }
     const why = {
@@ -402,15 +502,23 @@ export class AiService {
       throw new AiProviderError("credential", "kunci enkripsi server berubah");
     }
 
+    const endpoint = endpointOf(credential);
+    // Lewat router: format OpenAI → klien Chat Completions; format Anthropic → SDK Claude dengan alamat router
+    const client = !endpoint
+      ? CLIENTS[credential.provider]
+      : endpoint.format === "anthropic"
+        ? anthropicClient
+        : openaiCompatibleClient;
+    const via = endpoint ? ` lewat ${endpointHost(endpoint.baseUrl)}` : "";
     const started = Date.now();
     try {
-      const text = await CLIENTS[credential.provider]({ apiKey, model, prompt, attachments });
-      this.logger.log(`AI ${credential.provider}/${model} selesai (${Date.now() - started} ms)`);
+      const text = await client({ apiKey, model, prompt, attachments, endpoint });
+      this.logger.log(`AI ${credential.provider}/${model}${via} selesai (${Date.now() - started} ms)`);
       return { text, provider: credential.provider, model };
     } catch (error) {
       if (error instanceof AiProviderError) {
         this.logger.warn(
-          `AI ${credential.provider}/${model} gagal (${error.kind}, ${Date.now() - started} ms): ${error.providerMessage}`,
+          `AI ${credential.provider}/${model}${via} gagal (${error.kind}, ${Date.now() - started} ms): ${error.providerMessage}`,
         );
       }
       throw error;
@@ -424,7 +532,7 @@ export class AiService {
    */
   private toHttpError(error: unknown, credential: AiCredential, failedFallbacks = 0) {
     if (!(error instanceof AiProviderError)) return error;
-    const label = AI_PROVIDERS[credential.provider].label;
+    const label = credentialLabel(credential);
     const model = credential.model || AI_PROVIDERS[credential.provider].defaultModel;
     const detail = error.providerMessage;
     const suffix = failedFallbacks > 0 ? ` Provider cadangan juga gagal.` : "";

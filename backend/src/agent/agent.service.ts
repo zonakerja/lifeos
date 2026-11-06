@@ -15,6 +15,8 @@ import {
 import { ConfigService } from "@nestjs/config";
 import type { Response as ExpressResponse } from "express";
 import Anthropic from "@anthropic-ai/sdk";
+import { type AiEndpoint, anthropicBaseUrl } from "../ai/ai-endpoint";
+import { isUnsupportedFeatureError } from "../ai/providers/anthropic.client";
 import { AiService } from "../ai/ai.service";
 import type { AuthUser } from "../common/types/auth-user";
 import { type ApiScope, hashToken, looksLikeToken, normalizeScopes } from "../integrations/api-token-logic";
@@ -23,6 +25,7 @@ import type { AgentRun } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { RequestsService } from "../requests/requests.service";
 import {
+  basicClaudeRequest,
   chatCompletion,
   chunkFactory,
   claudeRequest,
@@ -354,8 +357,17 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
     if (!credential) {
       return llmError(res, 400, "Model AI agen belum diatur: simpan API key di LifeOS → Pengaturan → Model AI.");
     }
-    if (credential.provider === "anthropic") return this.proxyClaude(principal.user.id, credential, body, res);
-    const payload = prepareChatBody(body, credential.provider, credential.model);
+    const endpoint = credential.endpoint;
+    // Messages API: Claude langsung, atau Claude lewat router berformat Anthropic
+    if (endpoint ? endpoint.format === "anthropic" : credential.provider === "anthropic") {
+      return this.proxyClaude(principal.user.id, { ...credential, endpoint }, body, res);
+    }
+    // Lewat router: kunci khusus OpenAI dibuang (router pihak ketiga belum tentu mengenalnya)
+    const payload = prepareChatBody(
+      body,
+      endpoint ? "router" : (credential.provider as "gemini" | "openai"),
+      credential.model,
+    );
     if (!payload) return llmError(res, 400, "Permintaan chat tidak valid (messages kosong).");
 
     const controller = new AbortController();
@@ -368,7 +380,8 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
       model: credential.model,
     };
     try {
-      const upstream = await fetch(`${OPENAI_COMPAT_BASE[credential.provider]}/chat/completions`, {
+      const base = endpoint?.baseUrl ?? OPENAI_COMPAT_BASE[credential.provider as "gemini" | "openai"];
+      const upstream = await fetch(`${base}/chat/completions`, {
         method: "POST",
         headers: { Authorization: `Bearer ${credential.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -407,16 +420,21 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
   /** Proxy untuk Claude: Messages API native (prompt caching, blok pemikiran) dengan keluaran format OpenAI. */
   private async proxyClaude(
     userId: string,
-    credential: { apiKey: string; model: string },
+    credential: { apiKey: string; model: string; endpoint: AiEndpoint | null },
     body: unknown,
     res: ExpressResponse,
   ) {
-    const { apiKey, model } = credential;
+    const { apiKey, model, endpoint } = credential;
     const request = claudeRequest(body, model, (toolIds) => this.claudeTurns.recall(userId, toolIds));
     if (!request) return llmError(res, 400, "Permintaan chat tidak valid (messages kosong).");
 
     const streaming = (body as { stream?: unknown }).stream === true;
-    const client = new Anthropic({ apiKey, timeout: MODEL_TIMEOUT_MS, maxRetries: 1 });
+    const client = new Anthropic({
+      apiKey,
+      timeout: MODEL_TIMEOUT_MS,
+      maxRetries: 1,
+      ...(endpoint ? { baseURL: anthropicBaseUrl(endpoint.baseUrl) } : {}),
+    });
     const controller = new AbortController();
     res.on("close", () => controller.abort());
     const call: ModelCall = { at: new Date().toISOString(), ok: true, provider: "anthropic", model };
@@ -425,13 +443,13 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
     const chunks = chunkFactory(id, model, created);
     const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    try {
-      const message = await runClaude(
+    const attempt = (req: typeof request) =>
+      runClaude(
         client,
-        request,
+        req,
         controller.signal,
         () => {
-          if (!streaming) return;
+          if (!streaming || res.headersSent) return;
           res.status(200);
           res.setHeader("Content-Type", "text/event-stream");
           res.setHeader("Cache-Control", "no-cache");
@@ -441,6 +459,16 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
           if (streaming) send(chunks.text(text));
         },
       );
+    try {
+      let message: Awaited<ReturnType<typeof attempt>>;
+      try {
+        message = await attempt(request);
+      } catch (error) {
+        // Router menolak fitur beta Anthropic sebelum menjawab → ulangi sekali dengan permintaan dasar
+        if (!endpoint || res.headersSent || !isUnsupportedFeatureError(error)) throw error;
+        this.logger.warn(`Router menolak fitur beta Claude, diulang tanpa fitur itu: ${(error as Error).message}`);
+        message = await attempt(basicClaudeRequest(request));
+      }
       this.claudeTurns.remember(userId, replayableBlocks(message.content));
       const { input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens } = message.usage;
       this.lastModelCall = {

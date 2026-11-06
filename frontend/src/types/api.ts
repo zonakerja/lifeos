@@ -29,6 +29,29 @@ export interface AiProviderSettings {
   /** null = model default provider. */
   model: string | null;
   updatedAt: string | null;
+  /** Alamat API router; null = langsung ke API resmi provider. */
+  baseUrl: string | null;
+  apiFormat: AiApiFormat | null;
+  /** ID model embedding di router (null = ID resmi). */
+  embeddingModel: string | null;
+  /** Host router untuk label (null = langsung). */
+  via: string | null;
+  /** Format API yang bisa dipakai provider ini lewat router. */
+  formats: AiApiFormat[];
+  /** Model embedding resmi (null = provider ini tidak dipakai untuk embedding). */
+  defaultEmbeddingModel: string | null;
+}
+
+/** Format API router: OpenAI Chat Completions atau Anthropic Messages (khusus Claude). */
+export type AiApiFormat = "openai" | "anthropic";
+
+export interface AiProviderInput {
+  apiKey?: string;
+  model?: string | null;
+  /** null/"" = langsung ke API resmi; alamat = lewat router */
+  baseUrl?: string | null;
+  apiFormat?: AiApiFormat;
+  embeddingModel?: string | null;
 }
 
 export interface AiSettings {

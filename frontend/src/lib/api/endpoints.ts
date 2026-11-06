@@ -68,6 +68,7 @@ import type {
   AiIndexStatus,
   AiSearchHit,
   AiProviderId,
+  AiProviderInput,
   AiRouting,
   AiSettings,
   ApiRecord,
@@ -283,7 +284,7 @@ export const aiApi = {
     routing?: AiRouting;
   }) => request<AiSettings>("/ai/settings", { method: "PATCH", body: input }),
   /** `apiKey` kosong = pertahankan key tersimpan; `model` null = model default provider. */
-  saveProvider: (provider: AiProviderId, input: { apiKey?: string; model?: string | null }) =>
+  saveProvider: (provider: AiProviderId, input: AiProviderInput) =>
     request<AiSettings>(`/ai/settings/${provider}`, { method: "PUT", body: input }),
   removeProvider: (provider: AiProviderId) => request<AiSettings>(`/ai/settings/${provider}`, { method: "DELETE" }),
   indexStatus: () => request<AiIndexStatus>("/ai/index"),

@@ -184,17 +184,23 @@ model RefreshToken {
 
 // API key AI per user per provider, terenkripsi AES-256-GCM (AI_ENCRYPTION_KEY); tidak pernah dikirim ke browser.
 model AiCredential {
-  id           String     @id @default(cuid())
-  userId       String     @map("user_id")
-  provider     AiProvider
-  encryptedKey String     @map("encrypted_key")
+  id             String     @id @default(cuid())
+  userId         String     @map("user_id")
+  provider       AiProvider
+  encryptedKey   String     @map("encrypted_key")
   // 4 karakter terakhir key, untuk ditampilkan di Pengaturan
-  keyHint      String     @map("key_hint")
+  keyHint        String     @map("key_hint")
   // Kosong = model default provider (src/ai/ai-providers.ts)
-  model        String?
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
-  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  model          String?
+  // Jalur lewat router (layanan perantara): alamat API; kosong = langsung ke API resmi provider (src/ai/ai-endpoint.ts)
+  baseUrl        String?    @map("base_url")
+  // Format API router: openai (Chat Completions) | anthropic (Messages, khusus Claude)
+  apiFormat      String?    @map("api_format")
+  // ID model embedding di router (kosong = model embedding bawaan provider)
+  embeddingModel String?    @map("embedding_model")
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, provider])
   @@map("ai_credentials")

@@ -5,7 +5,9 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Network,
   PlugZap,
+  TriangleAlert,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -27,7 +29,9 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { AiRoutingCard } from "@/features/settings/ai-routing-card";
@@ -40,9 +44,17 @@ import {
 } from "@/data/use-ai-settings";
 import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import type { AiAttachmentKind, AiProviderSettings, AiSettings } from "@/types/api";
+import type { AiApiFormat, AiAttachmentKind, AiProviderSettings, AiSettings } from "@/types/api";
 
 const KIND_LABELS: Record<AiAttachmentKind, string> = { pdf: "PDF", image: "gambar", text: "teks", audio: "audio" };
+
+const FORMAT_LABELS: Record<AiApiFormat, string> = {
+  openai: "OpenAI-compatible (Chat Completions)",
+  anthropic: "Anthropic Messages",
+};
+
+/** Label provider beserta jalurnya ("Google Gemini lewat router.example.com"). */
+const providerLabel = (p: AiProviderSettings) => (p.via ? `${p.label} lewat ${p.via}` : p.label);
 
 /** Pengaturan → Model AI: provider aktif, API key (terenkripsi di server), dan model per provider. */
 export function AiSettingsTab() {
@@ -80,7 +92,8 @@ export function AiSettingsTab() {
           <p>
             {active ? (
               <>
-                Fitur AI memakai <b>{active.label}</b> dengan model <b>{active.model || active.defaultModel}</b>.
+                Fitur AI memakai <b>{providerLabel(active)}</b> dengan model{" "}
+                <b>{active.model || active.defaultModel}</b>.
               </>
             ) : (
               "AI belum diatur. Simpan API key salah satu provider di bawah agar chatbot, pencarian AI, Notes AI, dan ringkasan resource bisa dipakai."
@@ -149,7 +162,7 @@ function FallbackSwitch({ settings }: { settings: AiSettings }) {
         <p className="text-xs text-muted-foreground">
           Cadangan saat ini:{" "}
           {backups.length > 0 ? (
-            <b>{backups.map((p) => p.label).join(", ")}</b>
+            <b>{backups.map(providerLabel).join(", ")}</b>
           ) : (
             "belum ada — simpan API key provider lain di bawah."
           )}
@@ -172,10 +185,23 @@ function ProviderCard({ provider, active }: { provider: AiProviderSettings; acti
   const test = useTestAiProvider();
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState(provider.model ?? "");
+  const [viaRouter, setViaRouter] = useState(!!provider.baseUrl);
+  const [baseUrl, setBaseUrl] = useState(provider.baseUrl ?? "");
+  const [apiFormat, setApiFormat] = useState<AiApiFormat>(provider.apiFormat ?? provider.formats[0] ?? "openai");
+  const [embeddingModel, setEmbeddingModel] = useState(provider.embeddingModel ?? "");
   const [visible, setVisible] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
-  const dirty = !!apiKey.trim() || model.trim() !== (provider.model ?? "");
+  const nextBaseUrl = viaRouter ? baseUrl.trim() : "";
+  // Ganti jalur (langsung ↔ router / alamat lain) = key lama tidak dipakai lagi → server meminta key baru
+  const routeChanged = provider.configured && nextBaseUrl !== (provider.baseUrl ?? "");
+  const endpointDirty =
+    routeChanged ||
+    (viaRouter && apiFormat !== (provider.apiFormat ?? provider.formats[0])) ||
+    (viaRouter && embeddingModel.trim() !== (provider.embeddingModel ?? ""));
+  const dirty = !!apiKey.trim() || model.trim() !== (provider.model ?? "") || endpointDirty;
+  const needsKey = (routeChanged || !provider.configured) && !apiKey.trim();
+  const missingUrl = viaRouter && !baseUrl.trim();
   const busy = save.isPending || remove.isPending || setActive.isPending || test.isPending;
   const attachments = (Object.keys(KIND_LABELS) as AiAttachmentKind[])
     .filter((kind) => provider.supports[kind])
@@ -188,6 +214,8 @@ function ProviderCard({ provider, active }: { provider: AiProviderSettings; acti
         provider: provider.id,
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         model: model.trim() || null,
+        baseUrl: nextBaseUrl || null,
+        ...(viaRouter ? { apiFormat, embeddingModel: embeddingModel.trim() || null } : {}),
       });
       toast.success(`Pengaturan ${provider.label} disimpan.`);
     } catch (error) {
@@ -198,7 +226,9 @@ function ProviderCard({ provider, active }: { provider: AiProviderSettings; acti
   const handleTest = async () => {
     try {
       const result = await test.mutateAsync(provider.id);
-      toast.success(`${provider.label} terhubung`, { description: `Model ${result.model} menjawab: "${result.text}"` });
+      toast.success(`${providerLabel(provider)} terhubung`, {
+        description: `Model ${result.model} menjawab: "${result.text}"`,
+      });
     } catch (error) {
       toast.error(`Uji ${provider.label} gagal`, { description: errorMessage(error) });
     }
@@ -238,6 +268,11 @@ function ProviderCard({ provider, active }: { provider: AiProviderSettings; acti
               Key tersimpan{provider.keyHint ? ` …${provider.keyHint}` : ""}
             </Badge>
           )}
+          {provider.via && (
+            <Badge className="bg-info/15 text-info">
+              <Network /> Lewat {provider.via}
+            </Badge>
+          )}
         </div>
         {provider.configured && !active && (
           <Button size="sm" variant="outline" onClick={handleActivate} disabled={busy}>
@@ -246,14 +281,86 @@ function ProviderCard({ provider, active }: { provider: AiProviderSettings; acti
         )}
       </div>
 
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium">Koneksi</span>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={viaRouter ? "router" : "direct"}
+            onValueChange={(value) => value && setViaRouter(value === "router")}
+          >
+            <ToggleGroupItem value="direct">Langsung (API resmi)</ToggleGroupItem>
+            <ToggleGroupItem value="router">Lewat router</ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+        {viaRouter && (
+          <>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor={`${keyId}-url`}>Alamat API router</FieldLabel>
+                <Input
+                  id={`${keyId}-url`}
+                  placeholder="https://router.example.com/v1"
+                  className="font-mono"
+                  autoComplete="off"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                />
+                <FieldDescription>
+                  Alamat dasar (base URL) dari dokumentasi router, biasanya berakhiran <code>/v1</code>.
+                </FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel>Format API</FieldLabel>
+                <ToggleGroup
+                  type="single"
+                  variant="outline"
+                  size="sm"
+                  className="flex-wrap justify-start"
+                  value={apiFormat}
+                  onValueChange={(value) => value && setApiFormat(value as AiApiFormat)}
+                >
+                  {provider.formats.map((format) => (
+                    <ToggleGroupItem key={format} value={format}>
+                      {FORMAT_LABELS[format]}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+                <FieldDescription>
+                  {provider.formats.includes("anthropic")
+                    ? "Anthropic Messages disarankan untuk Claude (cache prompt & pemikiran tetap jalan); pilih OpenAI bila router hanya menyediakan /chat/completions."
+                    : "Router dipanggil lewat /chat/completions (format yang didukung hampir semua router)."}
+                </FieldDescription>
+              </Field>
+            </div>
+            <div className="flex items-start gap-2 rounded-xl bg-warning/10 p-3 text-xs text-warning">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+              <p className="leading-relaxed">
+                Router adalah pihak ketiga: semua isi permintaan AI (termasuk dokumen & data kantor) melewati server
+                router sebelum ke penyedia model. Pastikan Anda memercayai router itu. ID model mengikuti dokumentasi
+                router (bisa berbeda dengan ID resmi, mis. <code>claude-opus-5.5</code>).
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2">
         <Field>
-          <FieldLabel htmlFor={keyId}>API Key</FieldLabel>
+          <FieldLabel htmlFor={keyId}>{viaRouter ? "API Key router" : "API Key"}</FieldLabel>
           <InputGroup>
             <InputGroupInput
               id={keyId}
               type={visible ? "text" : "password"}
-              placeholder={provider.configured ? "Isi hanya untuk mengganti key" : "Tempel API key di sini"}
+              placeholder={
+                needsKey && provider.configured
+                  ? "Wajib diisi: key untuk koneksi baru"
+                  : provider.configured
+                    ? "Isi hanya untuk mengganti key"
+                    : "Tempel API key di sini"
+              }
               className="font-mono"
               autoComplete="off"
               value={apiKey}
@@ -270,9 +377,13 @@ function ProviderCard({ provider, active }: { provider: AiProviderSettings; acti
             </InputGroupAddon>
           </InputGroup>
           <FieldDescription>
-            <a href={provider.keyUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">
-              Buat API key <ExternalLink className="size-3" />
-            </a>
+            {viaRouter ? (
+              "Key dari dashboard router (bukan key resmi provider)."
+            ) : (
+              <a href={provider.keyUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">
+                Buat API key <ExternalLink className="size-3" />
+              </a>
+            )}
           </FieldDescription>
         </Field>
 
@@ -320,10 +431,29 @@ function ProviderCard({ provider, active }: { provider: AiProviderSettings; acti
             </InputGroupAddon>
           </InputGroup>
           <FieldDescription>
-            Pilih dari daftar atau ketik ID model lain. Kosong = default ({provider.defaultModel}). Model "preview" bisa
-            dihentikan provider sewaktu-waktu.
+            {viaRouter
+              ? `Ketik ID model persis seperti di dokumentasi router. Kosong = ${provider.defaultModel} (ID resmi, belum tentu dikenal router).`
+              : `Pilih dari daftar atau ketik ID model lain. Kosong = default (${provider.defaultModel}). Model "preview" bisa dihentikan provider sewaktu-waktu.`}
           </FieldDescription>
         </Field>
+
+        {viaRouter && provider.defaultEmbeddingModel && (
+          <Field>
+            <FieldLabel htmlFor={`${modelId}-embed`}>Model embedding (indeks pengetahuan)</FieldLabel>
+            <Input
+              id={`${modelId}-embed`}
+              placeholder={`${provider.defaultEmbeddingModel} (default)`}
+              className="font-mono"
+              autoComplete="off"
+              value={embeddingModel}
+              onChange={(e) => setEmbeddingModel(e.target.value)}
+            />
+            <FieldDescription>
+              Dipakai bila provider ini menjadi embedding di Pembagian tugas AI (router lewat /embeddings, 768 dimensi).
+              Ganti model = indeks dibangun ulang.
+            </FieldDescription>
+          </Field>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -345,7 +475,10 @@ function ProviderCard({ provider, active }: { provider: AiProviderSettings; acti
               </Button>
             </>
           )}
-          <Button size="sm" onClick={handleSave} disabled={busy || !dirty}>
+          {dirty && needsKey && (
+            <span className="self-center text-xs text-warning">Isi API key untuk koneksi ini.</span>
+          )}
+          <Button size="sm" onClick={handleSave} disabled={busy || !dirty || needsKey || missingUrl}>
             {save.isPending ? <Spinner /> : <CheckCircle2 />} Simpan
           </Button>
         </div>

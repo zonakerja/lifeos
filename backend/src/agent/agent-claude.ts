@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { EFFORT_MODELS, FALLBACK_MODELS } from "../ai/providers/anthropic.client";
+import { canonicalClaudeModel } from "../ai/ai-endpoint";
+import { EFFORT_MODELS, FALLBACK_MODELS, modelMatches } from "../ai/providers/anthropic.client";
 
 /**
  * Terjemahan proxy model agen untuk Claude (diuji di `agent-claude.spec.ts`): Hermes tetap berbicara format OpenAI chat
@@ -160,7 +161,7 @@ function toolChoice(body: Json, model: string, hasTools: boolean): Params["tool_
   const choice = body.tool_choice;
   if (choice === "none") return { type: "none" };
   const forced = choice === "required" || (isObject(choice) && choice.type === "function");
-  if (forced && !NO_FORCED_TOOL_MODELS.test(model)) {
+  if (forced && !NO_FORCED_TOOL_MODELS.test(canonicalClaudeModel(model))) {
     const name = isObject(choice) && isObject(choice.function) ? choice.function.name : null;
     return typeof name === "string" ? { type: "tool", name, ...parallel } : { type: "any", ...parallel };
   }
@@ -224,18 +225,19 @@ export function claudeRequest(
       : DEFAULT_MAX_TOKENS;
   const stops = [body.stop].flat().filter((stop): stop is string => typeof stop === "string" && !!stop.trim());
   const choice = toolChoice(body, model, tools.length > 0);
+  const canonical = canonicalClaudeModel(model);
 
   // Bawaan Opus 5.5 = medium, tetapi tidak semua model sama → selalu eksplisit agar biaya bisa diperkirakan
   const effort = EFFORTS.find((level) => level === body.reasoning_effort) ?? "medium";
   const format = isObject(body.response_format) ? body.response_format : null;
   const schema = format?.type === "json_schema" && isObject(format.json_schema) ? format.json_schema.schema : null;
   const output_config = {
-    ...(EFFORT_MODELS.test(model) ? { effort } : {}),
+    ...(modelMatches(EFFORT_MODELS, model) ? { effort } : {}),
     ...(isObject(schema) ? { format: { type: "json_schema" as const, schema } } : {}),
   };
 
-  const binding = BLOCK_BINDING_MODELS.test(model);
-  const fallback = FALLBACK_MODELS.test(model);
+  const binding = BLOCK_BINDING_MODELS.test(canonical);
+  const fallback = FALLBACK_MODELS.test(canonical);
   const betas = [...(binding ? [BINDING_BETA] : []), ...(fallback ? [FALLBACK_BETA] : [])];
 
   return {
@@ -254,6 +256,17 @@ export function claudeRequest(
       ...(fallback ? { fallbacks: "default" as const } : {}),
     } as Params,
   };
+}
+
+/**
+ * Permintaan dasar tanpa fitur beta (fallback sisi server, pengikat blok pemikiran) — dipakai bila router menolak
+ * fitur itu. Cache, effort, alat, dan pemikiran adaptif tetap dikirim.
+ */
+export function basicClaudeRequest(request: NonNullable<ReturnType<typeof claudeRequest>>) {
+  const params = { ...request.params } as Record<string, unknown>;
+  delete params.fallbacks;
+  if (params.thinking) params.thinking = { type: "adaptive" };
+  return { betas: [] as string[], params: params as unknown as Params };
 }
 
 const FINISH_REASONS: Partial<Record<NonNullable<Message["stop_reason"]>, string>> = {

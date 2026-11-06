@@ -1,3 +1,4 @@
+import type { AiEndpoint } from "../ai-endpoint";
 import { AttachmentKind } from "../ai-providers";
 
 /** Batas waktu satu panggilan ke provider (model dengan reasoning bisa butuh beberapa menit). */
@@ -17,6 +18,8 @@ export interface AiGenerateInput {
   model: string;
   prompt: string;
   attachments: AiAttachment[];
+  /** Jalur lewat router; tidak diisi = API resmi provider. */
+  endpoint?: AiEndpoint | null;
 }
 
 /** Satu fungsi per provider: kirim prompt + lampiran, kembalikan teks jawaban. */

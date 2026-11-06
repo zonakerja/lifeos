@@ -7,17 +7,33 @@ import {
   kindFromStatus,
   textAttachmentBlock,
 } from "./ai-client";
+import { anthropicBaseUrl, canonicalClaudeModel } from "../ai-endpoint";
 
 /** Model yang mendukung `output_config.effort` (Haiku 4.5 & model lebih lama menolaknya). */
 export const EFFORT_MODELS = /^claude-(opus-5|sonnet-5-5|haiku-5-5|fable-5)/;
 /** Model yang menerima `fallbacks: "default"` (dijalankan ulang di model lain bila ditolak filter keamanan). */
 export const FALLBACK_MODELS = /^claude-(opus-5|sonnet-5-5|fable-5)/;
+/** Uji kemampuan model dengan nama yang dinormalkan (router bisa memakai `claude-opus-5.5` / `anthropic/…`). */
+export const modelMatches = (pattern: RegExp, model: string) => pattern.test(canonicalClaudeModel(model));
+
+/** Router menolak fitur beta → permintaan diulang sekali tanpa fitur itu (status 400 dengan pesan beta/fallbacks/…). */
+export const isUnsupportedFeatureError = (error: unknown) =>
+  error instanceof Anthropic.APIError &&
+  error.status === 400 &&
+  /beta|fallback|output_config|effort|block_binding|thinking|unknown|unsupported|not supported|extra/i.test(
+    error.message,
+  );
 
 type ContentBlock = Anthropic.Beta.Messages.BetaContentBlockParam;
 
 /** Anthropic Claude lewat Messages API (streaming agar jawaban panjang tidak terkena timeout HTTP). */
-export const anthropicClient: AiClient = async ({ apiKey, model, prompt, attachments }) => {
-  const client = new Anthropic({ apiKey, timeout: AI_TIMEOUT_MS, maxRetries: 1 });
+export const anthropicClient: AiClient = async ({ apiKey, model, prompt, attachments, endpoint }) => {
+  const client = new Anthropic({
+    apiKey,
+    timeout: AI_TIMEOUT_MS,
+    maxRetries: 1,
+    ...(endpoint ? { baseURL: anthropicBaseUrl(endpoint.baseUrl) } : {}),
+  });
 
   // Dokumen & gambar diletakkan sebelum instruksi teks
   const content: ContentBlock[] = [];
@@ -35,17 +51,26 @@ export const anthropicClient: AiClient = async ({ apiKey, model, prompt, attachm
   content.push({ type: "text", text: prompt });
 
   try {
-    const message = await client.beta.messages
-      .stream({
-        model,
-        max_tokens: AI_MAX_OUTPUT_TOKENS,
-        messages: [{ role: "user", content }],
-        ...(EFFORT_MODELS.test(model) ? { output_config: { effort: "medium" as const } } : {}),
-        ...(FALLBACK_MODELS.test(model)
-          ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }
-          : {}),
-      })
-      .finalMessage();
+    const send = (full: boolean) =>
+      client.beta.messages
+        .stream({
+          model,
+          max_tokens: AI_MAX_OUTPUT_TOKENS,
+          messages: [{ role: "user", content }],
+          ...(full && modelMatches(EFFORT_MODELS, model) ? { output_config: { effort: "medium" as const } } : {}),
+          ...(full && modelMatches(FALLBACK_MODELS, model)
+            ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }
+            : {}),
+        })
+        .finalMessage();
+    let message: Awaited<ReturnType<typeof send>>;
+    try {
+      message = await send(true);
+    } catch (error) {
+      // Lewat router: fitur khusus API Anthropic bisa belum didukung → ulangi dengan permintaan dasar
+      if (!endpoint || !isUnsupportedFeatureError(error)) throw error;
+      message = await send(false);
+    }
 
     if (message.stop_reason === "refusal") {
       throw new AiProviderError(

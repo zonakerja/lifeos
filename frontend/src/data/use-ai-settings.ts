@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { aiApi } from "@/lib/api/endpoints";
 import { queryKeys } from "@/data/query-keys";
 import { useAuthStore } from "@/stores/auth-store";
-import type { AiProviderId, AiSettings } from "@/types/api";
+import type { AiProviderId, AiProviderInput, AiSettings } from "@/types/api";
 
 /** Pengaturan AI milik user (provider aktif, key tersimpan, model). */
 export function useAiSettings() {
@@ -23,7 +23,7 @@ function useApplySettings() {
 export function useSaveAiProvider() {
   const apply = useApplySettings();
   return useMutation({
-    mutationFn: ({ provider, ...input }: { provider: AiProviderId; apiKey?: string; model?: string | null }) =>
+    mutationFn: ({ provider, ...input }: { provider: AiProviderId } & AiProviderInput) =>
       aiApi.saveProvider(provider, input),
     onSuccess: apply,
   });

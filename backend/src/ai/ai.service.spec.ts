@@ -33,7 +33,7 @@ function setup(active: AiProvider | null, configured: AiProvider[], fallback = t
     user: { findUniqueOrThrow: vi.fn().mockResolvedValue({ aiProvider: active, aiFallback: fallback }) },
     aiCredential: { findMany: vi.fn().mockResolvedValue(credentials) },
   } as unknown as PrismaService;
-  const config = { getOrThrow: () => KEY } as unknown as ConfigService;
+  const config = { getOrThrow: () => KEY, get: () => undefined } as unknown as ConfigService;
   const indexQueue = { enqueueRebuild: vi.fn(), enqueuePurge: vi.fn() } as unknown as AiIndexQueueService;
   return new AiService(prisma, indexQueue, config);
 }

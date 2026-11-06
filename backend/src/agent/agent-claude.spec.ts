@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it } from "vitest";
 import {
+  basicClaudeRequest,
   chatCompletion,
   chunkFactory,
   claudeRequest,
@@ -144,6 +145,30 @@ describe("claudeRequest", () => {
       { type: "image", source: { type: "url", url: "https://x.test/a.png" } },
       { type: "text", text: "apa ini" },
     ]);
+  });
+});
+
+describe("Claude lewat router", () => {
+  it("nama model router (titik) tetap mendapat fitur model terbaru", () => {
+    const result = claudeRequest({ messages: [{ role: "user", content: "hai" }] }, "claude-opus-5.5", noMemory);
+    expect(result?.params).toMatchObject({
+      model: "claude-opus-5.5",
+      fallbacks: "default",
+      output_config: { effort: "medium" },
+    });
+    expect(result?.betas.length).toBe(2);
+  });
+
+  it("permintaan dasar membuang fitur beta tetapi mempertahankan cache, effort, dan pemikiran adaptif", () => {
+    const full = claudeRequest({ messages: [{ role: "user", content: "hai" }], tools: [tool] }, OPUS, noMemory)!;
+    const basic = basicClaudeRequest(full);
+    expect(basic.betas).toEqual([]);
+    expect(basic.params).not.toHaveProperty("fallbacks");
+    expect(basic.params).toMatchObject({ cache_control: { type: "ephemeral" }, thinking: { type: "adaptive" } });
+    expect((basic.params as { thinking: object }).thinking).not.toHaveProperty("block_binding");
+    expect(basic.params.tools?.length).toBe(1);
+    // permintaan asli tidak berubah
+    expect(full.params).toHaveProperty("fallbacks");
   });
 });
 

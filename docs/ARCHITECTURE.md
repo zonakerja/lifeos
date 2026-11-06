@@ -138,12 +138,16 @@ unduhan disensor; health check tidak dicatat.
 | Endpoint | Fungsi |
 |---|---|
 | `GET /ai/settings` | provider aktif, `fallbackEnabled`, daftar provider (label, model default & saran, lampiran yang didukung, `configured`, `keyHint`, `model`) |
-| `PUT /ai/settings/:provider` `{ apiKey?, model? }` | simpan/ganti key (kosong = pertahankan) dan model (`null` = default); provider pertama otomatis aktif |
+| `PUT /ai/settings/:provider` `{ apiKey?, model?, baseUrl?, apiFormat?, embeddingModel? }` | simpan/ganti key (kosong = pertahankan) dan model (`null` = default); `baseUrl` = jalur lewat router (`null` = langsung), `apiFormat` `openai` / `anthropic` (Claude), `embeddingModel` = ID embedding di router; ganti jalur wajib key baru; provider pertama otomatis aktif |
 | `DELETE /ai/settings/:provider` | hapus key; bila aktif, pindah ke provider lain yang punya key atau AI nonaktif |
 | `PATCH /ai/settings` `{ activeProvider?, fallbackEnabled? }` | ganti provider aktif (harus sudah punya key) / sakelar cadangan otomatis |
 | `POST /ai/settings/:provider/test` | uji key & model dengan prompt singkat (10/menit) |
 | `POST /ai/generate` (multipart: `prompt` + `files[]`) | jawab prompt → `{ text, provider, model, fallback }` (30/menit) |
 
+- **Jalur lewat router** (`ai-endpoint.ts`): kredensial dengan `base_url` dipanggil lewat router pihak ketiga — format OpenAI
+  Chat Completions (`openai-compatible.client.ts`, embedding `/embeddings`) atau Anthropic Messages (SDK Claude + `baseURL`,
+  fitur beta yang ditolak router → diulang tanpa fitur itu). Lampiran lewat format OpenAI: gambar, PDF, teks (tanpa audio).
+  Alamat wajib https publik di production; label provider menjadi "… lewat <host>".
 - **Provider** (`ai-providers.ts` = katalog, satu klien per provider di `providers/`, SDK resmi):
   Gemini `generateContent` (stateless; Interactions API menyimpan percakapan di server Google secara default),
   Claude Messages API (streaming, `effort` + `fallbacks: "default"` pada model yang mendukung), OpenAI Responses

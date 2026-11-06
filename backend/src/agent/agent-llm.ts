@@ -58,9 +58,9 @@ const DROPPED_KEYS = ["store", "metadata", "service_tier", "prompt_cache_key", "
 
 /**
  * Body `chat/completions` dari Hermes → body untuk provider: model diganti model user, kunci khusus OpenAI dibuang untuk
- * provider lain. Null bila bentuknya bukan permintaan chat (tanpa `messages`).
+ * provider lain (termasuk router). Null bila bentuknya bukan permintaan chat (tanpa `messages`).
  */
-export function prepareChatBody(body: unknown, provider: keyof typeof OPENAI_COMPAT_BASE, model: string) {
+export function prepareChatBody(body: unknown, provider: keyof typeof OPENAI_COMPAT_BASE | "router", model: string) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const input = body as Record<string, unknown>;
   if (!Array.isArray(input.messages) || input.messages.length === 0) return null;
