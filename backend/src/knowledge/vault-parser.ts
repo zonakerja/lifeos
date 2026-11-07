@@ -220,7 +220,7 @@ export function noteIndexText(note: { title: string; content: string; frontmatte
   return [props.join(" · "), body].filter(Boolean).join("\n\n");
 }
 
-/** Masalah catatan yang ditampilkan di halaman Pengetahuan agar user merapikannya. */
+/** Masalah catatan yang ditampilkan di menu Knowledge agar user merapikannya. */
 export function noteProblems(path: string, frontmatter: Record<string, unknown> | null) {
   const top = path.split("/")[0];
   if (top === INBOX_DIR || top === TEMPLATE_DIR || top === EXPORT_DIR) return [];

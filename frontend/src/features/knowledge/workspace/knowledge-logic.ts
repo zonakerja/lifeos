@@ -1,7 +1,7 @@
 import type { KnowledgeGraph, KnowledgeNoteListItem } from "@/types/api";
 
 /**
- * Logika murni menu Pengetahuan: pohon vault, pencocokan tautan wiki (sama dengan backend `buildLinkResolver`), ubah
+ * Logika murni menu Knowledge: pohon vault, pencocokan tautan wiki (sama dengan backend `buildLinkResolver`), ubah
  * Markdown Obsidian (`[[…]]`, `![[…]]`, callout) ke Markdown yang dirender aplikasi, garis besar, kueri graf/tabel,
  * graf lokal, dan hitungan tag.
  */
@@ -126,12 +126,22 @@ export const linkHeading = (target: string) => {
 /** Skema tautan internal di Markdown yang dirender: `kn:` = tautan catatan, `kn-embed:` = sematan. */
 export const LINK_SCHEME = "kn:";
 export const EMBED_SCHEME = "kn-embed:";
+/** Penanda blok `^id` di pembaca → jangkar kosong (lompat dari `[[catatan#^id]]`). */
+export const BLOCK_SCHEME = "kn-block:";
 
 const WIKILINK = /(!?)\[\[([^\]|\n]+?)(?:\|([^\]\n]*))?\]\]/g;
 
 /** Teks tampilan tautan: alias, atau target dengan `#` sebagai pemisah judul. */
 const linkLabel = (target: string, alias?: string) =>
-  (alias?.trim() || target.replace(/\^.*$/, "").replace(/#/g, " › ")).replace(/[[\]]/g, "").trim();
+  (
+    alias?.trim() ||
+    target
+      .replace(/#?\^.*$/, "")
+      .replace(/^#/, "")
+      .replace(/#/g, " › ")
+  )
+    .replace(/[[\]]/g, "")
+    .trim() || target.trim().replace(/^#/, "");
 
 /**
  * Markdown Obsidian → Markdown aplikasi: `[[a#b|c]]` → `[c](kn:a%23b)`, `![[a]]` → `![a](kn-embed:a)`, ganti baris
@@ -142,13 +152,20 @@ export function toReaderMarkdown(content: string) {
     .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
     .map((part, i) => {
       if (i % 2) return part;
-      return part
-        .replace(WIKILINK, (_, bang: string, target: string, alias?: string) => {
-          const href = encodeURIComponent(target.trim());
-          const label = linkLabel(target.trim(), alias);
-          return bang ? `![${label}](${EMBED_SCHEME}${href})` : `[${label}](${LINK_SCHEME}${href})`;
-        })
-        .replace(/([^\n])\n(?=[^\n])/g, "$1  \n");
+      return (
+        part
+          .replace(WIKILINK, (_, bang: string, target: string, alias?: string) => {
+            const href = encodeURIComponent(target.trim());
+            const label = linkLabel(target.trim(), alias);
+            return bang ? `![${label}](${EMBED_SCHEME}${href})` : `[${label}](${LINK_SCHEME}${href})`;
+          })
+          // penanda blok ` ^id` di akhir baris / pada baris sendiri → jangkar tak terlihat (lompat dari `[[catatan#^id]]`)
+          .replace(
+            /(^|[ \t])\^([A-Za-z0-9-]+)[ \t]*$/gm,
+            (_, lead: string, id: string) => `${lead}[](${BLOCK_SCHEME}${id})`,
+          )
+          .replace(/([^\n])\n(?=[^\n])/g, "$1  \n")
+      );
     })
     .join("");
 }

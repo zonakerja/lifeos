@@ -44,40 +44,7 @@ const CONNECTOR_PATHS: Record<RobotSystem, string> = {
   srikandi: "/srikandi/connector",
 };
 
-/** Tools → Otomasi: semua jadwal sinkron robot milik user. */
-export function AutomationSettings() {
-  return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
-      <SectionCard
-        icon={ShieldCheck}
-        title="Cara kerja otomasi"
-        description="Robot menjalankan tugas sinkron sesuai jadwal memakai sesi login yang tersimpan di tab Connector. Semua tugas di sini hanya membaca sistem asal — pengisian Rencana Aksi dan pendaftaran naskah tetap lewat tombol Anda."
-        contentClassName="flex flex-col gap-3"
-      >
-        <ul className="grid list-disc gap-1 pl-5 text-sm text-muted-foreground">
-          <li>
-            Tugas dijalankan berurutan, paling sering sekali per jam. Tombol sinkron di menu asal tetap bisa dipakai
-            kapan saja.
-          </li>
-          <li>
-            Sesi login bisa kedaluwarsa. Bila tugas gagal karena sesi, login ulang di tab Connector (CAPTCHA/OTP tetap
-            Anda ketik) — jadwal berikutnya berjalan lagi.
-          </li>
-          <li>Laptop/server harus menyala beserta service robot pada jam jadwal.</li>
-          <li>
-            Sesi login tersimpan terenkripsi dan diperbarui setiap kali robot berjalan. Aktifkan <b>Jaga sesi login</b>{" "}
-            agar cookie diperbarui tiap jam kerja dan sesi yang habis langsung diketahui — Anda mendapat notifikasi
-            (lonceng & toast) dan jadwal sistem itu dijeda sampai Anda login ulang.
-          </li>
-        </ul>
-        <BrowserNotificationButton />
-      </SectionCard>
-      <AutomationJobs />
-    </div>
-  );
-}
-
-/** Daftar jadwal (bisa disaring per sistem — dipakai juga di tab Connector Laporan Kinerja & SRIKANDI). */
+/** Cara kerja + jadwal otomatis per sistem — bagian bawah tab Connector Laporan Kinerja & SRIKANDI. */
 export function AutomationJobs({ systems }: { systems?: RobotSystem[] } = {}) {
   const { data: jobs, isLoading } = useAutomationJobs();
   const robot = useRobotStatus();
@@ -89,6 +56,30 @@ export function AutomationJobs({ systems }: { systems?: RobotSystem[] } = {}) {
   if (isLoading || !jobs) return <Skeleton className="h-64 rounded-xl" />;
   return (
     <>
+      <SectionCard
+        icon={ShieldCheck}
+        title="Cara kerja otomasi"
+        description="Robot menjalankan tugas sinkron sesuai jadwal memakai sesi login dari sub-tab Pengaturan koneksi. Semua tugas terjadwal hanya membaca sistem asal — pengisian Rencana Aksi dan pendaftaran naskah tetap lewat tombol Anda."
+        contentClassName="flex flex-col gap-3"
+      >
+        <ul className="grid list-disc gap-1 pl-5 text-sm text-muted-foreground">
+          <li>
+            Tugas dijalankan berurutan, paling sering sekali per jam. Tombol sinkron di menu asal tetap bisa dipakai
+            kapan saja.
+          </li>
+          <li>
+            Sesi login bisa kedaluwarsa. Bila tugas gagal karena sesi, login ulang di Pengaturan koneksi (CAPTCHA/OTP
+            tetap Anda ketik) — jadwal berikutnya berjalan lagi.
+          </li>
+          <li>Laptop/server harus menyala beserta service robot pada jam jadwal.</li>
+          <li>
+            Sesi login tersimpan terenkripsi dan diperbarui setiap kali robot berjalan. Aktifkan <b>Jaga sesi login</b>{" "}
+            agar cookie diperbarui tiap jam kerja dan sesi yang habis langsung diketahui — Anda mendapat notifikasi
+            (lonceng & toast) dan jadwal sistem itu dijeda sampai Anda login ulang.
+          </li>
+        </ul>
+        <BrowserNotificationButton />
+      </SectionCard>
       {groups.map((system) => {
         const connector = connectors?.find((c) => c.system === system);
         const list = jobs.filter((j) => j.system === system);
@@ -118,7 +109,7 @@ export function AutomationJobs({ systems }: { systems?: RobotSystem[] } = {}) {
                     ? `Sesi ${SYSTEM_LABELS[system]} kedaluwarsa — semua jadwal ${SYSTEM_LABELS[system]} dijeda sampai Anda login ulang di `
                     : `Belum ada sesi ${SYSTEM_LABELS[system]} — jadwal dilewati sampai Anda login di `}
                   <Link className="font-medium underline" to={CONNECTOR_PATHS[system]}>
-                    tab Connector
+                    Pengaturan koneksi
                   </Link>
                   .
                 </span>

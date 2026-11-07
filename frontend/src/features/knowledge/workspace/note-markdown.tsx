@@ -1,8 +1,19 @@
 import "katex/dist/katex.min.css";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, FilePlus2, Paperclip } from "lucide-react";
-import { Children, createContext, isValidElement, type ReactNode, useContext, useMemo, useState } from "react";
+import {
+  Children,
+  createContext,
+  isValidElement,
+  lazy,
+  type ReactNode,
+  Suspense,
+  useContext,
+  useMemo,
+  useState,
+} from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import { Link } from "react-router";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -16,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
 import type { KnowledgeNoteListItem } from "@/types/api";
 import {
+  BLOCK_SCHEME,
   calloutTone,
   EMBED_SCHEME,
   isImagePath,
@@ -26,10 +38,33 @@ import {
   toReaderMarkdown,
   outline,
 } from "./knowledge-logic";
+import { blockAnchor, extractBlock, extractSection, linkBlock } from "./note-blocks";
 import { openWorkspaceDialog } from "./workspace-store";
 
+/** Sematan base `![[x.base]]` dimuat malas (mesin Bases ada di chunk tab Bases). */
+const EmbeddedBase = lazy(() => import("./bases-tab"));
+
 const urlTransform = (url: string) =>
-  url.startsWith(LINK_SCHEME) || url.startsWith(EMBED_SCHEME) ? url : defaultUrlTransform(url);
+  url.startsWith(LINK_SCHEME) || url.startsWith(EMBED_SCHEME) || url.startsWith(BLOCK_SCHEME)
+    ? url
+    : defaultUrlTransform(url);
+
+/** Jangkar lompat untuk target tautan: `#^id` → blok, `#Judul` → judul, selain itu tidak ada. */
+const targetAnchor = (target: string) => {
+  const block = linkBlock(target);
+  if (block) return blockAnchor(block);
+  const heading = linkHeading(target);
+  return heading ? slugify(heading) : undefined;
+};
+
+/** Bagian yang disematkan: `#^id` = satu blok, `#Judul` = bagian di bawah judul, selain itu seluruh catatan. */
+function embeddedPart(content: string, target: string) {
+  const block = linkBlock(target);
+  if (block) return { text: extractBlock(content, block), label: `^${block}` };
+  const heading = linkHeading(target);
+  if (heading) return { text: extractSection(content, heading), label: heading };
+  return { text: content, label: null };
+}
 
 const TONE: Record<ReturnType<typeof calloutTone>, string> = {
   info: "border-info/40 bg-info/8 [&_.callout-title]:text-info",
@@ -73,29 +108,38 @@ function VaultImage({ name, alt }: { name: string; alt: string }) {
 /** Sematan catatan `![[catatan]]`: isi catatan tujuan dalam bingkai (satu tingkat, tidak berulang). */
 function EmbeddedNote({
   note,
+  target,
   depth,
   onOpen,
 }: {
   note: KnowledgeNoteListItem;
+  /** Target sematan lengkap (`catatan#Judul` / `catatan#^id`) */
+  target: string;
   depth: number;
-  onOpen: (id: string) => void;
+  onOpen: (id: string, anchor?: string) => void;
 }) {
   const { data, isLoading } = useKnowledgeNote(note.id);
+  const part = embeddedPart(data?.content ?? "", target);
   return (
     <div className="my-3 rounded-xl border-l-4 border-module/40 bg-muted/30 p-3">
       <button
         type="button"
         className="mb-1 text-xs font-semibold text-module hover:underline"
-        onClick={() => onOpen(note.id)}
+        onClick={() => onOpen(note.id, targetAnchor(target))}
       >
         {note.title}
+        {part.label ? ` › ${part.label}` : ""}
       </button>
       {isLoading ? (
         <Spinner />
       ) : depth >= 1 ? (
         <p className="text-xs text-muted-foreground">Sematan bertingkat tidak ditampilkan.</p>
+      ) : part.text === null ? (
+        <p className="text-xs text-warning">
+          {linkBlock(target) ? "Blok" : "Judul"} {part.label} tidak ditemukan di catatan ini.
+        </p>
       ) : (
-        <NoteMarkdown content={data?.content ?? ""} depth={depth + 1} />
+        <NoteMarkdown content={part.text} noteId={note.id} depth={depth + 1} />
       )}
     </div>
   );
@@ -149,14 +193,19 @@ interface NoteMarkdownProps {
   className?: string;
   /** Kedalaman sematan (0 = catatan utama) */
   depth?: number;
+  /** Id catatan yang ditampilkan — untuk tautan/sematan ke catatan sendiri (`[[#Judul]]`, `![[#^id]]`) */
+  noteId?: string;
 }
 
 /**
  * Pembaca catatan vault: GFM + KaTeX + sintaks Obsidian (`[[tautan]]` bisa diklik + pratinjau, `![[sematan]]` gambar /
  * berkas / catatan, callout `> [!note]`). Judul diberi id (garis besar & `[[catatan#judul]]`).
  */
-export function NoteMarkdown({ content, className, depth = 0 }: NoteMarkdownProps) {
+export function NoteMarkdown({ content, className, depth = 0, noteId }: NoteMarkdownProps) {
   const ctx = useNoteLinkContext();
+  // Target tanpa nama catatan (`#Judul`, `#^id`) = catatan ini sendiri
+  const resolveTarget = (target: string) =>
+    target.startsWith("#") ? (noteId ? (ctx.byId?.(noteId) ?? null) : null) : ctx.resolve(target);
   const markdown = useMemo(() => toReaderMarkdown(content), [content]);
   // id judul diambil dari `outline()` menurut nomor baris (sama persis dengan garis besar, tidak bergantung urutan render)
   const ids = useMemo(() => new Map(outline(content).map((h) => [h.line, h.id])), [content]);
@@ -202,6 +251,9 @@ export function NoteMarkdown({ content, className, depth = 0 }: NoteMarkdownProp
             </div>
           ),
           a: ({ href = "", children }) => {
+            if (href.startsWith(BLOCK_SCHEME)) {
+              return <span id={blockAnchor(href.slice(BLOCK_SCHEME.length))} className="scroll-mt-4" />;
+            }
             if (!href.startsWith(LINK_SCHEME)) {
               return (
                 <a href={href} target="_blank" rel="noreferrer" className="text-info underline underline-offset-2">
@@ -210,7 +262,17 @@ export function NoteMarkdown({ content, className, depth = 0 }: NoteMarkdownProp
               );
             }
             const target = decodeURIComponent(href.slice(LINK_SCHEME.length));
-            const note = ctx.resolve(target);
+            if (/\.base(?:#|$)/i.test(target)) {
+              return (
+                <Link
+                  to={`/knowledge/bases?base=${encodeURIComponent(target.split("#")[0].trim())}`}
+                  className="font-medium text-module underline decoration-module/40 underline-offset-2"
+                >
+                  {children}
+                </Link>
+              );
+            }
+            const note = resolveTarget(target);
             if (!note) {
               return (
                 <button
@@ -230,7 +292,7 @@ export function NoteMarkdown({ content, className, depth = 0 }: NoteMarkdownProp
                   <button
                     type="button"
                     className="font-medium text-module underline decoration-module/40 underline-offset-2 hover:decoration-module"
-                    onClick={() => ctx.open(note.id, linkHeading(target) ? slugify(linkHeading(target)!) : undefined)}
+                    onClick={() => ctx.open(note.id, targetAnchor(target))}
                   >
                     {children}
                   </button>
@@ -247,8 +309,17 @@ export function NoteMarkdown({ content, className, depth = 0 }: NoteMarkdownProp
               return <img src={url} alt={alt} className="my-2 max-h-[480px] max-w-full rounded-lg border" />;
             }
             const target = decodeURIComponent(url.slice(EMBED_SCHEME.length));
+            if (/\.base(?:#|$)/i.test(target)) {
+              if (depth >= 1)
+                return <span className="text-xs text-muted-foreground">Sematan bertingkat tidak ditampilkan.</span>;
+              return (
+                <Suspense fallback={<Spinner className="my-2" />}>
+                  <EmbeddedBase target={target} />
+                </Suspense>
+              );
+            }
             if (isImagePath(target)) return <VaultImage name={target.replace(/[#^|].*$/, "")} alt={alt} />;
-            const note = ctx.resolve(target);
+            const note = resolveTarget(target);
             if (!note) {
               return <span className="text-xs text-warning">Sematan tidak ditemukan: {target}</span>;
             }
@@ -265,7 +336,7 @@ export function NoteMarkdown({ content, className, depth = 0 }: NoteMarkdownProp
                 </Button>
               );
             }
-            return <EmbeddedNote note={note} depth={depth} onOpen={(id) => ctx.open(id)} />;
+            return <EmbeddedNote note={note} target={target} depth={depth} onOpen={ctx.open} />;
           },
         }}
       >
@@ -279,6 +350,8 @@ export function NoteMarkdown({ content, className, depth = 0 }: NoteMarkdownProp
 
 interface NoteLinkContext {
   resolve: (target: string) => KnowledgeNoteListItem | null;
+  /** Catatan menurut id (tautan ke catatan sendiri) */
+  byId?: (id: string) => KnowledgeNoteListItem | null;
   open: (id: string, heading?: string) => void;
 }
 

@@ -1,7 +1,7 @@
 import type { RobotSystem } from "./robot-logic";
 
 /**
- * Tugas robot yang hanya **membaca** sistem asal — satu-satunya yang boleh dijadwalkan (Tools → Otomasi).
+ * Tugas robot yang hanya **membaca** sistem asal — satu-satunya yang boleh dijadwalkan (Otomasi di tab Connector).
  * Pengisian Renaksi & pendaftaran naskah tidak termasuk: selalu dipicu user. `*_session` = jaga sesi: membuka sistem
  * dengan sesi tersimpan agar cookie diperbarui & disimpan ulang, sekaligus mendeteksi sesi kedaluwarsa lebih awal.
  */

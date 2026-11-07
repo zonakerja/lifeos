@@ -19,8 +19,11 @@ import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { AuthUser } from "../common/types/auth-user";
 import {
+  BaseFileDto,
+  CreateBaseDto,
   CreateNoteDto,
   CreateVaultDto,
+  DailyNoteDto,
   ExportSettingsDto,
   FolderDto,
   InboxNoteDto,
@@ -30,9 +33,13 @@ import {
   MoveFolderDto,
   MoveNoteDto,
   NotePropertiesDto,
+  RestoreVersionDto,
+  SaveBaseDto,
   SaveNoteDto,
   SetVaultDto,
+  ToggleTaskDto,
 } from "./knowledge.dto";
+import { KnowledgeDailyService } from "./knowledge-daily.service";
 import { KnowledgeExportService } from "./knowledge-export.service";
 import { KnowledgeVaultService } from "./knowledge-vault.service";
 
@@ -45,6 +52,7 @@ export class KnowledgeController {
   constructor(
     private readonly vault: KnowledgeVaultService,
     private readonly mirror: KnowledgeExportService,
+    private readonly daily: KnowledgeDailyService,
   ) {}
 
   /** Cermin hasil kerja LifeOS → folder 80-LifeOS di vault (satu arah). */
@@ -116,7 +124,7 @@ export class KnowledgeController {
   inbox(@CurrentUser() user: AuthUser, @Body() dto: InboxNoteDto) {
     return this.vault.addToInbox(user.id, dto);
   }
-  // ---------------------------------------------------------------- Menu Pengetahuan
+  // ---------------------------------------------------------------- Menu Knowledge
 
   @Get("tree")
   tree(@CurrentUser() user: AuthUser) {
@@ -192,6 +200,84 @@ export class KnowledgeController {
   @Delete("notes/:id")
   remove(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.vault.deleteNote(user.id, id);
+  }
+
+  /** Catatan harian tanggal itu (dibuat sekali bila belum ada). */
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Post("daily")
+  openDaily(@CurrentUser() user: AuthUser, @Body() dto: DailyNoteDto) {
+    return this.daily.open(user.id, dto.date);
+  }
+
+  /** Riwayat versi catatan (isi sebelum ditimpa LifeOS + versi terpantau saat pindai). */
+  @Get("notes/:id/versions")
+  versions(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.vault.versions(user.id, id);
+  }
+
+  @Get("notes/:id/versions/:versionId")
+  version(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("versionId") versionId: string) {
+    return this.vault.version(user.id, id, versionId);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @HttpCode(200)
+  @Post("notes/:id/versions/:versionId/restore")
+  restoreVersion(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("versionId") versionId: string,
+    @Body() dto: RestoreVersionDto,
+  ) {
+    return this.vault.restoreVersion(user.id, id, versionId, dto.baseHash);
+  }
+
+  /** Bases (berkas `.base` Obsidian): tampilan tersimpan atas catatan vault. */
+  @Get("bases")
+  bases(@CurrentUser() user: AuthUser) {
+    return this.vault.listBases(user.id);
+  }
+
+  @Get("bases/file")
+  baseFile(@CurrentUser() user: AuthUser, @Query() dto: BaseFileDto) {
+    return this.vault.readBase(user.id, dto.path);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Post("bases")
+  createBase(@CurrentUser() user: AuthUser, @Body() dto: CreateBaseDto) {
+    return this.vault.createBase(user.id, dto);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 120 } })
+  @Put("bases/file")
+  saveBase(@CurrentUser() user: AuthUser, @Body() dto: SaveBaseDto) {
+    return this.vault.saveBase(user.id, dto);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Delete("bases/file")
+  deleteBase(@CurrentUser() user: AuthUser, @Query() dto: BaseFileDto) {
+    return this.vault.deleteBase(user.id, dto.path);
+  }
+
+  /** Tugas lintas vault (`- [ ]` di semua catatan). */
+  @Get("tasks")
+  tasks(@CurrentUser() user: AuthUser) {
+    return this.vault.tasks(user.id);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 120 } })
+  @HttpCode(200)
+  @Post("tasks/toggle")
+  toggleTask(@CurrentUser() user: AuthUser, @Body() dto: ToggleTaskDto) {
+    return this.vault.toggleTask(user.id, dto);
+  }
+
+  /** Catatan serupa menurut embedding indeks (tanpa panggilan AI). */
+  @Get("notes/:id/similar")
+  similar(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.vault.similar(user.id, id);
   }
 
   @Get("notes/:id/unlinked")

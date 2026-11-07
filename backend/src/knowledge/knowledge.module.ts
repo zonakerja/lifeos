@@ -2,13 +2,14 @@ import { Module } from "@nestjs/common";
 import { AiModule } from "../ai/ai.module";
 import { UploadsModule } from "../uploads/uploads.module";
 import { KnowledgeController } from "./knowledge.controller";
+import { KnowledgeDailyService } from "./knowledge-daily.service";
 import { KnowledgeExportService } from "./knowledge-export.service";
 import { KnowledgeVaultService } from "./knowledge-vault.service";
 
 @Module({
   imports: [AiModule, UploadsModule],
   controllers: [KnowledgeController],
-  providers: [KnowledgeVaultService, KnowledgeExportService],
+  providers: [KnowledgeVaultService, KnowledgeExportService, KnowledgeDailyService],
   exports: [KnowledgeVaultService],
 })
 export class KnowledgeModule {}

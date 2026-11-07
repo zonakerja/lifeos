@@ -8,6 +8,7 @@ import {
   ExternalLink,
   FilePen,
   FolderInput,
+  History,
   FolderSync,
   Loader2,
   MoreHorizontal,
@@ -42,7 +43,7 @@ import { cn } from "@/lib/utils";
 import type { KnowledgeNoteListItem } from "@/types/api";
 import { folderOf, isMirrorNote, mirrorAppPath, noteName, obsidianUri } from "./knowledge-logic";
 import { NoteMarkdown } from "./note-markdown";
-import { openWorkspaceDialog } from "./workspace-store";
+import { openWorkspaceDialog, useWorkspaceStore } from "./workspace-store";
 
 const NoteEditor = lazy(() => import("./note-editor"));
 
@@ -72,6 +73,46 @@ export function NoteView({
   const [heading, setHeading] = useSearchParam("h");
   const scroller = useRef<HTMLDivElement>(null);
   const editorRef = useRef<{ flush: () => Promise<boolean> } | null>(null);
+
+  const switchMode = useCallback(
+    async (next: "read" | "edit") => {
+      if (next === mode) return;
+      if (mode === "edit" && editorRef.current && !(await editorRef.current.flush())) return;
+      setMode(next);
+    },
+    [mode],
+  );
+
+  // Catatan terbuka → palet perintah (Ctrl+P) bisa menjalankan aksi catatan ini
+  useEffect(() => {
+    if (!note) return;
+    const mirror = isMirrorNote({ path: note.path, properties: note.frontmatter });
+    const bookmarked = prefs.bookmarks.includes(note.path);
+    useWorkspaceStore.setState({
+      active: {
+        id,
+        path: note.path,
+        title: note.title,
+        item,
+        editable: note.kind === "note" && !mirror,
+        mirror,
+        mode,
+        setMode: (next) => void switchMode(next),
+        bookmarked,
+        toggleBookmark: () =>
+          void savePrefs({
+            ...prefs,
+            bookmarks: bookmarked ? prefs.bookmarks.filter((b) => b !== note.path) : [...prefs.bookmarks, note.path],
+          }),
+      },
+    });
+  }, [id, note, item, mode, prefs, savePrefs, switchMode]);
+  useEffect(
+    () => () => {
+      if (useWorkspaceStore.getState().active?.id === id) useWorkspaceStore.setState({ active: null });
+    },
+    [id],
+  );
 
   // Lompat ke judul (`[[catatan#judul]]` / garis besar) setelah isi tampil
   useEffect(() => {
@@ -107,11 +148,6 @@ export function NoteView({
       ...prefs,
       bookmarks: bookmarked ? prefs.bookmarks.filter((b) => b !== note.path) : [...prefs.bookmarks, note.path],
     });
-  const switchMode = async (next: "read" | "edit") => {
-    if (next === mode) return;
-    if (mode === "edit" && editorRef.current && !(await editorRef.current.flush())) return;
-    setMode(next);
-  };
   const statusValue = note.metadata.status;
   const mirror = isMirrorNote({ path: note.path, properties: note.frontmatter });
   const appPath = mirror ? mirrorAppPath(note.frontmatter, window.location.origin) : null;
@@ -187,6 +223,13 @@ export function NoteView({
                 </DropdownMenuItem>
               </>
             )}
+            {!mirror && (
+              <DropdownMenuItem
+                onSelect={() => openWorkspaceDialog({ kind: "versions", id: note.id, title: note.title })}
+              >
+                <History /> Riwayat versi
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => void navigator.clipboard.writeText(`[[${noteName(note.path)}]]`)}>
               <Copy /> Salin tautan [[…]]
             </DropdownMenuItem>
@@ -229,7 +272,7 @@ export function NoteView({
           )}
         </div>
       ) : mode === "edit" && editable ? (
-        <EditPane key={id} id={id} notes={notes} controlRef={editorRef} />
+        <EditPane key={id} id={id} title={note.title} notes={notes} controlRef={editorRef} />
       ) : (
         <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8">
           <div className="mx-auto max-w-3xl">
@@ -237,7 +280,7 @@ export function NoteView({
               <h1 className="mb-4 text-2xl font-extrabold tracking-tight">{note.title}</h1>
             )}
             {note.content?.trim() ? (
-              <NoteMarkdown content={note.content} />
+              <NoteMarkdown content={note.content} noteId={note.id} />
             ) : mirror ? null : (
               <button
                 type="button"
@@ -257,10 +300,12 @@ export function NoteView({
 /** Mode sunting: isi mentah berkas; simpan otomatis 1,5 detik setelah berhenti mengetik. */
 function EditPane({
   id,
+  title,
   notes,
   controlRef,
 }: {
   id: string;
+  title: string;
   notes: KnowledgeNoteListItem[];
   controlRef: React.RefObject<{ flush: () => Promise<boolean> } | null>;
 }) {
@@ -397,6 +442,8 @@ function EditPane({
           <NoteEditor
             key={version}
             initial={source.raw}
+            noteId={id}
+            title={title}
             notes={notes}
             onChange={(value) => {
               text.current = value;

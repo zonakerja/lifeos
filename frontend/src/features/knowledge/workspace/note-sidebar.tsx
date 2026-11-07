@@ -9,6 +9,7 @@ import {
   Plus,
   SlidersHorizontal,
   Sparkles,
+  SquareStack,
   Unlink,
   Waypoints,
   X,
@@ -28,6 +29,7 @@ import { useAddToKnowledgeInbox, useKnowledgeNote } from "@/data/use-knowledge";
 import {
   useKnowledgeActions,
   useKnowledgeGraph,
+  useKnowledgeSimilar,
   useKnowledgeSource,
   useKnowledgeUnlinked,
 } from "@/data/use-knowledge-workspace";
@@ -73,7 +75,7 @@ function Section({
   );
 }
 
-/** Panel kanan catatan: Properti, Garis besar, Backlink, Sebutan tanpa tautan, Tautan keluar, Graf lokal, Tanya AI. */
+/** Panel kanan catatan: Properti, Garis besar, Backlink, Sebutan tanpa tautan, Tautan keluar, Catatan serupa, Graf lokal, Tanya AI. */
 export function NoteSidebar({ id, notes }: { id: string; notes: KnowledgeNoteListItem[] }) {
   const { data: note } = useKnowledgeNote(id);
   const openNote = useOpenNote();
@@ -141,6 +143,14 @@ export function NoteSidebar({ id, notes }: { id: string; notes: KnowledgeNoteLis
           <p className="text-xs text-muted-foreground">Tidak ada tautan keluar.</p>
         )}
       </Section>
+      {!isMirrorNote(note) && (
+        <Section title="Catatan serupa" icon={SquareStack}>
+          <SimilarNotes
+            id={id}
+            linked={new Set([...backlinks.map((b) => b.note.id), ...resolved.map((l) => l.note!.id)])}
+          />
+        </Section>
+      )}
       <Section title="Graf lokal" icon={Waypoints}>
         <LocalGraph id={id} />
       </Section>
@@ -172,6 +182,51 @@ function NoteRefs({
             <span className="truncate text-xs font-medium">{n.title}</span>
             <span className="truncate font-mono text-[10px] text-muted-foreground">{n.path}</span>
           </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Catatan bermakna mirip (embedding indeks, tanpa panggilan AI) — bahan menautkan catatan yang belum saling kenal. */
+function SimilarNotes({ id, linked }: { id: string; linked: Set<string> }) {
+  const { data, isLoading } = useKnowledgeSimilar(id);
+  const openNote = useOpenNote();
+  if (isLoading) return <Spinner />;
+  if (!data?.available)
+    return (
+      <p className="text-xs text-muted-foreground">
+        Belum tersedia — catatan ini belum punya embedding (indeks pengetahuan mati, belum ada key embedding di
+        Pengaturan → Model AI, atau masih diproses).
+      </p>
+    );
+  if (!data.items.length) return <p className="text-xs text-muted-foreground">Belum ada catatan lain yang mirip.</p>;
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {data.items.map((n) => (
+        <li key={n.id} className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 flex-col text-left hover:text-module"
+            onClick={() => openNote(n.id)}
+          >
+            <span className="truncate text-xs font-medium">{n.title}</span>
+            <span className="truncate font-mono text-[10px] text-muted-foreground">{n.path}</span>
+          </button>
+          {linked.has(n.id) && (
+            <Badge variant="outline" className="shrink-0 text-[10px]" title="Sudah saling bertaut">
+              <Link2 /> bertaut
+            </Badge>
+          )}
+          <span
+            className={cn(
+              "shrink-0 text-[10px] tabular-nums",
+              n.score >= 0.75 ? "text-module" : "text-muted-foreground",
+            )}
+            title="Kemiripan makna (0–100%)"
+          >
+            {Math.round(n.score * 100)}%
+          </span>
         </li>
       ))}
     </ul>

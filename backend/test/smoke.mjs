@@ -1469,6 +1469,129 @@ try {
     ok("knowledge attachment only images 400", r.s === 400, r);
     r = await j("GET", `/knowledge/attachment?path=${encodeURIComponent("tidak-ada.png")}`, null, at);
     ok("knowledge attachment missing image 404", r.s === 404, r);
+    // Catatan harian (K1) & catatan serupa (K4)
+    r = await j("POST", "/knowledge/daily", { date: "2026-11-06" }, at);
+    const dailyId = r.d?.id;
+    ok("knowledge daily note created", r.s === 201 && r.d.created === true && r.d.path === "Harian/2026-11-06.md", r);
+    r = await j("POST", "/knowledge/daily", { date: "2026-11-06" }, at);
+    ok("knowledge daily note reused", r.s === 201 && r.d.created === false && r.d.id === dailyId, r);
+    r = await j("GET", `/knowledge/notes/${dailyId}/source`, null, at);
+    ok(
+      "knowledge daily note content",
+      r.s === 200 && r.d.raw.includes("## Agenda") && r.d.raw.includes("jenis: harian"),
+      r.d,
+    );
+    r = await j("POST", "/knowledge/daily", { date: "2026-02-30" }, at);
+    ok("knowledge daily invalid date 400", r.s === 400, r);
+    r = await j("GET", `/knowledge/notes/${dailyId}/similar`, null, at);
+    ok("knowledge similar", r.s === 200 && typeof r.d.available === "boolean" && Array.isArray(r.d.items), r);
+    r = await j("GET", `/knowledge/notes/${dailyId}/similar`, null, pt);
+    ok("knowledge similar isolated 404", r.s === 404, r);
+    // Tugas lintas vault (K3): ringkasan LifeOS di catatan harian tidak ikut, centang ditulis balik ke berkas
+    r = await j(
+      "POST",
+      "/knowledge/notes",
+      { title: "Smoke tugas", content: "- [ ] Smoke tugas A 📅 2026-11-10\n- [x] Smoke tugas B ✅ 2026-11-01\n" },
+      at,
+    );
+    const taskNoteId = r.d?.id;
+    r = await j("GET", "/knowledge/tasks", null, at);
+    const smokeTasks = (r.d?.tasks ?? []).filter((t) => t.noteId === taskNoteId);
+    ok(
+      "knowledge tasks list",
+      r.s === 200 &&
+        smokeTasks.length === 2 &&
+        smokeTasks[0].due === "2026-11-10" &&
+        !(r.d.tasks ?? []).some((t) => t.noteId === dailyId),
+      r.d,
+    );
+    r = await j(
+      "POST",
+      "/knowledge/tasks/toggle",
+      { noteId: taskNoteId, index: 0, raw: smokeTasks[0]?.raw, done: true, today: "2026-11-07" },
+      at,
+    );
+    ok("knowledge task toggle", r.s === 200, r);
+    r = await j("GET", `/knowledge/notes/${taskNoteId}/source`, null, at);
+    ok("knowledge task written back", r.d?.raw?.startsWith("- [x] Smoke tugas A 📅 2026-11-10 ✅ 2026-11-07"), r.d);
+    r = await j(
+      "POST",
+      "/knowledge/tasks/toggle",
+      { noteId: taskNoteId, index: 0, raw: "- [ ] sudah berubah", done: true, today: "2026-11-07" },
+      at,
+    );
+    ok("knowledge task changed elsewhere 409", r.s === 409, r);
+    r = await j(
+      "POST",
+      "/knowledge/tasks/toggle",
+      { noteId: taskNoteId, index: 0, raw: smokeTasks[0]?.raw, done: true, today: "2026-11-07" },
+      pt,
+    );
+    ok("knowledge task toggle isolated 404", r.s === 404, r);
+    await j("DELETE", `/knowledge/notes/${taskNoteId}`, null, at);
+    // Riwayat versi (K7): isi sebelum ditimpa LifeOS tersimpan & bisa dipulihkan
+    r = await j("POST", "/knowledge/notes", { title: "Smoke versi", content: "Isi pertama" }, at);
+    const versionNoteId = r.d?.id;
+    r = await j("GET", `/knowledge/notes/${versionNoteId}/source`, null, at);
+    r = await j("PUT", `/knowledge/notes/${versionNoteId}`, { content: "Isi kedua", baseHash: r.d.hash }, at);
+    const afterSaveHash = r.d?.hash;
+    r = await j("GET", `/knowledge/notes/${versionNoteId}/versions`, null, at);
+    const firstVersion = (r.d ?? []).find((v) => v.reason === "before_save");
+    ok("knowledge versions recorded", r.s === 200 && !!firstVersion && !firstVersion.current, r.d);
+    r = await j("GET", `/knowledge/notes/${versionNoteId}/versions/${firstVersion?.id}`, null, at);
+    ok("knowledge version content", r.s === 200 && r.d.content === "Isi pertama", r.d);
+    r = await j("GET", `/knowledge/notes/${versionNoteId}/versions/${firstVersion?.id}`, null, pt);
+    ok("knowledge version isolated 404", r.s === 404, r);
+    r = await j(
+      "POST",
+      `/knowledge/notes/${versionNoteId}/versions/${firstVersion?.id}/restore`,
+      { baseHash: "0".repeat(64) },
+      at,
+    );
+    ok("knowledge version restore stale 409", r.s === 409, r);
+    r = await j(
+      "POST",
+      `/knowledge/notes/${versionNoteId}/versions/${firstVersion?.id}/restore`,
+      { baseHash: afterSaveHash },
+      at,
+    );
+    ok("knowledge version restored", r.s === 200 && r.d.raw === "Isi pertama", r.d);
+    r = await j("GET", `/knowledge/notes/${versionNoteId}/versions`, null, at);
+    ok(
+      "knowledge version before restore kept",
+      (r.d ?? []).some((v) => v.reason === "before_restore"),
+      r.d,
+    );
+    await j("DELETE", `/knowledge/notes/${versionNoteId}`, null, at);
+    // Bases (K2): berkas .base dibaca/ditulis sebagai YAML, berubah di disk → 409
+    r = await j("POST", "/knowledge/bases", { name: "Smoke base" }, at);
+    const basePath = r.d?.path;
+    ok("knowledge base created", r.s === 201 && basePath?.endsWith(".base") && r.d.data.views?.length === 1, r);
+    r = await j("GET", "/knowledge/bases", null, at);
+    ok("knowledge bases list", r.s === 200 && r.d.some((b) => b.path === basePath), r.d);
+    r = await j("GET", `/knowledge/bases/file?path=${encodeURIComponent(basePath)}`, null, at);
+    const baseHash = r.d?.hash;
+    r = await j(
+      "PUT",
+      "/knowledge/bases/file",
+      {
+        path: basePath,
+        baseHash,
+        data: { filters: { and: ['status == "berlaku"'] }, views: [{ type: "cards", name: "Kartu" }] },
+      },
+      at,
+    );
+    ok("knowledge base saved", r.s === 200 && r.d.data.views[0].type === "cards" && r.d.data.filters, r.d);
+    r = await j("PUT", "/knowledge/bases/file", { path: basePath, baseHash, data: { views: [] } }, at);
+    ok("knowledge base stale hash 409", r.s === 409, r);
+    r = await j("GET", `/knowledge/bases/file?path=${encodeURIComponent("Mulai di sini.md")}`, null, at);
+    ok("knowledge base only .base 400", r.s === 400, r);
+    r = await j("GET", `/knowledge/bases/file?path=${encodeURIComponent(basePath)}`, null, pt);
+    ok("knowledge base isolated", r.s !== 200, r);
+    r = await j("DELETE", `/knowledge/bases/file?path=${encodeURIComponent(basePath)}`, null, at);
+    ok("knowledge base to trash", r.s === 200 && r.d.trash.startsWith(".trash/"), r);
+    await j("DELETE", `/knowledge/notes/${dailyId}`, null, at);
+    await j("DELETE", "/knowledge/folders?path=Harian", null, at);
     // Cermin hasil kerja LifeOS → 80-LifeOS (satu arah, baca saja di menu Pengetahuan)
     r = await j("GET", "/knowledge/export", null, at);
     ok("knowledge export default off", r.s === 200 && r.d.enabled === false && r.d.vaultReady === true, r);
@@ -1480,7 +1603,11 @@ try {
     ok("knowledge export run", r.s === 200 && r.d.files >= 2 && !r.d.lastError, r.d);
     r = await j("GET", "/knowledge/tree", null, at);
     const mirrorNote = r.d?.notes?.find?.((n) => n.path === "80-LifeOS/Catatan Bebas/Cermin smoke.md");
-    ok("knowledge export file in vault", !!mirrorNote && mirrorNote.properties?.sumber === "lifeos", r.d?.notes?.length);
+    ok(
+      "knowledge export file in vault",
+      !!mirrorNote && mirrorNote.properties?.sumber === "lifeos",
+      r.d?.notes?.length,
+    );
     r = await j("GET", `/knowledge/notes/${mirrorNote?.id}/source`, null, at);
     r = await j("PUT", `/knowledge/notes/${mirrorNote?.id}`, { content: "ubah", baseHash: r.d?.hash }, at);
     ok("knowledge mirror note read-only 400", r.s === 400, r);
@@ -2336,7 +2463,7 @@ try {
     }
   }
 
-  // ---- Otomasi terjadwal (Tools → Otomasi). User sementara tanpa sesi robot → tugas gagal sebelum sampai ke robot.
+  // ---- Otomasi terjadwal (tab Connector). User sementara tanpa sesi robot → tugas gagal sebelum sampai ke robot.
   r = await j("GET", "/automation/jobs", null, at);
   ok(
     "automation jobs default (7, nonaktif, jadwal bawaan)",

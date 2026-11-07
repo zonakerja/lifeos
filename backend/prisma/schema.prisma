@@ -138,32 +138,33 @@ model User {
   archiveMoveLogs           ArchiveMoveLog[]
 
   // </generated:user-relations>
-  archiveAuditLogs ArchiveAuditLog[]
-  sharesOwned      Share[]            @relation("SharesOwned")
-  sharesReceived   Share[]            @relation("SharesReceived")
-  commentsOnOwned  RecordComment[]    @relation("CommentsOnOwned")
-  commentsAuthored RecordComment[]    @relation("CommentsAuthored")
-  notebooks        Notebook[]
-  aiConversations  AiConversation[]
-  knowledgeNotes   KnowledgeNote[]
-  apiTokens        ApiToken[]
-  requests         Request[]
-  contactGroups    ContactGroup[]
-  robotConnectors  RobotConnector[]
-  robotRuns        RobotRun[]
-  publicLinks      PublicLink[]
-  publicVaults     PublicVault[]
-  waContacts       WaContact[]
-  waMessages       WaMessage[]
+  archiveAuditLogs      ArchiveAuditLog[]
+  sharesOwned           Share[]                @relation("SharesOwned")
+  sharesReceived        Share[]                @relation("SharesReceived")
+  commentsOnOwned       RecordComment[]        @relation("CommentsOnOwned")
+  commentsAuthored      RecordComment[]        @relation("CommentsAuthored")
+  notebooks             Notebook[]
+  aiConversations       AiConversation[]
+  knowledgeNotes        KnowledgeNote[]
+  knowledgeNoteVersions KnowledgeNoteVersion[]
+  apiTokens             ApiToken[]
+  requests              Request[]
+  contactGroups         ContactGroup[]
+  robotConnectors       RobotConnector[]
+  robotRuns             RobotRun[]
+  publicLinks           PublicLink[]
+  publicVaults          PublicVault[]
+  waContacts            WaContact[]
+  waMessages            WaMessage[]
   /// Profil layanan bot WhatsApp: { serviceName, topic }
-  waBot            Json?              @map("wa_bot")
-  agentActivity    AgentActivityLog[]
-  automationJobs   AutomationJob[]
-  automationRuns   AutomationRun[]
-  agentPolicies    AgentPolicy[]
-  agentRuns        AgentRun[]
+  waBot                 Json?                  @map("wa_bot")
+  agentActivity         AgentActivityLog[]
+  automationJobs        AutomationJob[]
+  automationRuns        AutomationRun[]
+  agentPolicies         AgentPolicy[]
+  agentRuns             AgentRun[]
   /// Sakelar darurat Kebijakan Otomatis: true = tidak ada tugas/keputusan/kiriman otomatis baru
-  agentAutoPaused  Boolean            @default(false) @map("agent_auto_paused")
+  agentAutoPaused       Boolean                @default(false) @map("agent_auto_paused")
 
   @@map("users")
 }
@@ -405,6 +406,26 @@ model KnowledgeNote {
   @@unique([userId, path])
   @@index([assetId])
   @@map("knowledge_notes")
+}
+
+/// Riwayat versi catatan vault (K7): isi berkas sebelum LifeOS menimpanya + versi terpantau saat pindai. Dikunci per path
+/// (diperbarui saat catatan/folder dipindah), maks. sekian versi terbaru per catatan.
+model KnowledgeNoteVersion {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  /// Path relatif catatan di vault saat ini
+  path      String
+  /// Isi berkas mentah (termasuk properti)
+  content   String
+  hash      String
+  size      Int
+  /// observed | before_save | before_properties | before_task | before_link | before_move | before_restore
+  reason    String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, path, createdAt])
+  @@map("knowledge_note_versions")
 }
 
 /// Tautan antar-catatan (`[[...]]`, `![[...]]`, atau properti seperti `dasar_hukum`).

@@ -15,8 +15,8 @@ export interface RobotSystemInfo {
   defaultUrl: string;
   /** Penanda alamat halaman login khusus sistem (selain penanda umum di service robot) */
   loginMarkers: string[];
-  /** Alur yang direncanakan (belum dipetakan sampai halaman sistem dieksplor bersama pengguna) */
-  plannedFlows: string[];
+  /** Pekerjaan robot pada sistem ini; `scheduled` = tugas baca-saja yang bisa dijadwalkan (sub-tab Otomasi terjadwal) */
+  flows: { label: string; scheduled: boolean }[];
   /** Batas tindakan robot pada sistem ini */
   limits: string;
 }
@@ -27,24 +27,32 @@ export const SYSTEM_INFO: Record<RobotSystem, RobotSystemInfo> = {
     description: "Aplikasi umum bidang kearsipan dinamis (ANRI): naskah dinas keluar/masuk, disposisi, TTE.",
     defaultUrl: "https://srikandi.arsip.go.id",
     loginMarkers: ["/auth/login"],
-    plannedFlows: [
-      "Isi konsep naskah keluar dari Pengajuan / dokumen ONLYOFFICE (jenis, sifat, hal, tujuan, penandatangan)",
-      "Unggah dokumen konsep & lampiran",
-      "Ambil PDF bertanda tangan untuk ditautkan ke dokumen final LifeOS",
+    flows: [
+      {
+        label: "Daftarkan naskah dari tab Register: isi formulir Registrasi Naskah Keluar lalu Simpan konsep",
+        scheduled: false,
+      },
+      { label: "Ambil naskah ber-TTD & lampirannya dari Daftar Naskah Keluar", scheduled: true },
+      { label: "Ambil referensi pengguna (penandatangan, tujuan, pemeriksa, tembusan)", scheduled: true },
+      { label: "Ambil klasifikasi arsip", scheduled: true },
+      { label: "Jaga sesi login (perbarui cookie, deteksi sesi habis)", scheduled: true },
     ],
     limits:
-      "Berhenti di simpan konsep / kirim ke pemeriksa dengan konfirmasi Anda. Robot tidak pernah menandatangani (TTE).",
+      "Berhenti di Simpan konsep. Robot tidak pernah menekan Kirim Konsep / Kirim Naskah dan tidak pernah menandatangani (TTE).",
   },
   ekinerja: {
     label: "e-Kinerja",
     description: "Aplikasi kinerja pegawai: SKP, rencana aksi, realisasi & bukti dukung bulanan.",
     defaultUrl: "",
     loginMarkers: [],
-    plannedFlows: [
-      "Isi realisasi bulanan per rencana aksi: uraian, jumlah dokumen, tautan dokumen bukti (tautan publik LifeOS)",
-      "Ambil daftar SKP / rencana aksi untuk dipetakan ke pekerjaan LifeOS",
+    flows: [
+      { label: "Isi / kirim perubahan Rencana Aksi bulanan dari Laporan Kinerja", scheduled: false },
+      { label: "Ambil SKP & RHK", scheduled: true },
+      { label: "Pantau Rencana Aksi (status bulan, isi, feedback penilai)", scheduled: true },
+      { label: "Jaga sesi login (perbarui cookie, deteksi sesi habis)", scheduled: true },
     ],
-    limits: "Mengisi realisasi setelah pemetaan Anda setujui. Tidak mengajukan/menyetujui penilaian atas nama atasan.",
+    limits:
+      "Hanya mengisi bulan yang belum diajukan. Robot tidak pernah menekan Kirim Penilaian Ke Atasan dan tidak menyetujui penilaian.",
   },
 };
 

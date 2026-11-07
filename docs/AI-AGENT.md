@@ -1546,7 +1546,7 @@ mode auto dipakai sungguhan), sumber master OnTrack.
 | 1 | Komunikasi Hermes ↔ Obsidian ↔ LifeOS | ✅ kecuali jawaban model sungguhan | Hasil di §25.1 |
 | 2 | Hermes membentuk skill & bekerja otomatis tanpa Approval; **Kirim Konsep di SRIKANDI tetap di tangan user** | 🚧 tahap 1 ✅ 2026-11-06 (§24.6) | Sisa: skill `penetapan-psp` (C5), draf skill dari Hermes, pembatasan toolset Hermes, uji dengan model sungguhan |
 | 3 | Fitur Hermes seperti di aplikasi desktopnya, di dalam LifeOS | Belum | Daftar fitur yang diinginkan perlu dipastikan dengan user |
-| 4 | Antarmuka Obsidian di LifeOS (Graph View, dsb.) | ✅ 2026-11-06 | Menu **Pengetahuan** — rencana §25.2, hasil §25.4 |
+| 4 | Antarmuka Obsidian di LifeOS (Graph View, dsb.) | ✅ 2026-11-06 | Menu **Knowledge** (dulu Pengetahuan) — rencana §25.2, hasil §25.4, usulan lanjutan §25.6 |
 | 5 | Pembagian model: penalaran agen Claude dengan cadangan OpenAI; tugas biasa, RAG, chatbot dengan Gemini | ✅ 2026-11-06 | Cadangan per tugas di Pembagian tugas AI + cadangan di proxy agen (§25.3). Uji Claude sungguhan menunggu key/router user |
 
 ### 25.1 Hasil nomor 1 (2026-11-05)
@@ -1577,7 +1577,7 @@ berhasil 31 Okt), jadi run agen berhenti di panggilan model pertama. Menunggu ke
 `delegation`, dan `computer_use` di container (backend terminal `local`, tanpa sandbox). Sebelum agen dibuat otomatis, toolset
 perlu dibatasi ke yang dipakai skill LifeOS.
 
-### 25.2 Rencana nomor 4 — menu **Pengetahuan** (antarmuka Obsidian di LifeOS, riset 2026-11-06)
+### 25.2 Rencana nomor 4 — menu **Knowledge** (antarmuka Obsidian di LifeOS, riset 2026-11-06)
 
 Keputusan user: menu baru **Pengetahuan** di sidebar (Tools → Basis Pengetahuan tetap untuk pengaturan vault & profil kerja),
 "full feature": Graph View, penjelajah vault, pencarian, sunting catatan + fitur lain yang berguna. Riset: fitur inti Obsidian
@@ -1619,7 +1619,7 @@ untuk basis pengetahuan BMN, bukan meniru Obsidian utuh (Canvas, plugin, tema ti
 - **Kesehatan vault**: catatan bermasalah (`noteProblems`), tautan rusak, catatan yatim, duplikat judul — dipindah dari kartu
   Tools.
 - **Tanya pengetahuan**: tombol "Tanya AI tentang catatan ini" → chatbot melayang dengan catatan sebagai konteks; sitasi
-  chatbot yang menunjuk catatan vault membuka menu Pengetahuan (menggantikan dialog `KnowledgeNoteHost`).
+  chatbot yang menunjuk catatan vault membuka menu Knowledge (menggantikan dialog `KnowledgeNoteHost`).
 
 **Teknologi**: graf `react-force-graph-2d` 1.29 (MIT, canvas, d3-force, dimuat malas) — dipilih atas sigma.js (WebGL, lebih
 cocok > 10 rb node; vault user ratusan–ribuan). Markdown baca = komponen `Markdown` yang ada + plugin wikilink/callout;
@@ -1670,7 +1670,7 @@ WEBP/BMP dan tidak ikut diindeks; Canvas, plugin, dan tema Obsidian memang tidak
 ### 25.5 Lanjutan nomor 4: cermin hasil kerja, graf ala Obsidian, Tools dirapikan (2026-11-06)
 
 Permintaan user: hasil kerja LifeOS (catatan, My Notebook, Productivity) harus tampil di Obsidian; graf seperti aplikasi
-Obsidian; tumpang tindih menu Pengetahuan vs Tools → Basis Pengetahuan diselesaikan.
+Obsidian; tumpang tindih menu Knowledge vs Tools → Basis Pengetahuan diselesaikan.
 
 - **Cermin `80-LifeOS/`** (`KnowledgeExportService`, `vault-export.ts`): satu arah LifeOS → vault, diperbarui ± 1 menit setelah
   data berubah (sidik jari jumlah + waktu ubah per tabel) atau lewat **Sinkronkan sekarang**. Isi: `Catatan Bebas/`,
@@ -1679,7 +1679,7 @@ Obsidian; tumpang tindih menu Pengetahuan vs Tools → Basis Pengetahuan diseles
   + task), `Agenda/` (yang punya hasil / induk / Notes AI), `Resource/`; indeks `LifeOS.md`. Frontmatter `sumber: lifeos`, `jenis:
   lifeos-…`, `lifeos_id`, alamat Buka di LifeOS. Tautan memakai path lengkap sehingga tidak ambigu.
 - Aman: hanya berkas bertanda `sumber: lifeos` yang ditimpa/dihapus (catatan user di folder itu tidak disentuh); tidak diindeks
-  ulang sebagai pengetahuan; baca saja di menu Pengetahuan (server menolak sunting/pindah/hapus); hanya data milik sendiri;
+  ulang sebagai pengetahuan; baca saja di menu Knowledge (server menolak sunting/pindah/hapus); hanya data milik sendiri;
   berkas lampiran tidak disalin. Pengaturan per user di `knowledge_prefs.export` (bawaan mati).
 - **Graf**: panel Filter / Grup / Tampilan / Gaya + tombol Animasi mengikuti Graph view Obsidian; tag bisa menjadi node; posisi
   node dipertahankan saat difilter; pengaturan disimpan per browser.
@@ -1689,3 +1689,65 @@ Obsidian; tumpang tindih menu Pengetahuan vs Tools → Basis Pengetahuan diseles
 Uji: unit backend +4 (`vault-export.spec.ts`, termasuk "semua tautan terselesaikan") & frontend +3 (`graph-settings.test.ts`),
 smoke +7 (aktifkan, sinkron, berkas ada, baca saja 400, hapus berkas, matikan), vault dev 47 berkas dicerminkan tanpa potongan
 indeks, UI (Tools, graf + tag + animasi, catatan cermin → Buka di LifeOS).
+
+### 25.6 Riset lanjutan: fitur Obsidian yang belum ada di menu Knowledge (2026-11-06, belum dikerjakan)
+
+Menu **Pengetahuan** berganti label menjadi **Knowledge** (permintaan user; path `/knowledge` & kode tetap). Pembanding: daftar
+core plugin Obsidian & changelog 1.12–1.15 (Bases dengan toolbar cari, Group menu di semua tampilan, kanban, impor berkas,
+Obsidian CLI). Yang **sudah ada** di LifeOS: penjelajah + seret-lepas, pembaca (`[[tautan]]`, pratinjau hover, sematan gambar,
+callout, KaTeX, GFM), editor CodeMirror, properti, garis besar, backlink, sebutan tanpa tautan, graf global & lokal (filter, grup,
+gaya, animasi), tabel properti, cari dengan operator, tag, penanda, templat, pembuka cepat Ctrl+O, Inbox, kesehatan, sampah, Tanya AI.
+
+Usulan (urut manfaat untuk pekerjaan user; nomor = usulan, bukan keputusan):
+
+| No | Fitur Obsidian | Bentuk di LifeOS | Nilai | Ukuran |
+|---|---|---|---|---|
+| K1 ✅ | **Daily notes** (+ periodic) | Tombol "Catatan hari ini" → `Harian/YYYY-MM-DD.md` dari templat, otomatis memuat tautan agenda, to-do, dan task hari itu (berkas cermin `80-LifeOS`) | Tinggi — jembatan Planner ↔ Obsidian | Kecil |
+| K2 ✅ | **Bases** (tampilan tersimpan) | Tab Tabel menjadi tampilan tersimpan yang dibaca/ditulis sebagai berkas `.base` (format YAML Obsidian) — filter, urut, kelompokkan, rumus sederhana, tampilan Kartu & Kanban; tampilan yang sama terlihat di Obsidian | Tinggi | Besar |
+| K3 ✅ | **Tugas lintas vault** (pola plugin Tasks) | Kumpulkan `- [ ]` dari semua catatan (tenggat `📅 2026-11-10`), tampil di Knowledge & opsional di Planner Harian; centang = tulis balik ke berkas (cek hash) | Tinggi | Sedang |
+| K4 ✅ | **Catatan serupa** (pola Smart Connections) | Panel info "Mirip dengan catatan ini" dari embedding `ai_chunks` yang sudah ada — tanpa biaya AI tambahan | Sedang–tinggi | Kecil |
+| K5 ✅ | **Command palette** (Ctrl+P) + perintah `/` di editor | Semua aksi menu Knowledge (catatan baru, pindah, templat, sisip tautan/callout/tabel) dari satu palet | Sedang | Kecil |
+| K6 ✅ | **Sematan catatan & blok** | `![[catatan]]`, `![[catatan#Judul]]`, `[[catatan#^id]]` dirender (sekarang hanya gambar); pelengkap `^id` di editor | Sedang | Sedang |
+| K7 ✅ | **File recovery** | Riwayat versi per catatan untuk tulisan dari LifeOS (snapshot sebelum menimpa, maks. n) + bandingkan & pulihkan | Sedang (pengaman) | Sedang |
+| K8 | **Canvas** (JSON Canvas, format terbuka) | Tahap 1 penampil `.canvas` (kartu catatan, teks, tautan, panah); tahap 2 sunting | Sedang | Besar |
+| K9 | **Note composer** | Ekstrak pilihan teks ke catatan baru (diganti tautan) & gabung dua catatan | Rendah–sedang | Kecil |
+| K10 | Mermaid, catatan kaki, jumlah kata, catatan acak, ganti nama tag se-vault | Pelengkap pembaca & penjelajah | Rendah | Kecil masing-masing |
+| K11 | Tab/belah tampilan beberapa catatan | Membuka 2 catatan berdampingan (≥ 1280 px) | Rendah | Sedang |
+
+Tidak disarankan: Publish (publik sudah lewat bot WhatsApp & penanda `publik: true`), Sync (sudah Syncthing), audio recorder &
+Slides (sudah ada Notes AI / ONLYOFFICE), plugin komunitas di LifeOS (LifeOS bukan Obsidian; fitur dibangun langsung).
+Rekomendasi urutan bila disetujui user: K1 → K4 → K5 → K3 → K6 → K2 → K7 → K8.
+
+**K1 & K4 selesai 2026-11-06**: `POST /knowledge/daily` (`Harian/YYYY-MM-DD.md`, templat `90-Templat/Harian.md` dengan penanda
+`{{lifeos}}`, ringkasan agenda/to-do/task/terlambat bertaut ke cermin 80-LifeOS; tombol di header Knowledge & ikon di Planner Harian)
+dan `GET /knowledge/notes/:id/similar` (panel Info **Catatan serupa**). Diuji: unit +4, smoke +6, UI (catatan uji topik BMN 85% vs
+resep 66%, data uji dihapus).
+
+**K5 selesai 2026-11-07**: palet perintah **Ctrl+P** (catatan ini: sunting/baca, penanda, salin tautan, buka di Obsidian, ganti nama,
+pindah, sampah; sisipkan di editor; vault: catatan/folder baru, buka cepat, catatan harian kemarin/hari ini/besok, catatan acak,
+pindai ulang, pengaturan; buka tab) + perintah **`/`** di editor (judul, daftar, tugas, 7 callout, tabel, blok kode, garis, tautan
+`[[`, sematan, tag, catatan kaki, tanggal & jam, templat `90-Templat`). Diuji: unit +9, UI desktop & HP (catatan uji dihapus).
+
+**K3 selesai 2026-11-07**: tab **Tugas** di menu Knowledge (semua `- [ ]` vault: Terlambat / Hari ini / 7 hari / Nanti / Tanpa
+tanggal / Selesai atau per catatan, cari & `#tag`) + bagian **Dari vault Knowledge** di kartu To-Do Planner Harian. Format plugin
+Tasks (📅 ⏳ 🛫 ✅, prioritas, 🔁, `[due:: ]`); centang ditulis balik (`[x]` + `✅ tanggal`, tugas berulang membuat kejadian
+berikutnya), baris yang sudah berubah di Obsidian → 409. Templat, cermin 80-LifeOS, blok kode, dan ringkasan LifeOS di catatan
+harian tidak ikut. Diuji: unit backend +8 & frontend +4, smoke +5, UI desktop & HP (catatan uji dihapus).
+
+**K6 selesai 2026-11-07**: pembaca merender `![[catatan#Judul]]` (bagian), `![[catatan#^id]]` (blok), penanda `^id` tidak terlihat,
+`[[catatan#^id]]` & `[[#Judul]]` (catatan sendiri) bisa diklik; editor punya pelengkap `[[catatan#` (judul) dan `[[catatan#^`
+(blok — blok tanpa id langsung diberi `^id` di berkas tujuan, seperti Obsidian). Diuji: unit +5, UI desktop & HP (catatan uji
+dihapus).
+
+**K2 selesai 2026-11-07**: tab **Bases** membaca & menulis berkas `.base` Obsidian (filter base & per tampilan dengan and/or/not,
+rumus `formula.*`, kolom, urutan, kelompok, batas; tampilan Tabel / Kartu / Daftar). Ekspresi Bases Obsidian yang umum didukung
+(properti, `file.hasTag/inFolder/hasProperty`, perbandingan, tanggal ± durasi, `if()`, metode teks/daftar); yang belum didukung
+diberi peringatan & diabaikan, berkas tidak berubah. Penulisan memakai hash (berubah di Obsidian → 409). Belum: sematan
+`![[x.base]]`, ringkasan kolom, sunting sel. Diuji: unit backend +3 & frontend +6, smoke +7, UI desktop & HP (base uji dihapus).
+Lanjutan K2 (hari yang sama): sematan `![[x.base#Tampilan]]` di catatan, ringkasan kaki tabel (Average, Sum, Unique, …), sunting
+nilai properti langsung di sel tabel (unit +2, UI diuji: nilai 10 → 50, rata-rata 20 → 40).
+
+**K7 selesai 2026-11-07**: **Riwayat versi** di menu ⋯ catatan & palet perintah — isi catatan sebelum LifeOS menimpanya (editor,
+properti, tugas, tautan, pindah, pulihkan) + versi terpantau saat pindai (perubahan dari Obsidian, per 5 menit), maks. 30 versi per
+catatan, ikut saat catatan/folder dipindah; dialog Perubahan (diff baris) / Isi versi, **Pulihkan** (isi sekarang disimpan dulu).
+Diuji: unit backend +2 & frontend +3, smoke +6, UI desktop & HP (catatan uji dihapus). Berikutnya menurut urutan: K8 Canvas.

@@ -45,7 +45,7 @@ const MAX_PROFILE = 6000;
 /**
  * Tools → Basis Pengetahuan = **pengaturan** (sekali atur): profil kerja & instruksi tetap, vault Obsidian, cermin hasil
  * kerja LifeOS ke vault (80-LifeOS), dan cara memakai. Bekerja dengan isi vault (daftar catatan, sunting, graf,
- * kesehatan) ada di menu Pengetahuan. Rencana & keputusan: docs/AI-AGENT.md §10, §14, §25.
+ * kesehatan) ada di menu Knowledge. Rencana & keputusan: docs/AI-AGENT.md §10, §14, §25.
  */
 export function KnowledgeSettings() {
   const { data: status, isLoading } = useKnowledgeStatus();
@@ -203,13 +203,13 @@ function Stat({ label, value, mono }: { label: string; value: string; mono?: boo
   );
 }
 
-/** Pintasan ke menu Pengetahuan (tempat bekerja dengan isi vault) + ringkasan hal yang perlu dirapikan. */
+/** Pintasan ke menu Knowledge (tempat bekerja dengan isi vault) + ringkasan hal yang perlu dirapikan. */
 function WorkspaceLinks({ status }: { status: KnowledgeStatus }) {
   const issues = status.problems.length + status.unresolvedLinks.length;
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 px-3 py-2">
       <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-        Jelajahi, sunting, cari, dan lihat graf catatan di menu <strong>Pengetahuan</strong>.
+        Jelajahi, sunting, cari, dan lihat graf catatan di menu <strong>Knowledge</strong>.
         {issues > 0 && (
           <span className="ml-1 text-warning">
             {status.problems.length > 0 && `${status.problems.length} catatan perlu dirapikan`}
@@ -220,7 +220,7 @@ function WorkspaceLinks({ status }: { status: KnowledgeStatus }) {
       </p>
       <Button asChild size="sm" variant="outline">
         <Link to="/knowledge/notes">
-          <BookOpenCheck /> Buka Pengetahuan
+          <BookOpenCheck /> Buka Knowledge
         </Link>
       </Button>
       {issues > 0 && (

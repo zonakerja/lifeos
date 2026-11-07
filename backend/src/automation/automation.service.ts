@@ -42,7 +42,7 @@ const KEEP_RUNS = 50;
 const ACTIVE = ["queued", "running"];
 
 /**
- * Otomasi terjadwal (Tools → Otomasi): jadwal per user di `automation_jobs` → job scheduler BullMQ (cron + zona waktu).
+ * Otomasi terjadwal (tab Connector): jadwal per user di `automation_jobs` → job scheduler BullMQ (cron + zona waktu).
  * Tabel = sumber kebenaran; saat start jadwal di Redis disamakan dengan tabel. Tugas yang sama tetap bisa dipicu tombol
  * di menu asal (riwayatnya ikut tercatat lewat kait RobotService) atau "Jalankan sekarang".
  */

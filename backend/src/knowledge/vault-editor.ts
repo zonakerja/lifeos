@@ -2,7 +2,7 @@ import { isMap, parseDocument } from "yaml";
 import { EXPORT_DIR, INBOX_DIR, linkKey, splitFrontmatter, TEMPLATE_DIR } from "./vault-parser";
 
 /**
- * Logika murni menu Pengetahuan (antarmuka Obsidian di LifeOS): validasi path vault, ubah properti tanpa merusak format
+ * Logika murni menu Knowledge (antarmuka Obsidian di LifeOS): validasi path vault, ubah properti tanpa merusak format
  * YAML, ganti nama tautan saat catatan diganti nama, pencarian beroperator, sebutan tanpa tautan, templat, kesehatan
  * vault, dan preferensi tampilan. Semua penulisan berkas tetap di `KnowledgeVaultService`.
  */
@@ -252,7 +252,7 @@ export function vaultHealth(notes: HealthNote[]) {
   return { orphans, duplicates };
 }
 
-/** Preferensi menu Pengetahuan per user (`users.knowledge_prefs`): penanda & grup warna graf. */
+/** Preferensi menu Knowledge per user (`users.knowledge_prefs`): penanda & grup warna graf. */
 export interface KnowledgePrefs {
   bookmarks: string[];
   graphGroups: { query: string; color: string }[];

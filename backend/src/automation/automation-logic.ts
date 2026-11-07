@@ -2,7 +2,7 @@ import { ROBOT_JOB_KINDS, ROBOT_JOBS, type RobotJobKind } from "../robot/robot-j
 import type { RobotSystem } from "../robot/robot-logic";
 
 /**
- * Jadwal otomasi (Tools → Otomasi). Disimpan terstruktur agar mudah diatur dari UI, lalu diterjemahkan ke pola cron
+ * Jadwal otomasi (tab Connector Laporan Kinerja & SRIKANDI). Disimpan terstruktur agar mudah diatur dari UI, lalu diterjemahkan ke pola cron
  * BullMQ. Semua bentuk dibatasi **paling sering sekali per jam** — robot membuka sistem pemerintah, jangan dibanjiri.
  */
 export const AUTOMATION_TIMEZONES = ["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"] as const;
@@ -223,9 +223,9 @@ export function automationAlerts(connectors: AlertConnector[], jobs: AlertJob[])
         kind: "job_failed",
         system,
         title: `Otomasi gagal: ${ROBOT_JOBS[job.kind as AutomationKind].label}`,
-        message: job.lastMessage ?? "Lihat riwayat di Tools → Otomasi.",
+        message: job.lastMessage ?? "Lihat riwayat di tab Connector → Otomasi terjadwal.",
         at: job.lastRunAt,
-        path: "/tools/automation",
+        path: `${CONNECTOR_PATHS[system]}?sub=automation`,
       });
     }
   }

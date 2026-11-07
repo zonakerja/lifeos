@@ -51,6 +51,12 @@ import type {
   KnowledgeSearchHit,
   KnowledgeSource,
   KnowledgeTree,
+  KnowledgeSimilar,
+  KnowledgeBaseFile,
+  KnowledgeBaseListItem,
+  KnowledgeNoteVersion,
+  KnowledgeNoteVersionDetail,
+  KnowledgeTasks,
   KnowledgeUnlinkedMention,
   KnowledgeExport,
   KnowledgeExportKind,
@@ -374,6 +380,33 @@ export const knowledgeApi = {
     }),
   deleteNote: (id: string) => request<{ trash: string }>(`/knowledge/notes/${id}`, { method: "DELETE" }),
   unlinked: (id: string) => request<KnowledgeUnlinkedMention[]>(`/knowledge/notes/${id}/unlinked`),
+  similar: (id: string) => request<KnowledgeSimilar>(`/knowledge/notes/${id}/similar`),
+  tasks: () => request<KnowledgeTasks>("/knowledge/tasks"),
+  versions: (id: string) => request<KnowledgeNoteVersion[]>(`/knowledge/notes/${id}/versions`),
+  version: (id: string, versionId: string) =>
+    request<KnowledgeNoteVersionDetail>(`/knowledge/notes/${id}/versions/${versionId}`),
+  restoreVersion: (id: string, versionId: string, baseHash: string) =>
+    request<KnowledgeSource>(`/knowledge/notes/${id}/versions/${versionId}/restore`, {
+      method: "POST",
+      body: { baseHash },
+    }),
+  bases: () => request<KnowledgeBaseListItem[]>("/knowledge/bases"),
+  baseFile: (path: string) => request<KnowledgeBaseFile>(`/knowledge/bases/file?path=${encodeURIComponent(path)}`),
+  createBase: (input: { folder?: string; name: string }) =>
+    request<KnowledgeBaseFile>("/knowledge/bases", { method: "POST", body: input }),
+  saveBase: (input: { path: string; data: Record<string, unknown>; baseHash: string }) =>
+    request<KnowledgeBaseFile>("/knowledge/bases/file", { method: "PUT", body: input }),
+  deleteBase: (path: string) =>
+    request<{ trash: string }>(`/knowledge/bases/file?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+  /** Centang / buka lagi tugas vault → ditulis balik ke berkasnya */
+  toggleTask: (input: { noteId: string; index: number; raw: string; done: boolean; today: string }) =>
+    request<{ ok: true; line: number }>("/knowledge/tasks/toggle", { method: "POST", body: input }),
+  /** Catatan harian `Harian/YYYY-MM-DD.md` (dibuat sekali bila belum ada) */
+  openDaily: (date: string) =>
+    request<{ id: string | null; path: string; created: boolean }>("/knowledge/daily", {
+      method: "POST",
+      body: { date },
+    }),
   linkMention: (id: string, sourceId: string) =>
     request<{ ok: true }>(`/knowledge/notes/${id}/link-mention`, { method: "POST", body: { sourceId } }),
   createFolder: (path: string) => request<{ path: string }>("/knowledge/folders", { method: "POST", body: { path } }),
@@ -557,7 +590,7 @@ export const agentApi = {
     request<{ ok: boolean }>(`/agent/requests/${requestId}/auto/cancel`, { method: "POST" }),
 };
 
-/** Tools → Otomasi: jadwal sinkron robot (baca-saja) + riwayat. */
+/** Otomasi (tab Connector): jadwal sinkron robot (baca-saja) + riwayat. */
 export const automationApi = {
   jobs: () => request<AutomationJob[]>("/automation/jobs"),
   alerts: () => request<AutomationAlert[]>("/automation/alerts"),

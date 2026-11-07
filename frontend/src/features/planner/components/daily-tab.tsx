@@ -68,6 +68,8 @@ import {
   scheduleStart,
   scheduleTime,
 } from "../lib/planner-logic";
+import { PlannerDailyNoteButton } from "@/features/knowledge/daily-note-button";
+import { PlannerVaultTasks } from "@/features/knowledge/planner-vault-tasks";
 import { PlannerCalendar } from "./planner-calendar";
 import { ActivityLogDialog, TodoDialog } from "./planner-dialogs";
 import { ScheduleDialogs } from "./schedule-dialogs";
@@ -342,6 +344,7 @@ export function DailyTab() {
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <h2 className="text-2xl font-extrabold tracking-tight md:text-3xl">{formatFullDate(currentDate)}</h2>
         <div className="flex gap-2">
+          <PlannerDailyNoteButton date={formatLocalYMD(currentDate)} />
           <Button
             variant="outline"
             size="icon"
@@ -596,6 +599,7 @@ export function DailyTab() {
               </EmptyHeader>
             </Empty>
           )}
+          <PlannerVaultTasks date={ymd} />
         </SectionCard>
       </div>
 

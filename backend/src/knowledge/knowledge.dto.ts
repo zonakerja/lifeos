@@ -4,6 +4,10 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsInt,
+  Matches,
+  Max,
+  Min,
   IsObject,
   IsOptional,
   IsString,
@@ -188,4 +192,83 @@ export class ExportSettingsDto {
   @ValidateNested()
   @Type(() => ExportKindsDto)
   kinds?: ExportKindsDto;
+}
+
+export class DailyNoteDto {
+  @ApiProperty({ description: "Tanggal lokal user (YYYY-MM-DD)" })
+  @IsString()
+  @Length(10, 10)
+  date: string;
+}
+
+export class ToggleTaskDto {
+  @ApiProperty({ description: "Id catatan pemilik tugas" })
+  @IsString()
+  @MaxLength(64)
+  noteId: string;
+
+  @ApiProperty({ description: "Urutan tugas di catatan (0 = pertama)" })
+  @IsInt()
+  @Min(0)
+  @Max(100_000)
+  index: number;
+
+  @ApiProperty({ description: "Baris tugas apa adanya saat dibaca (kunci pencocokan)" })
+  @IsString()
+  @MaxLength(5000)
+  raw: string;
+
+  @ApiProperty()
+  @IsBoolean()
+  done: boolean;
+
+  @ApiProperty({ description: "Tanggal lokal user (YYYY-MM-DD) untuk ✅ tanggal selesai" })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  today: string;
+}
+
+export class BaseFileDto {
+  @ApiProperty({ description: "Path berkas .base di vault" })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(400)
+  path: string;
+}
+
+export class CreateBaseDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(400)
+  folder?: string;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  name: string;
+}
+
+export class SaveBaseDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(400)
+  path: string;
+
+  @ApiProperty({ description: "Isi base (filters, formulas, properties, views)" })
+  @IsObject()
+  data: Record<string, unknown>;
+
+  @ApiProperty()
+  @IsString()
+  @Length(64, 64)
+  baseHash: string;
+}
+
+export class RestoreVersionDto {
+  @ApiProperty({ description: "Hash isi berkas sekarang (berubah di disk → 409)" })
+  @IsString()
+  @Length(64, 64)
+  baseHash: string;
 }

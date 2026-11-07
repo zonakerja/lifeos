@@ -58,6 +58,6 @@ describe("notifikasi robot", () => {
 
   it("label tindak lanjut", () => {
     expect(alertAction(alert("a"))).toBe("Login ulang");
-    expect(alertAction(alert("b", "job_failed"))).toBe("Lihat otomasi");
+    expect(alertAction(alert("b", "job_failed"))).toBe("Lihat riwayat");
   });
 });

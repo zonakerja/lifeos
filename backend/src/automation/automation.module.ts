@@ -4,7 +4,7 @@ import { AutomationController } from "./automation.controller";
 import { AutomationService } from "./automation.service";
 import { AutomationWorkerService } from "./automation-worker.service";
 
-/** Otomasi terjadwal (cron BullMQ) untuk sinkron robot baca-saja — Tools → Otomasi. */
+/** Otomasi terjadwal (cron BullMQ) untuk sinkron robot baca-saja — tab Connector Laporan Kinerja & SRIKANDI. */
 @Module({
   imports: [RobotModule],
   controllers: [AutomationController],

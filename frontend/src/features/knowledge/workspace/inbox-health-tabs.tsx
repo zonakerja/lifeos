@@ -51,7 +51,13 @@ export function InboxTab() {
   }
 
   return (
-    <NoteLinkProvider value={{ resolve, open: (id, heading) => openNote(id, heading) }}>
+    <NoteLinkProvider
+      value={{
+        resolve,
+        byId: (id) => tree.notes.find((n) => n.id === id) ?? null,
+        open: (id, heading) => openNote(id, heading),
+      }}
+    >
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-3">
         <p className="text-sm text-muted-foreground">
           {items.length} usulan menunggu kurasi. Usulan berstatus draf tidak dipakai chatbot & agen sampai Anda
@@ -101,7 +107,7 @@ function InboxPreview({ note }: { note: KnowledgeNoteListItem }) {
   if (isLoading) return <Spinner className="mt-3" />;
   return (
     <div className="mt-3 max-h-96 overflow-y-auto rounded-xl border bg-muted/20 p-3">
-      <NoteMarkdown content={data?.content ?? ""} />
+      <NoteMarkdown content={data?.content ?? ""} noteId={note.id} />
     </div>
   );
 }

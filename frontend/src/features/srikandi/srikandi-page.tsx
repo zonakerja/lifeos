@@ -63,22 +63,9 @@ export function Component() {
   );
 }
 
+/** Tab Connector: sama dengan Laporan Kinerja — Pengaturan koneksi | Otomasi terjadwal. */
 function ConnectorTab() {
-  return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
-      <SectionCard
-        icon={FileSignature}
-        title="Robot SRIKANDI"
-        description="Robot membaca Daftar Naskah Keluar dan mengambil PDF naskah yang sudah ditandatangani. Tanda tangan (TTE) dan pengiriman tetap Anda lakukan sendiri di SRIKANDI."
-      >
-        <p className="text-sm text-muted-foreground">
-          Berikutnya: robot mendaftarkan entri Register Naskah Keluar yang siap ke SRIKANDI (sampai tombol Simpan —
-          Kirim Konsep tetap oleh Anda). Menunggu rekaman formulir Registrasi Naskah Keluar.
-        </p>
-      </SectionCard>
-      <RobotSettings systems={["srikandi"]} />
-    </div>
-  );
+  return <RobotSettings systems={["srikandi"]} />;
 }
 
 const matches = (letter: SrikandiLetter, query: string) =>

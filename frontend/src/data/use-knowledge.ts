@@ -76,7 +76,7 @@ export function useKnowledgeExportMutations() {
   const client = useQueryClient();
   const apply = (data: KnowledgeExport) => {
     client.setQueryData(queryKeys.knowledgeExport, data);
-    // Berkas cermin ikut terbaca sebagai catatan vault (menu Pengetahuan & status vault)
+    // Berkas cermin ikut terbaca sebagai catatan vault (menu Knowledge & status vault)
     void client.invalidateQueries({ queryKey: ["knowledge"] });
   };
   return {

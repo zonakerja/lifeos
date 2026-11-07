@@ -28,7 +28,7 @@ export const links = {
   notes: (tab: "free" | "ai" | "lists" = "free") => `/notes/${tab}`,
   /** Buka langsung satu catatan (tab Catatan / Notes AI). */
   /** My Notebook (tab Notes Space) — tanpa id = daftar notebook */
-  /** Menu Pengetahuan: buka catatan vault (opsional lompat ke judul) */
+  /** Menu Knowledge: buka catatan vault (opsional lompat ke judul) */
   knowledgeNote: (id: string, heading?: string) =>
     `/knowledge/notes?note=${encodeURIComponent(id)}${heading ? `&h=${encodeURIComponent(heading)}` : ""}`,
   notebook: (id?: string) => (id ? `/notes/notebook?notebook=${encodeURIComponent(id)}` : "/notes/notebook"),

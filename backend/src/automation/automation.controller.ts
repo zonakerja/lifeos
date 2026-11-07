@@ -7,7 +7,7 @@ import { AuthUser } from "../common/types/auth-user";
 import { AutomationRunsQueryDto, UpdateAutomationJobDto } from "./automation.dto";
 import { AutomationService } from "./automation.service";
 
-/** Tools → Otomasi: jadwal sinkron robot milik user sendiri + riwayat run. */
+/** Otomasi (tab Connector): jadwal sinkron robot milik user sendiri + riwayat run. */
 @ApiTags("automation")
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)

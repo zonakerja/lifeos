@@ -76,6 +76,9 @@ describe("tautan wiki", () => {
     );
     expect(toReaderMarkdown("[[A#B]]")).toBe("[A › B](kn:A%23B)");
     expect(toReaderMarkdown("baris1\nbaris2")).toBe("baris1  \nbaris2");
+    // blok: penanda jadi jangkar, tautan blok & judul catatan sendiri berlabel rapi
+    expect(toReaderMarkdown("Isi ^abc1\n\n^tbl")).toBe("Isi [](kn-block:abc1)\n\n[](kn-block:tbl)");
+    expect(toReaderMarkdown("[[A#^abc1]] [[#Judul]]")).toBe("[A](kn:A%23%5Eabc1) [Judul](kn:%23Judul)");
   });
   it("callout", () => {
     expect(parseCallout("[!warning]- Perhatian")).toEqual({ type: "warning", folded: true, title: "Perhatian" });

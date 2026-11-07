@@ -991,7 +991,7 @@ export interface RobotConnector {
   label: string;
   description: string;
   defaultUrl: string;
-  plannedFlows: string[];
+  flows: { label: string; scheduled: boolean }[];
   limits: string;
   baseUrl: string;
   extraHosts: string[];
@@ -1023,7 +1023,7 @@ export interface RobotRun {
   aria?: string | null;
 }
 
-// ---------------------------------------------------------------- Otomasi terjadwal (Tools → Otomasi)
+// ---------------------------------------------------------------- Otomasi terjadwal (tab Connector)
 
 export type AutomationKind =
   | "ekinerja_session"
@@ -1162,7 +1162,7 @@ export interface PublicVaultView {
   visitor: { ip: string | null; location: string; browser: string | null; at: string };
 }
 
-/** Menu Pengetahuan (antarmuka Obsidian di LifeOS). */
+/** Menu Knowledge (antarmuka Obsidian di LifeOS). */
 export interface KnowledgeTree {
   folders: string[];
   notes: KnowledgeNoteListItem[];
@@ -1218,6 +1218,78 @@ export type KnowledgeGraphColor = "blue" | "green" | "orange" | "red" | "violet"
 export interface KnowledgePrefs {
   bookmarks: string[];
   graphGroups: { query: string; color: KnowledgeGraphColor }[];
+}
+
+/** Catatan serupa menurut embedding indeks (`available: false` = catatan ini belum punya vektor). */
+/** Satu versi di riwayat catatan vault (tanpa isi). */
+export interface KnowledgeNoteVersion {
+  id: string;
+  hash: string;
+  size: number;
+  /** observed | before_save | before_properties | before_task | before_link | before_move | before_restore */
+  reason: string;
+  createdAt: string;
+  /** Sama dengan isi berkas sekarang */
+  current: boolean;
+}
+
+export interface KnowledgeNoteVersionDetail {
+  id: string;
+  content: string;
+  reason: string;
+  createdAt: string;
+  size: number;
+}
+
+/** Berkas Bases (`.base` Obsidian) di vault. */
+export interface KnowledgeBaseListItem {
+  path: string;
+  name: string;
+  mtime: string;
+}
+
+export interface KnowledgeBaseFile {
+  path: string;
+  hash: string;
+  /** Isi YAML (filters, formulas, properties, views) */
+  data: Record<string, unknown>;
+  /** Galat sintaks YAML (berkas tetap bisa diperbaiki di Obsidian) */
+  error: string | null;
+  /** Di folder 80-LifeOS (dikelola LifeOS) */
+  readOnly: boolean;
+}
+
+/** Tugas lintas vault (`- [ ]` di catatan; pola plugin Tasks Obsidian). */
+export interface KnowledgeTask {
+  noteId: string;
+  path: string;
+  noteTitle: string;
+  /** Urutan tugas di catatan */
+  index: number;
+  /** Nomor baris di isi catatan tanpa properti */
+  line: number;
+  /** Baris asli (kunci saat menulis balik) */
+  raw: string;
+  text: string;
+  status: "todo" | "in_progress" | "done" | "cancelled";
+  due: string | null;
+  scheduled: string | null;
+  start: string | null;
+  doneDate: string | null;
+  priority: "highest" | "high" | "medium" | "low" | "lowest" | null;
+  recurrence: string | null;
+  tags: string[];
+  heading: string | null;
+}
+
+export interface KnowledgeTasks {
+  tasks: KnowledgeTask[];
+  truncated: boolean;
+}
+
+export interface KnowledgeSimilar {
+  available: boolean;
+  items: { id: string; path: string; title: string; kind: string; score: number }[];
 }
 
 export interface KnowledgeUnlinkedMention {

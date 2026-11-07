@@ -1,5 +1,15 @@
-import { BrainCircuit, FilePlus2, FileText, Info, Link2, Loader2, Search, Settings2 } from "lucide-react";
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import {
+  BrainCircuit,
+  Command as CommandIcon,
+  FilePlus2,
+  FileText,
+  Info,
+  Link2,
+  Loader2,
+  Search,
+  Settings2,
+} from "lucide-react";
+import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ModulePage } from "@/components/layout/module-page";
 import { Button } from "@/components/ui/button";
@@ -13,6 +23,7 @@ import { useSearchParam } from "@/hooks/use-search-param";
 import { formatDateTime } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { KnowledgeTree } from "@/types/api";
+import { DailyNoteButton } from "../daily-note-button";
 import { GraphTab } from "./graph-tab";
 import { HealthTab, InboxTab } from "./inbox-health-tabs";
 import { createResolver, folderOf } from "./knowledge-logic";
@@ -21,22 +32,28 @@ import { NoteLinkProvider } from "./note-markdown";
 import { NoteSidebar } from "./note-sidebar";
 import { NoteView } from "./note-view";
 import { TableTab } from "./table-tab";
+import { TasksTab } from "./tasks-tab";
 import { WorkspaceDialogs } from "./workspace-dialogs";
+
+/** Tab Bases dimuat malas (mesin ekspresi + penyunting tidak perlu dimuat untuk tab lain). */
+const BasesTab = lazy(() => import("./bases-tab").then((m) => ({ default: m.BasesTab })));
 import { openWorkspaceDialog, useOpenNote } from "./workspace-store";
 
 /**
- * Menu Pengetahuan: antarmuka vault Obsidian di LifeOS (docs/AI-AGENT.md §25.2). Berkas vault tetap sumber kebenaran —
+ * Menu Knowledge: antarmuka vault Obsidian di LifeOS (docs/AI-AGENT.md §25.2). Berkas vault tetap sumber kebenaran —
  * setiap perubahan ditulis ke berkas dan dibaca ulang pemantau vault (indeks RAG & graf ikut).
  */
 export function Component() {
   const { data: status, isLoading } = useKnowledgeStatus();
   const ready = !!status?.configured && !!status.folder;
 
-  // Ctrl/Cmd+O = pembuka cepat (seperti Obsidian)
+  // Ctrl/Cmd+O = pembuka cepat, Ctrl/Cmd+P = palet perintah (seperti Obsidian; Ctrl+P menggantikan cetak browser di sini)
   const onKey = useEffectEvent((e: KeyboardEvent) => {
-    if (!ready || !(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "o") return;
+    if (!ready || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+    const key = e.key.toLowerCase();
+    if (key !== "o" && key !== "p") return;
     e.preventDefault();
-    openWorkspaceDialog({ kind: "quick-switcher" });
+    openWorkspaceDialog({ kind: key === "o" ? "quick-switcher" : "command-palette" });
   });
   useEffect(() => {
     const handler = (e: KeyboardEvent) => onKey(e);
@@ -59,6 +76,12 @@ export function Component() {
                 <GraphTab />
               ) : tab === "table" ? (
                 <TableTab />
+              ) : tab === "bases" ? (
+                <Suspense fallback={<Spinner className="m-6" />}>
+                  <BasesTab />
+                </Suspense>
+              ) : tab === "tasks" ? (
+                <TasksTab />
               ) : tab === "inbox" ? (
                 <InboxTab />
               ) : tab === "health" ? (
@@ -92,7 +115,7 @@ function HeaderBar({
         <BrainCircuit className="size-4" />
       </span>
       <div className="min-w-0">
-        <p className="text-sm font-bold">Pengetahuan</p>
+        <p className="text-sm font-bold">Knowledge</p>
         <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           Vault <b className="font-mono">{folder}</b> · {notes} catatan · {links} tautan
           {scanning && (
@@ -103,8 +126,17 @@ function HeaderBar({
         </p>
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <DailyNoteButton />
         <Button size="sm" variant="outline" onClick={() => openWorkspaceDialog({ kind: "quick-switcher" })}>
           <Search /> Buka cepat <Kbd className="hidden sm:inline-flex">Ctrl O</Kbd>
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => openWorkspaceDialog({ kind: "command-palette" })}
+          title="Palet perintah: semua aksi Knowledge (sunting, pindah, sisip tabel/callout/templat, catatan harian, …)"
+        >
+          <CommandIcon /> Perintah <Kbd className="hidden sm:inline-flex">Ctrl P</Kbd>
         </Button>
         <Button size="sm" onClick={() => openWorkspaceDialog({ kind: "new-note" })}>
           <FilePlus2 /> Catatan baru
@@ -194,6 +226,10 @@ function NotesTab() {
   }
   const openNote = useOpenNote();
   const resolve = useMemo(() => createResolver(tree?.notes ?? []), [tree]);
+  const byId = useMemo(() => {
+    const map = new Map((tree?.notes ?? []).map((n) => [n.id, n]));
+    return (id: string) => map.get(id) ?? null;
+  }, [tree]);
 
   if (isLoading || !tree) return <Spinner className="m-6" />;
   const item = tree.notes.find((n) => n.id === noteId) ?? null;
@@ -249,7 +285,9 @@ function NotesTab() {
   }
 
   return (
-    <NoteLinkProvider value={{ resolve, open: (id, heading) => openNote(id, heading) }}>{layout}</NoteLinkProvider>
+    <NoteLinkProvider value={{ resolve, byId, open: (id, heading) => openNote(id, heading) }}>
+      {layout}
+    </NoteLinkProvider>
   );
 }
 

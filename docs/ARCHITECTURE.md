@@ -57,8 +57,8 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 | | Tailwind CSS / shadcn CLI (Radix, lucide) | 4.3 / 4.21 | Design system berbasis token |
 | | react-markdown / KaTeX | 10.1 / **0.18.9** | Render Markdown & matematika (dimuat malas) |
 | | Tiptap (`@tiptap/*` + `@tiptap/markdown`, MIT) / perfect-freehand | **3.31** / 1.2 | Editor teks kaya + tulisan tangan stylus di Catatan Bebas (dimuat malas); Markdown → dokumen editor (salin dari My Notebook) |
-| | CodeMirror (`@codemirror/*` view 6.43, state 6.7, `@lezer/markdown` 1.8, `@lezer/highlight` 1.2, MIT) | **6** | Editor sumber Markdown menu Pengetahuan (dimuat malas; tanpa `@codemirror/lang-markdown` agar chunk < 500 kB) |
-| | react-force-graph-2d (MIT, kanvas, d3-force) | **1.29** | Graf vault menu Pengetahuan (dimuat malas) |
+| | CodeMirror (`@codemirror/*` view 6.43, state 6.7, `@lezer/markdown` 1.8, `@lezer/highlight` 1.2, MIT) | **6** | Editor sumber Markdown menu Knowledge (dimuat malas; tanpa `@codemirror/lang-markdown` agar chunk < 500 kB) |
+| | react-force-graph-2d (MIT, kanvas, d3-force) | **1.29** | Graf vault menu Knowledge (dimuat malas) |
 | | pdf.js (`pdfjs-dist`, Apache-2.0) | **6.4** | Penampil PDF modal halaman publik brankas digital (kanvas; HP & desktop), dimuat malas (chunk `pdf-pages` + worker `.mjs`) |
 | | oxlint / Vitest | 1.87 / 5.0 | Lint (0 warning) & unit test |
 | Data | PostgreSQL + pgvector | **18** (18.6) + 0.8.7 (`pgvector/pgvector:0.8.7-pg18`, Debian 12; volume `postgres18-data` di `/var/lib/postgresql`) | Data relasional + vector search (RAG) |
@@ -329,6 +329,15 @@ tetap Asset LifeOS di object storage.
 
 ### 3.6 Chatbot LifeOS & basis pengetahuan (`src/ai/chat/`, `src/knowledge/`)
 
+> Tambahan 2026-11-06: catatan harian `POST /knowledge/daily` (`KnowledgeDailyService`, `vault-daily.ts`) dan catatan serupa
+> `GET /knowledge/notes/:id/similar` (rata-rata vektor `ai_chunks` koleksi `knowledge`, tanpa panggilan AI) — detail CLAUDE.md §8.
+> Tambahan 2026-11-07: tugas lintas vault `GET /knowledge/tasks` + `POST /knowledge/tasks/toggle` (`vault-tasks.ts`, format plugin
+> Tasks; tulis balik dicocokkan dengan baris asli, berubah → 409) — detail CLAUDE.md §8.
+> Tambahan 2026-11-07: Bases `GET|POST /knowledge/bases`, `GET|PUT|DELETE /knowledge/bases/file` (`vault-bases.ts`, berkas `.base`
+> Obsidian; filter dievaluasi frontend `base-engine.ts`) — detail CLAUDE.md §8 & §8b.
+> Tambahan 2026-11-07: riwayat versi catatan vault — tabel `knowledge_note_versions` (isi sebelum LifeOS menimpa + versi terpantau
+> saat pindai, maks. 30 per path), `GET /knowledge/notes/:id/versions[/:vid]`, `POST …/:vid/restore` — detail CLAUDE.md §8.
+
 Rencana & keputusan: [AI-AGENT.md](AI-AGENT.md) §9–§17 (tahap 1 "fondasi pengetahuan" & tahap 2 "konektor Obsidian").
 
 **Cermin hasil kerja → vault** (`knowledge-export.service.ts`, logika murni `vault-export.ts`): satu arah ke folder
@@ -570,7 +579,7 @@ token akses pribadi pemilik di `/opt/data/.env`). Backend `AgentService`: status
 isolasi data, log aktivitas, dan aturan "agen tidak memutuskan" berlaku sama. Data Hermes (model, memori, sesi) di volume
 `hermes-data`, bukan database LifeOS.
 
-### 3.12 Otomasi terjadwal (`src/automation/`, Tools → Otomasi)
+### 3.12 Otomasi terjadwal (`src/automation/`, tab Connector Laporan Kinerja & SRIKANDI)
 
 Jadwal sinkron robot **baca-saja** per user: e-Kinerja (Ambil SKP & RHK, Pantau Rencana Aksi) dan SRIKANDI (Daftar Naskah
 Keluar, referensi, klasifikasi arsip). Pengisian Renaksi & pendaftaran naskah **tidak** bisa dijadwalkan.
@@ -589,8 +598,8 @@ Keluar, referensi, klasifikasi arsip). Pengisian Renaksi & pendaftaran naskah **
   (50 terakhir per jenis), ringkasan terakhir di `automation_jobs.last_*`. Run "berjalan" saat backend restart → gagal.
 - API: `GET /automation/jobs`, `PATCH /automation/jobs/:kind { enabled?, schedule? }`, `POST /automation/jobs/:kind/run`
   (202), `GET /automation/runs?kind=&take=`.
-- Frontend: `features/tools/automation/` (`AutomationSettings` = tab Tools → Otomasi, `AutomationJobs systems?` juga di tab
-  Connector Laporan Kinerja & SRIKANDI), hook `data/use-automation.ts` (poll 3 dtk selama ada run aktif; run selesai →
+- Frontend: `features/tools/automation/` (`AutomationJobs systems` = kartu Cara kerja otomasi + jadwal per sistem di sub-tab Otomasi terjadwal tab
+  Connector Laporan Kinerja & SRIKANDI; sub menu Tools → Otomasi dihapus 2026-11-06), hook `data/use-automation.ts` (poll 3 dtk selama ada run aktif; run selesai →
   record terkait dimuat ulang, `KIND_RECORDS`).
 - **Sesi**: `storageState` disimpan terenkripsi di `robot_connectors` dan diperbarui setiap tugas robot (`saveState`). Jenis
   `*_session` (**Jaga sesi login**) membuka sistem dengan sesi tersimpan agar cookie diperbarui dan sesi habis cepat diketahui.

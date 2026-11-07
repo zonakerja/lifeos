@@ -20,9 +20,21 @@ import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { UploadsService } from "../uploads/uploads.service";
 import { KNOWLEDGE_VAULT_CONTEXT } from "./knowledge-constants";
+import {
+  BASE_EXT,
+  DEFAULT_BASE,
+  isBasePath,
+  MAX_BASE_BYTES,
+  parseBase,
+  updateBaseYaml,
+  validateBase,
+} from "./vault-bases";
 import { isExportPath } from "./vault-export";
+import { movedVersionPath, versionAction, versionsToPrune, type VersionReason } from "./vault-history";
+import { applyTaskToggle, parseTasks, type VaultTask } from "./vault-tasks";
 import {
   buildLinkResolver,
+  EXPORT_DIR,
   INBOX_DIR,
   inboxFileName,
   inboxNote,
@@ -35,6 +47,7 @@ import {
   noteProblems,
   parseNote,
   sha256,
+  TEMPLATE_DIR,
   VAULT_FILE_TYPES,
   vaultEntryKind,
 } from "./vault-parser";
@@ -70,7 +83,7 @@ const WATCH_DEBOUNCE_MS = 3_000;
 const RESCAN_INTERVAL_MS = 10 * 60_000;
 /** Batas jumlah entri per vault agar folder yang salah pilih (mis. seluruh drive) tidak membebani server. */
 const MAX_ENTRIES = 5_000;
-/** Gambar sematan yang boleh dibaca langsung dari vault (menu Pengetahuan). */
+/** Gambar sematan yang boleh dibaca langsung dari vault (menu Knowledge). */
 const IMAGE_TYPES: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -80,6 +93,8 @@ const IMAGE_TYPES: Record<string, string> = {
   ".bmp": "image/bmp",
 };
 /** Templat vault awal (struktur folder §10.3 docs/AI-AGENT.md), ikut image backend. */
+/** Batas tugas lintas vault per permintaan (vault sangat besar dipotong). */
+const MAX_TASKS = 3000;
 const VAULT_TEMPLATE_DIR = resolve(__dirname, "..", "..", "templates", "knowledge-vault");
 
 interface ScanStatus {
@@ -101,7 +116,7 @@ interface VaultEntry {
  * Konektor vault Obsidian (basis pengetahuan, tahap 2 docs/AI-AGENT.md): membaca folder vault user di
  * `KNOWLEDGE_VAULTS_DIR/<folder>`, menyimpan catatan (+ properti, tautan) di `knowledge_notes`/`knowledge_links`,
  * menyalin lampiran (PDF, DOCX, …) ke storage agar diekstrak, lalu mengantre indeks RAG. Berkas vault tetap sumber
- * kebenaran: menu Pengetahuan menulis ke berkas (atomik, dicek hash agar tidak menimpa perubahan Obsidian), agen hanya
+ * kebenaran: menu Knowledge menulis ke berkas (atomik, dicek hash agar tidak menimpa perubahan Obsidian), agen hanya
  * menulis catatan usulan ke `00-Inbox/`.
  */
 @Injectable()
@@ -145,7 +160,7 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
       this.startWatcher(user.id, user.knowledgeVault!);
       this.schedule(user.id, 0);
     }
-    this.interval = setInterval(() => void this.rescanAll(), RESCAN_INTERVAL_MS);
+    this.interval = setInterval(() => void this.rescanAll().catch(() => undefined), RESCAN_INTERVAL_MS);
     this.interval.unref();
   }
 
@@ -355,6 +370,7 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async saveNote(userId: string, entry: VaultEntry, raw: string, hash: string, id?: string) {
+    await this.recordVersion(userId, entry.path, raw, "observed");
     const parsed = parseNote(entry.path, raw);
     // Tag inline (#tag) digabung ke properti `tags` yang disimpan agar metadata indeks memuatnya
     const frontmatter = parsed.tags.length ? { ...(parsed.frontmatter ?? {}), tags: parsed.tags } : parsed.frontmatter;
@@ -581,7 +597,7 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
     this.schedule(userId, 500);
     return { path: `${INBOX_DIR}/${name}` };
   }
-  // ---------------------------------------------------------------- Menu Pengetahuan (antarmuka Obsidian)
+  // ---------------------------------------------------------------- Menu Knowledge (antarmuka Obsidian)
 
   /** Folder vault user di disk; error 400 bila vault belum dipilih. */
   private async vaultBase(userId: string) {
@@ -614,7 +630,7 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
     return note;
   }
 
-  /** Berkas cermin 80-LifeOS ditimpa setiap sinkron → tidak diubah/dipindah/dihapus dari menu Pengetahuan. */
+  /** Berkas cermin 80-LifeOS ditimpa setiap sinkron → tidak diubah/dipindah/dihapus dari menu Knowledge. */
   private async findEditable(userId: string, id: string) {
     const note = await this.findNote(userId, id);
     if (isExportPath(note.path) && (note.frontmatter as Record<string, unknown> | null)?.sumber === "lifeos")
@@ -622,6 +638,71 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
         "Berkas ini dikelola LifeOS (cermin 80-LifeOS) dan ditimpa setiap sinkron — ubah datanya di menu asalnya.",
       );
     return note;
+  }
+
+  /**
+   * Catat satu versi catatan (K7): isi sama dengan versi terakhir dilewati, versi terpantau dirapatkan per selang waktu,
+   * riwayat dipangkas ke sekian versi terbaru. Gagal mencatat tidak pernah menggagalkan penulisan.
+   */
+  private async recordVersion(userId: string, path: string, raw: string, reason: VersionReason) {
+    try {
+      if (Buffer.byteLength(raw) > MAX_NOTE_BYTES) return;
+      const hash = sha256(raw);
+      const latest = await this.prisma.knowledgeNoteVersion.findFirst({
+        where: { userId, path },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, hash: true, reason: true, createdAt: true },
+      });
+      const action = versionAction(latest, { hash, reason, now: new Date() });
+      if (action.kind === "skip") return;
+      if (action.kind === "mark") {
+        await this.prisma.knowledgeNoteVersion.update({ where: { id: action.id }, data: { reason } });
+        return;
+      }
+      const data = { content: raw, hash, size: Buffer.byteLength(raw), reason };
+      if (action.kind === "replace") {
+        await this.prisma.knowledgeNoteVersion.update({
+          where: { id: action.id },
+          data: { ...data, createdAt: new Date() },
+        });
+        return;
+      }
+      await this.prisma.knowledgeNoteVersion.create({ data: { ...data, userId, path } });
+      const all = await this.prisma.knowledgeNoteVersion.findMany({
+        where: { userId, path },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      });
+      const prune = versionsToPrune(all);
+      if (prune.length) await this.prisma.knowledgeNoteVersion.deleteMany({ where: { id: { in: prune } } });
+    } catch (error) {
+      this.logger.warn(`Riwayat versi ${path} gagal dicatat: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  /** Tulis catatan dari LifeOS: isi lama disimpan ke riwayat versi lebih dulu (bisa dipulihkan). */
+  private async writeNoteFile(
+    userId: string,
+    path: string,
+    absolute: string,
+    previous: string | null,
+    next: string,
+    reason: VersionReason,
+  ) {
+    if (previous !== null && previous !== next) await this.recordVersion(userId, path, previous, reason);
+    await this.writeAtomic(absolute, next);
+  }
+
+  /** Riwayat ikut pindah saat catatan / folder dipindah (riwayat dikunci per path). */
+  private async moveVersions(userId: string, from: string, to: string, folder: boolean) {
+    const rows = await this.prisma.knowledgeNoteVersion.findMany({
+      where: folder ? { userId, path: { startsWith: `${from}/` } } : { userId, path: from },
+      select: { id: true, path: true },
+    });
+    for (const row of rows) {
+      const next = movedVersionPath(row.path, from, to, folder);
+      if (next) await this.prisma.knowledgeNoteVersion.update({ where: { id: row.id }, data: { path: next } });
+    }
   }
 
   /** Tulis atomik (berkas sementara → rename) agar Obsidian/Syncthing tidak pernah membaca berkas setengah jadi. */
@@ -795,8 +876,8 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
     const note = await this.findEditable(userId, id);
     if (note.kind !== "note") throw new BadRequestException("Hanya catatan Markdown yang bisa disunting.");
     const absolute = this.inVault(await this.vaultBase(userId), note.path);
-    await this.readChecked(absolute, input.baseHash);
-    await this.writeAtomic(absolute, input.content);
+    const previous = await this.readChecked(absolute, input.baseHash);
+    await this.writeNoteFile(userId, note.path, absolute, previous, input.content, "before_save");
     await this.afterWrite(userId, note.path);
     return this.source(userId, id);
   }
@@ -817,7 +898,7 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
-    await this.writeAtomic(absolute, next);
+    await this.writeNoteFile(userId, note.path, absolute, raw, next, "before_properties");
     await this.afterWrite(userId, note.path);
     return this.source(userId, id);
   }
@@ -850,6 +931,94 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
     throw new ConflictException("Terlalu banyak catatan bernama sama di folder ini.");
   }
 
+  /**
+   * Buat catatan di path tetap bila belum ada (dipakai catatan harian). Berkas yang sudah ada tidak pernah disentuh —
+   * hasilnya `created: false` dengan id catatan itu.
+   */
+  async createAt(userId: string, path: string, content: string) {
+    const base = await this.vaultBase(userId);
+    const target = this.validPath(path, "note");
+    const folder = target.includes("/") ? target.slice(0, target.lastIndexOf("/")) : "";
+    if (folder) await mkdir(this.inVault(base, folder), { recursive: true });
+    let created = true;
+    try {
+      await writeFile(this.inVault(base, target), content, { flag: "wx" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      created = false;
+    }
+    const note = created
+      ? await this.afterWrite(userId, target)
+      : ((await this.prisma.knowledgeNote.findUnique({
+          where: { userId_path: { userId, path: target } },
+          select: { id: true, path: true },
+        })) ?? (await this.afterWrite(userId, target)));
+    return { id: note?.id ?? null, path: target, created };
+  }
+
+  /** Isi mentah berkas vault bila ada (templat dsb.), `null` bila tidak ada / vault belum diatur. */
+  async readOptional(userId: string, path: string) {
+    const base = await this.vaultBase(userId).catch(() => null);
+    if (!base) return null;
+    return readFile(this.inVault(base, this.validPath(path, "note")), "utf8").catch(() => null);
+  }
+
+  /**
+   * Catatan serupa (K4 docs/AI-AGENT.md §25.6, pola Smart Connections): rata-rata vektor potongan catatan ini dibandingkan
+   * dengan potongan lain koleksi pengetahuan (model embedding sama), skor = kemiripan kosinus terbaik per sumber. Tanpa
+   * panggilan AI — memakai embedding yang sudah ada di indeks.
+   */
+  async similar(userId: string, id: string, limit = 8) {
+    const note = await this.findNote(userId, id);
+    const sourceType = note.kind === "note" ? OBSIDIAN_SOURCE : ASSET_SOURCE;
+    const sourceId = note.kind === "note" ? note.id : note.assetId;
+    if (!sourceId) return { available: false, items: [] };
+    const rows = await this.prisma.$queryRaw<{ source_type: string; source_id: string; score: number }[]>`
+      WITH src AS (
+        SELECT avg(embedding) AS v, model FROM ai_chunks
+        WHERE user_id = ${userId} AND source_type = ${sourceType} AND source_id = ${sourceId} AND embedding IS NOT NULL
+        GROUP BY model ORDER BY count(*) DESC LIMIT 1
+      )
+      SELECT c.source_type, c.source_id, max(1 - (c.embedding <=> src.v))::float8 AS score
+      FROM ai_chunks c, src
+      WHERE c.user_id = ${userId} AND c.collection = 'knowledge' AND c.model = src.model AND c.embedding IS NOT NULL
+        AND NOT (c.source_type = ${sourceType} AND c.source_id = ${sourceId})
+      GROUP BY c.source_type, c.source_id
+      ORDER BY score DESC
+      LIMIT ${limit * 3}`;
+    if (!rows.length) {
+      // Kosong karena catatan ini belum punya vektor (indeks mati / tanpa key embedding / belum diproses) atau memang tidak ada yang lain
+      const [{ n }] = await this.prisma.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM ai_chunks
+        WHERE user_id = ${userId} AND source_type = ${sourceType} AND source_id = ${sourceId} AND embedding IS NOT NULL`;
+      return { available: n > 0, items: [] };
+    }
+    const notes = await this.prisma.knowledgeNote.findMany({
+      where: {
+        userId,
+        OR: [
+          { id: { in: rows.filter((r) => r.source_type === OBSIDIAN_SOURCE).map((r) => r.source_id) } },
+          { assetId: { in: rows.filter((r) => r.source_type === ASSET_SOURCE).map((r) => r.source_id) } },
+        ],
+      },
+      select: { id: true, path: true, title: true, kind: true, assetId: true },
+    });
+    const items: { id: string; path: string; title: string; kind: string; score: number }[] = [];
+    for (const row of rows) {
+      const hit = notes.find((n) => (row.source_type === OBSIDIAN_SOURCE ? n.id : n.assetId) === row.source_id);
+      if (!hit || hit.id === note.id || items.some((i) => i.id === hit.id)) continue;
+      items.push({
+        id: hit.id,
+        path: hit.path,
+        title: hit.title,
+        kind: hit.kind,
+        score: Math.round(row.score * 1000) / 1000,
+      });
+      if (items.length >= limit) break;
+    }
+    return { available: true, items };
+  }
+
   async createFolder(userId: string, input: string) {
     const path = this.validPath(input, "folder");
     const absolute = this.inVault(await this.vaultBase(userId), path);
@@ -873,6 +1042,7 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
     if (await stat(target).catch(() => null)) throw new ConflictException(`"${path}" sudah ada.`);
     await mkdir(dirname(target), { recursive: true });
     await rename(this.inVault(base, note.path), target);
+    await this.moveVersions(userId, note.path, path, false);
 
     let updatedLinks = 0;
     if (input.updateLinks !== false && noteName(path).toLowerCase() !== noteName(note.path).toLowerCase()) {
@@ -881,12 +1051,13 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
         select: { from: { select: { path: true, kind: true } } },
       });
       for (const sourcePath of new Set(sources.filter((s) => s.from.kind === "note").map((s) => s.from.path))) {
-        const absolute = this.inVault(base, sourcePath === note.path ? path : sourcePath);
+        const current = sourcePath === note.path ? path : sourcePath;
+        const absolute = this.inVault(base, current);
         const raw = await readFile(absolute, "utf8").catch(() => null);
         if (raw === null) continue;
         const result = renameWikilinks(raw, note.path, path);
         if (result.count) {
-          await this.writeAtomic(absolute, result.text);
+          await this.writeNoteFile(userId, current, absolute, raw, result.text, "before_move");
           updatedLinks += result.count;
         }
       }
@@ -911,6 +1082,7 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
     if (await stat(target).catch(() => null)) throw new ConflictException(`"${to}" sudah ada.`);
     await mkdir(dirname(target), { recursive: true });
     await rename(source, target);
+    await this.moveVersions(userId, from, to, true);
     await this.updatePrefs(userId, (prefs) => ({ ...prefs, bookmarks: moveBookmarks(prefs.bookmarks, from, to) }));
     await this.afterWrite(userId, null);
     return { path: to };
@@ -999,9 +1171,174 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
       noteName(note.path),
     );
     if (!next) throw new ConflictException("Sebutan tidak ditemukan lagi (catatan mungkin sudah berubah).");
-    await this.writeAtomic(absolute, next);
+    await this.writeNoteFile(userId, source.path, absolute, raw, next, "before_link");
     await this.afterWrite(userId, source.path);
     return { ok: true };
+  }
+
+  /**
+   * Tugas lintas vault (K3): semua `- [ ]` dari catatan Markdown (dibaca dari isi tersimpan hasil pindai), kecuali templat,
+   * cermin 80-LifeOS (salinan data LifeOS), dan ringkasan LifeOS di catatan harian.
+   */
+  async tasks(userId: string) {
+    const notes = await this.prisma.knowledgeNote.findMany({
+      where: {
+        userId,
+        kind: "note",
+        content: { contains: "[" },
+        NOT: [{ path: { startsWith: `${TEMPLATE_DIR}/` } }, { path: { startsWith: `${EXPORT_DIR}/` } }],
+      },
+      select: { id: true, path: true, title: true, content: true },
+      orderBy: { path: "asc" },
+    });
+    const tasks: (VaultTask & { noteId: string; path: string; noteTitle: string })[] = [];
+    for (const note of notes) {
+      for (const task of parseTasks(note.content ?? "", { skipLifeosSummary: true })) {
+        tasks.push({ ...task, noteId: note.id, path: note.path, noteTitle: note.title });
+        if (tasks.length >= MAX_TASKS) return { tasks, truncated: true };
+      }
+    }
+    return { tasks, truncated: false };
+  }
+
+  /** Centang / buka lagi tugas → tulis balik ke berkasnya (baris asli harus masih ada; tidak pernah menebak). */
+  async toggleTask(
+    userId: string,
+    input: { noteId: string; index: number; raw: string; done: boolean; today: string },
+  ) {
+    const note = await this.findEditable(userId, input.noteId);
+    if (note.kind !== "note") throw new BadRequestException("Hanya catatan Markdown yang punya tugas.");
+    const absolute = this.inVault(await this.vaultBase(userId), note.path);
+    const raw = await readFile(absolute, "utf8").catch(() => {
+      throw new NotFoundException("Berkas catatan sudah tidak ada di vault.");
+    });
+    const result = applyTaskToggle(raw, input);
+    if (!result)
+      throw new ConflictException(
+        "Tugas sudah berubah di tempat lain (Obsidian / perangkat lain). Daftar dimuat ulang.",
+      );
+    await this.writeNoteFile(userId, note.path, absolute, raw, result.text, "before_task");
+    await this.afterWrite(userId, note.path);
+    return { ok: true, line: result.line };
+  }
+
+  // ---------------------------------------------------------------- Riwayat versi (K7)
+
+  /** Daftar versi catatan (terbaru dulu, tanpa isi). `current` = sama dengan isi berkas sekarang. */
+  async versions(userId: string, id: string) {
+    const note = await this.findNote(userId, id);
+    if (note.kind !== "note") throw new BadRequestException("Hanya catatan Markdown yang punya riwayat versi.");
+    const rows = await this.prisma.knowledgeNoteVersion.findMany({
+      where: { userId, path: note.path },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, hash: true, size: true, reason: true, createdAt: true },
+    });
+    return rows.map((r) => ({ ...r, current: r.hash === note.hash }));
+  }
+
+  async version(userId: string, id: string, versionId: string) {
+    const note = await this.findNote(userId, id);
+    const row = await this.prisma.knowledgeNoteVersion.findFirst({ where: { id: versionId, userId, path: note.path } });
+    if (!row) throw new NotFoundException("Versi tidak ditemukan.");
+    return { id: row.id, content: row.content, reason: row.reason, createdAt: row.createdAt, size: row.size };
+  }
+
+  /** Pulihkan versi: isi sekarang disimpan ke riwayat dulu, lalu berkas ditulis dengan isi versi itu. */
+  async restoreVersion(userId: string, id: string, versionId: string, baseHash: string) {
+    const note = await this.findEditable(userId, id);
+    const row = await this.prisma.knowledgeNoteVersion.findFirst({ where: { id: versionId, userId, path: note.path } });
+    if (!row) throw new NotFoundException("Versi tidak ditemukan.");
+    const absolute = this.inVault(await this.vaultBase(userId), note.path);
+    const current = await this.readChecked(absolute, baseHash);
+    await this.writeNoteFile(userId, note.path, absolute, current, row.content, "before_restore");
+    await this.afterWrite(userId, note.path);
+    return this.source(userId, id);
+  }
+
+  // ---------------------------------------------------------------- Bases (K2): berkas `.base` Obsidian
+
+  /** Semua berkas `.base` di vault (selain folder tersembunyi seperti `.trash`). */
+  async listBases(userId: string) {
+    const base = await this.vaultBase(userId);
+    const result: { path: string; name: string; mtime: Date }[] = [];
+    const visit = async (dir: string) => {
+      for (const item of await readdir(dir, { withFileTypes: true })) {
+        if (result.length >= 300) return;
+        const absolute = join(dir, item.name);
+        if (item.isDirectory()) {
+          if (!isIgnoredDir(item.name)) await visit(absolute);
+        } else if (item.isFile() && isBasePath(item.name)) {
+          const path = relative(base, absolute).split(sep).join("/");
+          result.push({ path, name: item.name.slice(0, -BASE_EXT.length), mtime: (await stat(absolute)).mtime });
+        }
+      }
+    };
+    await visit(base);
+    return result.sort((a, b) => a.path.localeCompare(b.path, "id"));
+  }
+
+  private basePath(input: string) {
+    const path = this.validPath(input, "any");
+    if (!isBasePath(path)) throw new BadRequestException("Berkas bukan base (.base).");
+    return path;
+  }
+
+  /** Isi base: objek hasil parse YAML + hash (untuk simpan tanpa menimpa perubahan dari Obsidian). */
+  async readBase(userId: string, input: string) {
+    const path = this.basePath(input);
+    const absolute = this.inVault(await this.vaultBase(userId), path);
+    const raw = await readFile(absolute, "utf8").catch(() => {
+      throw new NotFoundException("Berkas base tidak ditemukan di vault.");
+    });
+    if (Buffer.byteLength(raw) > MAX_BASE_BYTES) throw new BadRequestException("Berkas base terlalu besar.");
+    const { data, error } = parseBase(raw);
+    return { path, hash: sha256(raw), data, error, readOnly: isExportPath(path) };
+  }
+
+  /** Base baru (satu tampilan tabel); nama sama → diberi nomor. */
+  async createBase(userId: string, input: { folder?: string; name: string }) {
+    const base = await this.vaultBase(userId);
+    const folder = input.folder?.trim() ? this.validPath(input.folder, "folder") : "";
+    const name = safeFileName(input.name);
+    if (!name) throw new BadRequestException("Nama base wajib diisi.");
+    if (isExportPath(joinVaultPath(folder, "x"))) throw new BadRequestException("Folder 80-LifeOS dikelola LifeOS.");
+    for (let n = 1; n < 100; n++) {
+      const path = joinVaultPath(folder, `${name}${n > 1 ? ` ${n}` : ""}${BASE_EXT}`);
+      const absolute = this.inVault(base, path);
+      await mkdir(dirname(absolute), { recursive: true });
+      const created = await writeFile(absolute, DEFAULT_BASE, { encoding: "utf8", flag: "wx" }).then(
+        () => true,
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "EEXIST") return false;
+          throw error;
+        },
+      );
+      if (created) return this.readBase(userId, path);
+    }
+    throw new ConflictException("Terlalu banyak base bernama sama.");
+  }
+
+  /** Simpan base (kunci utama ditulis ulang, sisanya dipertahankan). Berkas berubah di disk → 409. */
+  async saveBase(userId: string, input: { path: string; data: Record<string, unknown>; baseHash: string }) {
+    const path = this.basePath(input.path);
+    if (isExportPath(path)) throw new BadRequestException("Folder 80-LifeOS dikelola LifeOS.");
+    const invalid = validateBase(input.data);
+    if (invalid) throw new BadRequestException(invalid);
+    const absolute = this.inVault(await this.vaultBase(userId), path);
+    const raw = await this.readChecked(absolute, input.baseHash);
+    const next = updateBaseYaml(raw, input.data);
+    if (Buffer.byteLength(next) > MAX_BASE_BYTES) throw new BadRequestException("Berkas base terlalu besar.");
+    await this.writeAtomic(absolute, next);
+    return this.readBase(userId, path);
+  }
+
+  async deleteBase(userId: string, input: string) {
+    const path = this.basePath(input);
+    if (isExportPath(path)) throw new BadRequestException("Folder 80-LifeOS dikelola LifeOS.");
+    const base = await this.vaultBase(userId);
+    if (!(await stat(this.inVault(base, path)).catch(() => null)))
+      throw new NotFoundException("Berkas base tidak ditemukan.");
+    return { trash: await this.toTrash(base, path) };
   }
 
   /** Kesehatan vault: properti bermasalah, tautan rusak, catatan yatim, judul ganda. */

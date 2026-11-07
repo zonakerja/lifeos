@@ -1,5 +1,6 @@
 import {
   Bot,
+  CalendarClock,
   CircleAlert,
   Copy,
   KeyRound,
@@ -25,9 +26,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAutomationJobs } from "@/data/use-automation";
 import { useRobotConnectors, useRobotMutations, useRobotRun, useRobotRuns, useRobotStatus } from "@/data/use-robot";
 import { errorMessage } from "@/lib/api/client";
 import { robotApi } from "@/lib/api/endpoints";
+import { useSearchParam } from "@/hooks/use-search-param";
 import { formatDateTime } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { RobotConnector } from "@/types/api";
@@ -38,9 +42,10 @@ import { RemoteBrowserDialog } from "./remote-browser-dialog";
 import { CONNECTOR_STATUS, parseHosts, RUN_KIND_LABELS } from "./robot-utils";
 
 /**
- * Kartu konektor robot — tab Connector di menu Laporan Kinerja & SRIKANDI (tahap 6 docs/AI-AGENT.md §21): brankas kredensial + login otomatis (CAPTCHA & OTP Anda ketik),
- * atau login manual lewat browser jarak jauh; cek sesi. Halaman untuk memetakan alur direkam lewat "Rekam halaman ini" di tayangan browser
- * jarak jauh. Dipakai juga halaman SRIKANDI (grup AI Agent) dengan `systems`.
+ * Tab Connector di menu Laporan Kinerja & SRIKANDI (tahap 6 docs/AI-AGENT.md §21), dua sub-tab (`?sub=`):
+ * - **Pengaturan koneksi** (bawaan): status service robot, sesi & login (brankas kredensial + login otomatis, CAPTCHA & OTP
+ *   Anda ketik, atau login manual lewat browser jarak jauh), alamat sistem, pekerjaan & batas robot, riwayat koneksi.
+ * - **Otomasi terjadwal** (`?sub=automation`): cara kerja + jadwal sinkron baca-saja (`AutomationJobs`).
  */
 export function RobotSettings({ systems }: { systems?: RobotConnector["system"][] } = {}) {
   const status = useRobotStatus();
@@ -49,15 +54,34 @@ export function RobotSettings({ systems }: { systems?: RobotConnector["system"][
   const [autoFor, setAutoFor] = useState<RobotConnector | null>(null);
   const ready = !!status.data?.reachable;
   const vault = !!status.data?.vault;
+  const [sub, setSub] = useSearchParam("sub");
+  const tab = sub === "automation" ? "automation" : "settings";
+  const { data: jobs } = useAutomationJobs();
+  const mine = (connectors ?? []).filter((c) => !systems || systems.includes(c.system));
+  const activeJobs = (jobs ?? []).filter((j) => j.enabled && (!systems || systems.includes(j.system))).length;
+  const sessionProblem = mine.some((c) => !c.hasSession || c.status === "expired");
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
-      <ServiceCard status={status.data} loading={status.isLoading} />
-      {isLoading || !connectors ? (
-        <Skeleton className="h-64 rounded-xl" />
-      ) : (
-        connectors
-          .filter((c) => !systems || systems.includes(c.system))
-          .map((c) => (
+    <Tabs
+      value={tab}
+      onValueChange={(v) => setSub(v === "automation" ? "automation" : null)}
+      className="mx-auto w-full max-w-5xl gap-5"
+    >
+      <TabsList className="w-full sm:w-fit">
+        <TabsTrigger value="settings" className="flex-1 sm:flex-none">
+          <Settings2 /> Pengaturan koneksi
+          {sessionProblem && <span className="size-2 rounded-full bg-destructive" aria-label="Perlu login" />}
+        </TabsTrigger>
+        <TabsTrigger value="automation" className="flex-1 sm:flex-none">
+          <CalendarClock /> Otomasi terjadwal
+          {activeJobs > 0 && <Badge className="bg-module-soft text-module">{activeJobs} aktif</Badge>}
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="settings" className="flex flex-col gap-5">
+        <ServiceCard status={status.data} loading={status.isLoading} />
+        {isLoading || !connectors ? (
+          <Skeleton className="h-64 rounded-xl" />
+        ) : (
+          mine.map((c) => (
             <ConnectorCard
               key={c.system}
               connector={c}
@@ -65,10 +89,14 @@ export function RobotSettings({ systems }: { systems?: RobotConnector["system"][
               vault={vault}
               onLogin={() => setRemote({ connector: c, sessionId: null })}
               onAutoLogin={() => setAutoFor(c)}
+              onAutomation={() => setSub("automation")}
             />
           ))
-      )}
-      <AutomationJobs systems={systems} />
+        )}
+      </TabsContent>
+      <TabsContent value="automation" className="flex flex-col gap-5">
+        <AutomationJobs systems={systems} />
+      </TabsContent>
       <RemoteBrowserDialog
         connector={remote?.connector ?? null}
         sessionId={remote?.sessionId}
@@ -83,7 +111,7 @@ export function RobotSettings({ systems }: { systems?: RobotConnector["system"][
           if (c) setRemote({ connector: c, sessionId });
         }}
       />
-    </div>
+    </Tabs>
   );
 }
 
@@ -130,12 +158,14 @@ function ConnectorCard({
   vault,
   onLogin,
   onAutoLogin,
+  onAutomation,
 }: {
   connector: RobotConnector;
   ready: boolean;
   vault: boolean;
   onLogin: () => void;
   onAutoLogin: () => void;
+  onAutomation: () => void;
 }) {
   const m = useRobotMutations();
   const [baseUrl, setBaseUrl] = useState(c.baseUrl);
@@ -288,14 +318,31 @@ function ConnectorCard({
       </section>
 
       <section className={BLOCK}>
-        <BlockTitle icon={ListChecks} title="Alur yang direncanakan (belum aktif)" />
-        <ul className="list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
-          {c.plannedFlows.map((f) => (
-            <li key={f}>{f}</li>
+        <BlockTitle icon={ListChecks} title="Pekerjaan robot & batasnya" />
+        <ul className="grid grid-cols-1 gap-1 text-sm">
+          {c.flows.map((f) => (
+            <li key={f.label} className="flex flex-wrap items-start gap-2">
+              <Badge
+                className={cn(
+                  "shrink-0",
+                  f.scheduled ? "bg-module-soft text-module" : "bg-muted text-muted-foreground",
+                )}
+              >
+                {f.scheduled ? "Bisa dijadwalkan" : "Lewat tombol"}
+              </Badge>
+              <span className="min-w-0 flex-1">{f.label}</span>
+            </li>
           ))}
         </ul>
         <p className="text-xs text-muted-foreground">
           <strong>Batas:</strong> {c.limits}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Jadwal tugas berlabel Bisa dijadwalkan diatur di{" "}
+          <button type="button" className="font-medium text-module underline" onClick={onAutomation}>
+            Otomasi terjadwal
+          </button>
+          .
         </p>
       </section>
 
@@ -335,7 +382,7 @@ function RunList({ system }: { system: RobotConnector["system"] }) {
   if (!data?.length) return null;
   return (
     <section className={BLOCK}>
-      <BlockTitle icon={History} title="Riwayat robot" />
+      <BlockTitle icon={History} title="Riwayat koneksi (login, cek sesi, rekaman)" />
       <ul className="grid max-h-60 grid-cols-1 gap-1 overflow-y-auto">
         {data.map((r) => (
           <li key={r.id} className="flex min-w-0 items-center gap-2 rounded-md border px-2 py-1.5 text-xs">

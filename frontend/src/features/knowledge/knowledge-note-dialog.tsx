@@ -15,7 +15,7 @@ import { noteDisplayMarkdown, STATUS_LABEL, STATUS_TONE } from "./knowledge-util
 
 /**
  * Lihat catatan basis pengetahuan (vault Obsidian) dari mana saja: `openKnowledgeNote(id)` — dipakai sitasi chatbot &
- * daftar catatan Tools → Basis Pengetahuan. Catatan hanya dibaca di sini; menyunting di menu Pengetahuan / Obsidian.
+ * daftar catatan Tools → Basis Pengetahuan. Catatan hanya dibaca di sini; menyunting di menu Knowledge / Obsidian.
  */
 const useKnowledgeNoteStore = create<{ id: string | null; set: (id: string | null) => void }>((set) => ({
   id: null,
@@ -156,7 +156,7 @@ function NoteBody({ id, onOpen }: { id: string; onOpen: (id: string) => void }) 
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <p className="flex-1 text-[11px] text-muted-foreground">
-          Sunting di menu Pengetahuan atau di Obsidian — perubahan terbaca otomatis.
+          Sunting di menu Knowledge atau di Obsidian — perubahan terbaca otomatis.
         </p>
         <Button
           size="sm"
@@ -166,7 +166,7 @@ function NoteBody({ id, onOpen }: { id: string; onOpen: (id: string) => void }) 
             void navigate(links.knowledgeNote(note.id));
           }}
         >
-          <BrainCircuit /> Buka di menu Pengetahuan
+          <BrainCircuit /> Buka di menu Knowledge
         </Button>
       </div>
     </>

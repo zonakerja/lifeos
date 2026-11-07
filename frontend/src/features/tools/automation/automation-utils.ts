@@ -135,7 +135,7 @@ export function scheduleForMode(mode: AutomationSchedule["mode"], current: Autom
 
 /** Label tombol tindak lanjut notifikasi robot. */
 export const alertAction = (alert: Pick<AutomationAlert, "kind">) =>
-  alert.kind === "job_failed" ? "Lihat otomasi" : "Login ulang";
+  alert.kind === "job_failed" ? "Lihat riwayat" : "Login ulang";
 
 /**
  * Notifikasi yang belum pernah ditampilkan (`fresh`) + daftar ID yang diingat berikutnya (`keep` = notifikasi yang masih

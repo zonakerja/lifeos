@@ -134,6 +134,9 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
           ),
         );
       }
+    } catch (error) {
+      // Dipanggil dari setInterval: galat yang lolos (mis. database sesaat putus) mematikan proses backend
+      this.logger.warn(`Pemantau tugas agen gagal: ${error instanceof Error ? error.message : error}`);
     } finally {
       this.polling = false;
     }

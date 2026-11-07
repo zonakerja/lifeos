@@ -25,8 +25,27 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
 - [ ] **A5** Atur profil layanan bot, grup & kontak WhatsApp, coba bot lewat Simulator
 - [ ] **A6** Coba satu alur Approval (pengajuan) sampai dokumen jadi
 - [ ] **A7** Siapkan agen Hermes di laptop (model AI + token LifeOS) lalu coba **Asisten Agen** & **Kerjakan dengan agen**
-- [ ] **A10** Coba menu **Pengetahuan** (sidebar Workspace): jelajahi vault, sunting catatan, lihat Graf, kurasi Inbox. Perubahan
+- [ ] **A10** Coba menu **Knowledge** (sidebar Workspace): jelajahi vault, sunting catatan, lihat Graf, kurasi Inbox. Perubahan
   langsung ditulis ke berkas vault dan tersinkron ke Obsidian; hapus = pindah ke folder `.trash` vault.
+- [ ] **A12** Coba **Catatan hari ini** (menu Knowledge, atau ikon kalender di Planner → Harian): berkas `Harian/YYYY-MM-DD.md` berisi
+  agenda, to-do, dan task hari itu. Opsional: buat templat sendiri `90-Templat/Harian.md` dan taruh `{{lifeos}}` di tempat ringkasan.
+  Panel Info catatan kini punya **Catatan serupa** — bila tertulis "belum tersedia", jalankan **Indeks ulang** di Tools → Indeks
+  Pengetahuan (butuh key embedding Gemini/OpenAI yang aktif).
+- [ ] **A17** Coba **Riwayat versi** di menu Knowledge: buka catatan → tombol ⋯ → **Riwayat versi** (atau Ctrl+P → "riwayat").
+  Pilih versi untuk melihat perubahannya, lalu **Pulihkan** bila perlu. Di tab **Bases**, nilai properti kini bisa diubah langsung
+  di sel tabel, ringkasan kolom diatur di **Atur tampilan**, dan base bisa ditampilkan di catatan dengan `![[Nama.base]]`.
+- [ ] **A16** Coba tab **Bases** di menu Knowledge: **Baru** → beri nama (mis. "Regulasi berlaku") → **Atur tampilan** → tambah
+  kondisi (mis. jenis sama dengan peraturan, status sama dengan berlaku), pilih kolom, urutan, dan kelompok. Berkas `.base`-nya juga
+  terbuka di Obsidian (Obsidian 1.9 ke atas).
+- [ ] **A15** Coba **sematan bagian & blok** di menu Knowledge: di editor ketik `[[Nama Catatan#` untuk memilih judul atau
+  `[[Nama Catatan#^` untuk memilih satu paragraf/butir (LifeOS memberi penanda `^id` otomatis). Awali dengan `!` untuk menampilkan
+  isinya di catatan Anda, mis. `![[PMK 181#Pasal 5]]`.
+- [ ] **A14** Coba tab **Tugas** di menu Knowledge: tulis di catatan mana pun `- [ ] Kirim laporan 📅 2026-11-10` (tambahan
+  opsional: ⏫ prioritas tinggi, 🔁 every week, #tag). Semua tugas vault terkumpul di tab Tugas dan yang jatuh tempo hari itu tampil
+  di Planner Harian; mencentang di LifeOS menulis `[x] … ✅ tanggal` ke berkasnya (format plugin Tasks Obsidian).
+- [ ] **A13** Coba **palet perintah** di menu Knowledge: tekan **Ctrl+P** (atau tombol **Perintah**) lalu ketik apa yang ingin
+  dilakukan (mis. "sunting", "harian kemarin", "acak"). Saat menyunting catatan, ketik **/** di awal baris untuk menyisipkan tabel,
+  callout, daftar tugas, tanggal, atau templat dari `90-Templat`.
 - [ ] **A11** Lihat hasil kerja LifeOS di Obsidian: Tools → Basis Pengetahuan → kartu **Cermin hasil kerja ke Obsidian** (di akun
   admin dev sudah menyala) → buka folder `80-LifeOS` di Obsidian & Graf. Jangan menyunting berkas di folder itu (ditimpa saat
   sinkron) — tulis catatan sendiri di folder lain lalu tautkan `[[…]]`. Atur tampilan graf di tab Graf → Pengaturan graf.
@@ -323,7 +342,8 @@ naskah ber-TTD, dan mengisi rencana aksi bulanan e-Kinerja. Agar bisa, robot but
   lalu tekan **Kirim Konsep sendiri** — robot tidak pernah mengirim. Setelah ditandatangani: **Daftar Naskah Keluar → Ambil
   dari SRIKANDI**, lalu di Register klik **Tautkan final**.
 
-**Jadwal otomatis** (Tools → **Otomasi**, juga di bawah tab Connector):
+**Jadwal otomatis** (tab **Connector** → sub-tab **Otomasi terjadwal** di menu Laporan Kinerja & SRIKANDI; login & alamat ada di
+sub-tab **Pengaturan koneksi**):
 - [ ] Nyalakan sakelar jadwal yang Anda inginkan. Jadwal bawaan sudah terisi: Ambil SKP & RHK setiap hari 07.00, Pantau
   Rencana Aksi setiap hari 07.05, Daftar Naskah Keluar tiap jam 07.00–17.00 Senin–Jumat, referensi setiap hari 07.00,
   klasifikasi setiap Senin 07.00 (semua WIB). Ubah lewat **Ubah jadwal** bila perlu.
@@ -331,8 +351,8 @@ naskah ber-TTD, dan mengisi rencana aksi bulanan e-Kinerja. Agar bisa, robot but
   kedaluwarsa**, klik **Login ulang** (CAPTCHA/OTP Anda ketik) — jadwal berikutnya berjalan lagi.
 - Tombol sinkron di menu asal tetap bisa dipakai kapan saja; **Jalankan sekarang** = sekali jalan tanpa menunggu jadwal.
 - [ ] Nyalakan juga **Jaga sesi login** untuk sistem yang jadwalnya aktif (tiap jam kerja): sesi diperbarui & disimpan, dan
-  bila habis Anda langsung mendapat notifikasi (lonceng 🔔 + pesan di layar). Klik **Aktifkan notifikasi browser** di Tools →
-  Otomasi agar diberi tahu juga saat tab LifeOS tidak sedang dibuka. Selama sesi habis, jadwal sistem itu **dijeda** otomatis.
+  bila habis Anda langsung mendapat notifikasi (lonceng 🔔 + pesan di layar). Klik **Aktifkan notifikasi browser** di kartu
+  Cara kerja otomasi (Connector → Otomasi terjadwal) agar diberi tahu juga saat tab LifeOS tidak sedang dibuka. Selama sesi habis, jadwal sistem itu **dijeda** otomatis.
 
 Catatan: rekaman halaman bisa memuat data kerja Anda (tersimpan hanya di LifeOS Anda). Hapus rekaman yang tidak perlu
 dari **Riwayat robot**.
@@ -530,5 +550,13 @@ Telegram Anda yang diizinkan. Minta Claude menyiapkan service otomatis (systemd)
 | 2026-11-01 | A8: Jaga sesi login + notifikasi sesi kedaluwarsa (lonceng, toast, browser) |
 | 2026-11-01 | C6: keputusan persetujuan otomatis (Kebijakan Otomatis, alur Generasi PSP) + templat Telaah Staf |
 | 2026-11-06 | A9 baru: provider AI lewat router (alamat API + key router + ID model router) |
-| 2026-11-06 | A10 baru: coba menu Pengetahuan (antarmuka Obsidian di LifeOS) |
+| 2026-11-06 | A10 baru: coba menu Knowledge (antarmuka Obsidian di LifeOS) |
 | 2026-11-06 | A11 baru: cermin hasil kerja LifeOS ke Obsidian (`80-LifeOS`) |
+| 2026-11-06 | A8: jadwal otomatis kini hanya di tab Connector Laporan Kinerja & SRIKANDI (sub menu Tools → Otomasi dihapus) |
+| 2026-11-06 | Tab Connector dibagi: sub-tab Pengaturan koneksi (login, alamat) dan Otomasi terjadwal (jadwal) |
+| 2026-11-06 | A12 baru: catatan harian & catatan serupa di menu Knowledge |
+| 2026-11-07 | A13 baru: palet perintah Ctrl+P & perintah `/` di editor Knowledge |
+| 2026-11-07 | A14 baru: tab Tugas (tugas lintas vault) di Knowledge & Planner Harian |
+| 2026-11-07 | A15 baru: sematan bagian & blok di Knowledge |
+| 2026-11-07 | A16 baru: tab Bases (tampilan tersimpan .base) di Knowledge |
+| 2026-11-07 | A17 baru: riwayat versi catatan & lanjutan Bases |

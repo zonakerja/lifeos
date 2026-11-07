@@ -69,7 +69,7 @@ export class KnowledgeExportService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     if (!this.vault.configured) return;
-    this.interval = setInterval(() => void this.checkAll(), CHECK_INTERVAL_MS);
+    this.interval = setInterval(() => void this.checkAll().catch(() => undefined), CHECK_INTERVAL_MS);
     this.interval.unref();
   }
 

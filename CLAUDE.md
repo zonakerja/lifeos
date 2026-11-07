@@ -305,6 +305,29 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   (perbarui `[[tautan]]` catatan perujuk; **id catatan berganti** — dibaca ulang dari path baru), `DELETE notes/:id` &
   `DELETE folders` = pindah ke `.trash` vault, `notes/:id/unlinked` + `link-mention`, `folders` / `folders/move`. Tulis
   atomik (berkas sementara → rename) lalu `scanNow`. Logika murni + test `vault-editor.ts`. Agen tetap hanya menulis `00-Inbox`.
+  **Riwayat versi** (K7, tabel `knowledge_note_versions`, logika murni + test `vault-history.ts`): setiap tulisan LifeOS ke catatan
+  lewat `writeNoteFile` (simpan editor, properti, centang tugas, sematkan tautan, perbarui tautan saat pindah, pulihkan) mencatat
+  isi **sebelum** ditimpa (`before_*`); pemindai mencatat versi terpantau (`observed`, dirapatkan per 5 menit = ditimpa, kecuali
+  sudah ditandai `before_*`); maks. 30 versi per path; riwayat dikunci per **path** dan ikut dipindah (`moveVersions`). Endpoint
+  `GET notes/:id/versions`, `GET notes/:id/versions/:vid`, `POST notes/:id/versions/:vid/restore { baseHash }` (isi sekarang
+  dicatat dulu → pemulihan bisa dibatalkan). Tulisan catatan baru dari LifeOS **wajib** lewat `writeNoteFile`, bukan `writeAtomic`.
+  **Catatan harian** (K1, `KnowledgeDailyService` + logika murni & test `vault-daily.ts`): `POST /knowledge/daily { date }` (tanggal
+  lokal dari browser) → `Harian/YYYY-MM-DD.md` dibuat **sekali** (`createAt`, `wx`; ada = dibuka, tidak pernah ditimpa) dari templat
+  `90-Templat/Harian.md` bila ada (`{{tanggal}}` `{{judul}}` `{{jam}}` `{{lifeos}}` = tempat ringkasan) + ringkasan agenda, to-do,
+  task jatuh tempo & terlambat tanggal itu (tautan wiki ke berkas cermin 80-LifeOS bila ada, selain itu tautan "buka" LifeOS).
+  **Catatan serupa** (K4): `GET /knowledge/notes/:id/similar` = rata-rata vektor potongan catatan vs potongan lain koleksi `knowledge`
+  bermodel sama (SQL pgvector, tanpa panggilan AI); `available: false` = catatan belum punya embedding.
+  **Tugas lintas vault** (K3, logika murni + test `vault-tasks.ts`, pola plugin Tasks): `GET /knowledge/tasks` = semua `- [ ]`
+  (status ` `/`x`/`/`/`-`, 📅 ⏳ 🛫 ✅, prioritas 🔺⏫🔼🔽⏬, 🔁, `[due:: ]`, #tag, judul terdekat) dari isi tersimpan, kecuali
+  `90-Templat`, `80-LifeOS`, blok kode, dan ringkasan LifeOS catatan harian (maks. 3.000); `POST /knowledge/tasks/toggle
+  { noteId, index, raw, done, today }` menulis balik (`[x]` + `✅ tanggal`; dibuka lagi = tanggal dibuang; berulang `every N
+  day|week|month|year` [`when done`] → kejadian berikutnya disisipkan di atasnya). Tugas dicari menurut urutan **+ baris asli**
+  (bergeser → baris asli yang unik); tidak ketemu → **409**, tidak pernah menebak. Format tugas baru → `parseTaskLine`.
+  **Bases** (K2, logika murni + test `vault-bases.ts`): berkas `.base` Obsidian (YAML `filters`/`formulas`/`properties`/`views`) —
+  `GET /knowledge/bases` (semua `.base` di vault), `GET|PUT|DELETE /knowledge/bases/file?path=` (isi = objek hasil parse + `hash`;
+  PUT wajib `baseHash` → berubah di disk **409**; kunci utama ditulis ulang lewat dokumen `yaml`, kunci lain & komentar tetap;
+  YAML rusak → `error`, tidak ditimpa; `80-LifeOS` baca saja; hapus = `.trash`), `POST /knowledge/bases { name, folder? }`.
+  Server tidak mengevaluasi filter — mesin ekspresi ada di frontend (`base-engine.ts`).
   **Cermin hasil kerja → vault** (keputusan user 2026-11-06, `KnowledgeExportService` + logika murni & test `vault-export.ts`):
   satu arah LifeOS → folder `80-LifeOS/` (Catatan Bebas, List Bebas, Notes AI, My Notebook = indeks + catatan Studio + riwayat
   chat, Productivity = Project + Action, Area + struktur, Agenda yang punya hasil/induk, Resource Global), saling bertaut
@@ -438,8 +461,9 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   `20261025160000_srikandi_letters` (record type `srikandi_letter`) + `20261025170000_srikandi_references` (record type
   `srikandi_reference`) + `20261031120000_srikandi_outgoing` (record type `srikandi_outgoing` — Register Naskah Keluar) + `20261031130000_action_plan_months`
   (record type `action_plan_month` — potret bulan Rencana Aksi e-Kinerja) + `20261031140000_public_vaults` (brankas digital + log
-  akses) + `20261101120000_automation_jobs` (jadwal & riwayat otomasi) + `20261106130000_ai_router_endpoints` (jalur router per kredensial AI) + `20261106140000_knowledge_prefs` (preferensi menu Pengetahuan) + `20261106120000_agent_policies` (Kebijakan Otomatis,
-  `agent_runs`, sakelar darurat, `requests.asset_check`/`auto_decision`). Migrasi baru → lihat docs/SETUP.md §10
+  akses) + `20261101120000_automation_jobs` (jadwal & riwayat otomasi) + `20261106130000_ai_router_endpoints` (jalur router per kredensial AI) + `20261106140000_knowledge_prefs` (preferensi menu Knowledge) + `20261106120000_agent_policies` (Kebijakan Otomatis,
+  `agent_runs`, sakelar darurat, `requests.asset_check`/`auto_decision`) + `20261107120000_knowledge_note_versions` (riwayat versi
+  catatan vault). Migrasi baru → lihat docs/SETUP.md §10
     (`prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script`, lalu cek
     drift dengan `--exit-code`; shadow DB dari `SHADOW_DATABASE_URL`).
 - **Records API**: `GET /records/:type?from&to` (milik sendiri + item bersama bertanda `share`), `PUT
@@ -516,7 +540,7 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±440 kB (termasuk host editor ONLYOFFICE; sejak tahap 3 floating-ui/popper ikut chunk utama —
   sebelumnya chunk terpisah yang tetap dimuat saat start); tanpa
   peringatan ukuran chunk. Tab My Notebook = chunk `notebook-tab` (±42 kB). Menu Pengetahuan: `knowledge-page` ±82 kB,
-  `graph-canvas` ±185 kB, `note-editor` (CodeMirror) ±375 kB — keduanya dimuat malas.
+  `graph-canvas` ±185 kB, `note-editor` (CodeMirror) ±375 kB, `bases-tab` ±40 kB (juga dipakai sematan `![[x.base]]`) — dimuat malas.
 - **CSP produksi** (`nginx.conf`): `script-src 'self'`, `connect-src 'self'` (AI lewat backend), `style-src 'self'
   'unsafe-inline'`, `img/media blob: data:`. Domain eksternal baru → tambahkan di sini (lebih baik lewat backend).
 
@@ -551,24 +575,48 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   (`data/use-ai-chat.ts`), bukan `useAi()`; percakapan baru / riwayat (popover) / hapus; ringkasan data aplikasi tetap
   dikirim sebagai `snapshot` (`buildLifeosContext`); chip sitasi → `citationTarget` (`features/knowledge/knowledge-utils.ts`
   + test: catatan vault → `openKnowledgeNote(id)` = dialog global `KnowledgeNoteHost` di AppShell, berkas → `previewFile`,
-  record → `recordSourcePath`); "Simpan ke Inbox" (`answerForInbox`: `[n]` → `[[judul]]`). **Menu Pengetahuan** (`/knowledge/:tab`,
+  record → `recordSourcePath`); "Simpan ke Inbox" (`answerForInbox`: `[n]` → `[[judul]]`). **Menu Knowledge** (dulu "Pengetahuan", label diganti 2026-11-06) (`/knowledge/:tab`,
   Workspace setelah Notes Space, warna `--mod-knowledge`, `features/knowledge/workspace/`, hook `data/use-knowledge-workspace.ts`,
   logika murni + test `knowledge-logic.ts`): tab **Catatan** (`?note=<id>&h=<judul>`; ≥ 1280 px tiga kolom penjelajah | catatan |
   info, 1024–1279 px penjelajah + Catatan/Info, di bawahnya tab — satu tata letak saja yang dirender; penjelajah dengan menu klik
   kanan & seret-lepas, Cari kata/makna, Tag, Penanda; pembaca `NoteMarkdown` = `[[tautan]]` + pratinjau hover, `![[sematan]]`,
-  callout, id judul dari nomor baris `outline()`; editor CodeMirror 6 dimuat malas `note-editor.tsx` — simpan otomatis 1,5 dtk,
-  Ctrl+S, pelengkap `[[`, bentrok → Muat versi terbaru / Simpan sebagai salinan; panel info Properti (formulir frontmatter),
-  Garis besar, Backlink, Sebutan tanpa tautan, Tautan keluar, Graf lokal, Tanya AI), **Graf** (`graph-canvas.tsx`
+  callout, id judul dari nomor baris `outline()`; **sematan bagian & blok** (K6, logika murni + test `note-blocks.ts`):
+  `![[catatan#Judul]]` = bagian sampai judul setingkat, `![[catatan#^id]]` = satu blok (paragraf / butir / tabel bertanda `^id` di akhir
+  baris atau baris sendiri), penanda `^id` dirender jangkar tak terlihat `blk-<id>` (`BLOCK_SCHEME`), `[[catatan#^id]]` lompat ke blok,
+  nama kosong `[[#…]]` = catatan ini (`NoteMarkdown noteId`, konteks `byId`); editor CodeMirror 6 dimuat malas `note-editor.tsx` —
+  simpan otomatis 1,5 dtk, Ctrl+S, pelengkap `[[` + `[[catatan#` (judul) + `[[catatan#^` (blok; blok tanpa id diberi `^id` baru:
+  catatan lain lewat `source` + `save` ber-`baseHash`, catatan sendiri dalam satu transaksi editor), bentrok → Muat versi terbaru / Simpan sebagai salinan; panel info Properti (formulir frontmatter),
+  Garis besar, Backlink, Sebutan tanpa tautan, Tautan keluar, **Catatan serupa** (skor %, penanda "bertaut"), Graf lokal, Tanya AI;
+  tombol **Catatan hari ini** + pilih tanggal di header (`features/knowledge/daily-note-button.tsx`, juga ikon di Planner Harian
+  `PlannerDailyNoteButton` — tampil bila vault sudah dipilih)), **Tugas** (K3, `tasks-tab.tsx`: kelompok Terlambat / Hari ini / 7 hari
+  / Nanti / Tanpa tanggal / Selesai, atau per catatan; cari kata & `#tag`; centang optimistis `useToggleKnowledgeTask`; logika murni
+  + test `task-logic.ts`; `VaultTaskRow` + `useVaultTaskToggle` juga dipakai `PlannerVaultTasks` di kartu To-Do Planner Harian =
+  tugas vault jatuh tempo tanggal itu + terlambat saat hari ini), **Bases** (K2, `bases-tab.tsx` dimuat malas, `?base=<path>&view=<n>`;
+  mesin + test `base-engine.ts`: subset sintaks Bases Obsidian — properti `status`/`note.x`/`note["…"]`/`file.*`/`formula.*`,
+  `! && ||`, perbandingan, aritmetika & tanggal ± durasi, `today() now() date() if() number() list()`, `file.hasTag/inFolder/
+  hasProperty`, metode `contains… isEmpty lower upper`; ekspresi tak dikenal = dicatat & diabaikan (tidak menyembunyikan catatan);
+  tampilan Tabel (satu tabel, baris judul per kelompok) / Kartu / Daftar; dialog Atur tampilan = nama, bentuk, batas, kolom,
+  urutan, kelompok, filter (ekspresi bisa disunting + penyusun kondisi `buildCondition`); Filter & rumus base; fungsi/properti
+  baru → `call`/`fileField` + `FILE_LABELS`; ringkasan kaki tabel `summaries` (`summarize`, nama Obsidian: Average, Median, Min,
+  Max, Sum, Range, Stddev, Earliest, Latest, Checked, Unchecked, Empty, Filled, Unique); sel properti `note.*` disunting langsung
+  (`EditableCell` → `setProperties` ber-hash; bukan tag, rumus, properti berkas, cermin 80-LifeOS; bentuk nilai mengikuti nilai lama
+  `parseCellInput`); sematan `![[x.base]]` / `![[x.base#Tampilan]]` di catatan = `EmbeddedBase` dimuat malas dari `note-markdown`,
+  tautan `[[x.base]]` membuka tab Bases (`?base=` boleh nama berkas)), **Riwayat versi** (K7, menu ⋯ catatan & palet perintah →
+  `version-history-dialog.tsx`: daftar versi + asal, Perubahan (diff baris `line-diff.ts` + test, dibanding isi terkini yang selalu
+  dibaca ulang `useKnowledgeSource(id, { fresh: true })`) / Isi versi, Pulihkan dengan konfirmasi), **Graf** (`graph-canvas.tsx`
   react-force-graph-2d dimuat malas; bergaya Graph view Obsidian — panel Filter (cari, tag sebagai node, lampiran, hanya berkas
   yang ada, yatim, cermin 80-LifeOS, Inbox/Templat), Grup (warna status + grup kueri tersimpan per akun), Tampilan (panah, ambang
   pudar teks, ukuran node, tebal tautan, **Animasi** = pertumbuhan vault dari catatan tertua), Gaya (pusat, tolak, tautan, jarak);
   pengaturan per browser `graph-settings.ts` (+ test, localStorage `lifeos.knowledgeGraph`); objek node dipakai ulang per id agar
   posisi tidak melompat saat difilter; catatan cermin `isMirrorNote` = baca saja + tombol Buka di LifeOS), **Tabel** (properti per
   kolom, ubah status/jenis/publik di sel), **Inbox** (kurasi: status + publik + pindah folder), **Kesehatan**; pembuka cepat
-  Ctrl+O (`CommandDialog` + `<Command>`); dialog bersama `workspace-dialogs.tsx` + store `workspace-store.ts`. Dialog sitasi
-  `KnowledgeNoteHost` punya "Buka di menu Pengetahuan" (`links.knowledgeNote(id, heading?)`). **Tools → Basis Pengetahuan**
+  Ctrl+O (`CommandDialog` + `<Command>`) + **palet perintah Ctrl+P** (K5, `command-palette.tsx`: grup Catatan ini / Sisipkan di
+  editor / Vault / Buka tab; catatan terbuka & editor aktif didaftarkan ke store sebagai `active` & `editor` oleh `NoteView` &
+  `NoteEditor`) + **perintah `/` di editor** (awal baris / setelah spasi; potongan Markdown & templat `90-Templat` — logika murni +
+  test `editor-snippets.ts`; perintah sisip baru → `SNIPPETS`); dialog bersama `workspace-dialogs.tsx` + store `workspace-store.ts`. Dialog sitasi
+  `KnowledgeNoteHost` punya "Buka di menu Knowledge" (`links.knowledgeNote(id, heading?)`). **Tools → Basis Pengetahuan**
   (`features/tools/knowledge/knowledge-settings.tsx`, hook `data/use-knowledge.ts`) = **pengaturan saja** (keputusan user
-  2026-11-06: daftar catatan & daftar masalah pindah ke menu Pengetahuan): profil kerja, vault (pakai folder / buat dari templat /
+  2026-11-06: daftar catatan & daftar masalah pindah ke menu Knowledge): profil kerja, vault (pakai folder / buat dari templat /
   pindai / lepas + pintasan Buka Pengetahuan / Kesehatan), kartu **Cermin hasil kerja ke Obsidian** (sakelar, jenis data,
   Sinkronkan sekarang, Hapus berkas cermin; `useKnowledgeExport`), cara memakai + peringatan kuota gratis Gemini (juga di Tools →
   Indeks Pengetahuan). **Tools → Indeks Pengetahuan**
@@ -897,7 +945,7 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
     Rutinitas: judul + pola frekuensi. Referensi: nama tipe + label ikon. Mengetik → halaman paginasi kembali ke 1.
   - Form agenda: mengubah Tanggal Mulai menggeser Tanggal Selesai (durasi tetap); konten form di-`key` per sesi buka &
     per agenda (`useOpenSession`).
-- **Layout & Pengaturan** (keputusan user 2026-10-15): sidebar = modul Workspace (… Notes Space, **Pengetahuan**, Productivity, **Approval**, File Control) + grup **AI Agent** khusus modul agen (Laporan Kinerja, SRIKANDI — `sidebarGroup: "agent"`; keputusan user 2026-10-25, Approval kembali ke Workspace 2026-10-31) + grup Sistem berisi **Tools** dan **Pengaturan**
+- **Layout & Pengaturan** (keputusan user 2026-10-15): sidebar = modul Workspace (… Notes Space, **Knowledge**, Productivity, **Approval**, File Control) + grup **AI Agent** khusus modul agen (Laporan Kinerja, SRIKANDI — `sidebarGroup: "agent"`; keputusan user 2026-10-25, Approval kembali ke Workspace 2026-10-31) + grup Sistem berisi **Tools** dan **Pengaturan**
   (`ModuleDef.sidebarGroup: "system"`, keduanya menu ber-sub-menu `SubmenuModuleItem`); Pengaturan
   (sub menu berurutan **Aplikasi, Manajemen User, Berbagi, Model AI, Integrasi** — urutan tab di `navigation.ts` sama dengan sub menu).
   **Profil Saya bukan bagian Pengaturan**: halaman sendiri `/profile` (`features/profile/`, modul `profile` dengan
@@ -910,16 +958,18 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   `div min-h-0 flex-1 overflow-y-auto`, footer `shrink-0` — jangan `ScrollArea` dengan `max-h` saja (lihat §15).
   **Mode Fokus** (`features/focus/focus-mode.tsx`): judul, keterangan, ikon dialog & tombol header mengikuti sesi yang
   dipilih (`MODE_META`: Mode Fokus / Waktu Rehat / Waktu Istirahat).
-- **Tools → Otomasi** (tab `automation`, `features/tools/automation/`, hook `data/use-automation.ts`, logika murni + test
-  `automation-utils.ts`): `AutomationSettings` (penjelasan + semua jadwal) dan `AutomationJobs systems?` (juga dipasang di
-  `RobotSettings` → tab Connector Laporan Kinerja & SRIKANDI): sakelar aktif, ringkasan jadwal (`describeSchedule`) +
+- **Otomasi = sub-tab Otomasi terjadwal di tab Connector** Laporan Kinerja & SRIKANDI (keputusan user 2026-11-06: sub menu Tools → Otomasi
+  dihapus karena duplikat; `/tools/automation` lama jatuh ke tab Tools pertama). Kode tetap di `features/tools/automation/`, hook
+  `data/use-automation.ts`, logika murni + test `automation-utils.ts`. `AutomationJobs systems` (dipasang `RobotSettings`) =
+  kartu **Cara kerja otomasi** (+ tombol notifikasi browser) lalu kartu jadwal per sistem: sakelar aktif, ringkasan jadwal (`describeSchedule`) +
   berikutnya, status terakhir (+ **Login ulang** bila gagal karena sesi), **Ubah jadwal** (Harian/mingguan · Tiap jam ·
   Kustom cron, hari, zona waktu), **Jalankan sekarang** (antrian), **Riwayat**. Daftar di-poll 3 dtk selama ada run aktif;
   run yang baru selesai memuat ulang record terkait (`KIND_RECORDS`). Tombol sinkron di menu asal tidak berubah. Peringatan
   per sistem: sesi kedaluwarsa (merah, jadwal dijeda) / belum login. **Notifikasi robot** (`robot-alerts.tsx`, hook
   `useAutomationAlerts` dipoll 2 menit): bagian **Robot & Otomasi** paling atas di lonceng, toast sekali per kejadian
   (`useRobotAlertToasts` di AppShell; ID yang sudah tampil di localStorage `lifeos.robotAlerts.seen.<userId>`, `newAlerts`),
-  notifikasi browser opsional saat tab tidak dilihat (tombol **Aktifkan notifikasi browser** di Otomasi).
+  notifikasi browser opsional saat tab tidak dilihat (tombol **Aktifkan notifikasi browser** di kartu Cara kerja otomasi);
+  notifikasi tugas gagal membuka tab Connector sistemnya (tombol "Lihat riwayat").
 - **Tools → ONLYOFFICE** (`features/tools/`, detail: `docs/ONLYOFFICE.md` §3.3): modul `tools` ber-sub-menu di sidebar
   (`ModuleDef.sidebarSubmenu` → `SubmenuModuleItem`, juga dipakai Pengaturan; sub menu baru = tab baru di `navigation.ts`).
   Editor dibuka dari mana saja lewat `openOfficeEditor({ uploadId, name?, mode? })` (`OfficeEditorHost` di AppShell, editor
@@ -967,9 +1017,12 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   (`agent-run-panel.tsx`, hanya bila agen siap & ada skill LifeOS) — pilih skill (bawaan `telaah-pengajuan`) → **Jalankan**
   → selesai = muat ulang pengajuan. Hook `data/use-agent.ts`.
 - **Konektor robot** = tab **Connector** di menu Laporan Kinerja (e-Kinerja) & SRIKANDI (keputusan user 2026-10-25; dulu Tools →
-  Konektor Robot) — komponen `RobotSettings systems=[…]` (`features/tools/robot/`, hook `data/use-robot.ts`): kartu status service robot + kartu per
-  sistem (alamat, host SSO, penanda login, Login/Cek/Lupakan sesi, alur rencana & batas, riwayat run +
-  dialog rekaman). `remote-browser-dialog.tsx` = tayangan JPEG yang di-poll ± 0,9 dtk; klik dipetakan ke 1280×800
+  Konektor Robot) — komponen `RobotSettings systems=[…]` (`features/tools/robot/`, hook `data/use-robot.ts`), sama di kedua menu,
+  dua sub-tab `?sub=` (keputusan user 2026-11-06): **Pengaturan koneksi** (bawaan; titik merah = belum login / sesi habis) = kartu
+  status service robot + kartu per sistem (Sesi & login + kredensial, Pengaturan alamat, **Pekerjaan robot & batasnya** = daftar
+  `flows` dari backend `SYSTEM_INFO` berlabel Lewat tombol / Bisa dijadwalkan, Riwayat koneksi + dialog rekaman) dan **Otomasi
+  terjadwal** (`?sub=automation`, badge jumlah jadwal aktif) = `AutomationJobs`. Notifikasi tugas gagal membuka `?sub=automation`;
+  tautan login dari jadwal membuka Pengaturan koneksi. Pekerjaan robot baru → tambahkan ke `SYSTEM_INFO.flows`. `remote-browser-dialog.tsx` = tayangan JPEG yang di-poll ± 0,9 dtk; klik dipetakan ke 1280×800
   (`toViewportPoint`), keyboard lewat `keyToInput`, **masukan dikirim berurutan** (antrian promise — ketikan cepat tidak
   hilang), tutup tanpa "Selesai" = sesi robot dibatalkan; bisa melanjutkan sesi yang sudah dibuka (`sessionId`, dari Login
   otomatis). `credentials-dialog.tsx` (simpan kredensial + konfirmasi kata sandi LifeOS), `auto-login-dialog.tsx` (gambar
@@ -1161,7 +1214,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
   (Asisten Agen, Laporan Kinerja + brankas, SRIKANDI, robot: 6 perbaikan, unit +2, uji API brankas 5/5, UI desktop & HP;
   sistem e-Kinerja/SRIKANDI sungguhan tidak disentuh). **Rancangan persetujuan otomatis ("Kebijakan Otomatis") ditulis
   2026-11-01** (`docs/AI-AGENT.md` §24; menunggu keputusan AG-26…29, belum ada kode). **Brankas digital bukti renaksi ✅ 2026-10-31** (satu tautan per poin, beberapa berkas, pemberitahuan PDP, log akses IP + lokasi; unit backend +3, frontend +2, smoke +11, UI diuji: halaman publik, dialog brankas, ubah berkas, hapus entri → tautan mati). **Register Naskah Keluar SRIKANDI — bagian LifeOS ✅ 2026-10-31** (riset formulir resmi, tab Register, tautan final; unit +9, smoke +2, UI diuji desktop & HP; **robot pendaftaran ✅** — diuji ke SRIKANDI sungguhan: simpan konsep, anti-ganda, konsep uji dihapus; unit robot +4, backend +3, smoke +1). Berikutnya skill `penetapan-psp` (menunggu contoh dokumen user, C5) / 5b OnTrack / Register: Naskah Banyak & E-Form / pesan templat WA |
-| Otomasi terjadwal (cron BullMQ, Tools → Otomasi + tab Connector): sinkron baca-saja e-Kinerja & SRIKANDI, jadwal diatur dari UI, Jalankan sekarang, riwayat, tombol manual tetap; **Jaga sesi login** + jadwal dijeda saat sesi kedaluwarsa + notifikasi (lonceng, toast, browser) | ✅ 2026-11-01 — unit backend +11 & frontend +5, smoke +15 (user sementara tanpa sesi → sistem pemerintah tidak disentuh), lint, typecheck, build, UI desktop & HP; **jadwal di akun admin masih nonaktif** (dinyalakan user); run terjadwal ke sistem sungguhan belum diamati |
+| Otomasi terjadwal (cron BullMQ, di tab Connector Laporan Kinerja & SRIKANDI; sub menu Tools → Otomasi dihapus 2026-11-06): sinkron baca-saja e-Kinerja & SRIKANDI, jadwal diatur dari UI, Jalankan sekarang, riwayat, tombol manual tetap; **Jaga sesi login** + jadwal dijeda saat sesi kedaluwarsa + notifikasi (lonceng, toast, browser) | ✅ 2026-11-01 — unit backend +11 & frontend +5, smoke +15 (user sementara tanpa sesi → sistem pemerintah tidak disentuh), lint, typecheck, build, UI desktop & HP; **jadwal di akun admin masih nonaktif** (dinyalakan user); run terjadwal ke sistem sungguhan belum diamati |
 | Productivity lanjutan: modal Project/Area lega, kartu ringkas, File Control opt-in, tag bebas Resource Global & lampiran | ✅ 2026-10-12–15 — unit test, lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Audit celah Productivity (8 temuan + 2 temuan saat uji): arsip yang sudah diberkaskan dikunci dari tab Resources, sumber My Notebook dilindungi di dialog hapus, item Area berlampiran & berdeskripsi, ubah lampiran, agenda berulang digabung per seri, form Area di-`key`, tag terhapus tidak kembali, filter & Kelola Tag, tag Musnah/Statis terkunci, tanggal bawaan lokal | ✅ 2026-10-18 — unit test (frontend 190+), lint, typecheck, build, UI diuji di browser dengan data `UJI-AUDIT` (dibersihkan) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
@@ -1867,7 +1920,7 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   melihat isi permintaan → peringatan di UI; key router disimpan terenkripsi seperti key resmi. Diuji dengan router tiruan
   (15/15: simpan, uji koneksi, model salah, Claude + ulang tanpa beta, generate, embedding & pencarian), unit +13, smoke +5;
   **belum diuji ke router sungguhan** (key dipegang user) dan proxy agen lewat router belum diuji ujung-ke-ujung.
-- 2026-11-06 — **Peta jalan no. 4: menu Pengetahuan** (disetujui user, "full feature" + riset dulu; rencana §25.2). Berkas vault tetap
+- 2026-11-06 — **Peta jalan no. 4: menu Knowledge** (disetujui user, "full feature" + riset dulu; rencana §25.2). Berkas vault tetap
   sumber kebenaran: LifeOS menulis berkas (atomik, cek hash → 409 alih-alih menimpa perubahan Obsidian/Syncthing), lalu pemantau
   yang sama membaca ulang sehingga indeks RAG & graf ikut. Hapus = `.trash` vault. Editor CodeMirror (bukan Tiptap) agar sintaks
   Obsidian tidak berubah saat disimpan; parser `@lezer/markdown` langsung karena `@codemirror/lang-markdown` menarik HTML/CSS/JS
@@ -1879,13 +1932,13 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   jawaban AI tidak ganda). Hanya data milik sendiri; lampiran = nama + tautan (berkas tidak disalin); berkas lampiran yang juga
   Resource Global ditautkan ke berkas Resource-nya. Pemicu = sidik jari tabel tiap menit (tanpa kait di RecordsService/Notebooks).
   Graf: panel Filter/Grup/Tampilan/Gaya + Animasi seperti Obsidian, pengaturan tampilan per browser. Tools → Basis Pengetahuan =
-  pengaturan (vault, profil, cermin, cara memakai); bekerja dengan isi vault = menu Pengetahuan. Hermes: user mengatur tugas Agen =
+  pengaturan (vault, profil, cermin, cara memakai); bekerja dengan isi vault = menu Knowledge. Hermes: user mengatur tugas Agen =
   Claude (lewat router) dengan cadangan OpenAI.
 - 2026-11-06 — **Peta jalan no. 5: cadangan per tugas AI** (keputusan user: "pilih cadangan per tugas", rencana Agen = Claude →
   cadangan OpenAI, chat/RAG/umum = Gemini). Disimpan di `ai_routing` yang ada (tanpa migrasi); sakelar cadangan otomatis tetap
   sakelar utama. Proxy agen kini punya cadangan: hanya sebelum respons dimulai (aliran yang sudah berjalan tidak bisa dipindah)
   dan hanya untuk kuota/saldo/sibuk/tak terjangkau — key ditolak tetap terlihat. Diuji router tiruan 6/6 (non-stream, stream,
-  401 tidak dialihkan, sakelar mati), unit +6, smoke +3. **No. 4 menu Pengetahuan**: riset & rencana ditulis
+  401 tidak dialihkan, sakelar mati), unit +6, smoke +3. **No. 4 menu Knowledge**: riset & rencana ditulis
   (`docs/AI-AGENT.md` §25.2), menunggu persetujuan user sebelum dibangun.
 - 2026-11-06 — **Kebijakan Otomatis tahap 1** (peta jalan no. 2; keputusan user: skill buatan Hermes = draf yang diaktifkan user,
   shadow dulu lalu auto dinaikkan user, alat bawaan Hermes dibiarkan menyala **dengan pengingat sebelum auto dipakai**, data master
@@ -1893,6 +1946,43 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   dan server menghitung ulang skor sendiri (tahan *prompt injection*). Isian SRIKANDI tidak dikarang agen: disalin dari entri
   Register yang dipilih user sebagai templat; tanpa templat = tidak pernah dikirim. Run agen dipindah dari memori ke tabel
   `agent_runs` agar keputusan tetap terjadi walau backend restart. Run dari aturan menunggu berkas selesai dibaca (tenang 90 dtk).
+- 2026-11-06 — **Duplikasi otomasi dihapus** (permintaan user): sub menu Tools → Otomasi dan bagian jadwal di tab Connector
+  memakai komponen yang sama; bedanya hanya kartu "Cara kerja otomasi" + tombol notifikasi browser (hanya di Tools) dan
+  notifikasi tugas gagal yang menuju `/tools/automation`. Keduanya digabung ke tab Connector Laporan Kinerja & SRIKANDI; sub
+  menu Tools → Otomasi dihapus (API `/automation/*` tetap). Lanjutan: tab Connector dibagi dua sub-tab **Pengaturan koneksi** |
+  **Otomasi terjadwal**; daftar "Alur yang direncanakan (belum aktif)" yang usang diganti "Pekerjaan robot & batasnya" sesuai
+  kemampuan robot sekarang; kartu pengantar SRIKANDI yang usang dihapus sehingga kedua menu sama persis.
+- 2026-11-06 — **Menu Pengetahuan → Knowledge** (permintaan user): hanya label menu & teks UI (path `/knowledge`, kode, sumber
+  indeks "Pengetahuan: …" tetap). Riset lanjutan fitur Obsidian yang belum ada (K1–K11, usulan urutan K1 → K4 → K5 → K3 → K6
+  → K2 → K7 → K8) ditulis di `docs/AI-AGENT.md` §25.6 — menunggu pilihan user.
+- 2026-11-06 — **K1 Catatan harian + K4 Catatan serupa** (pilihan user). Catatan harian = berkas milik user (dibuat sekali,
+  ringkasan = potret saat dibuat, centang tidak disinkronkan — itu K3); dibuka juga dari Planner Harian. Catatan serupa memakai
+  embedding yang sudah ada (tanpa biaya AI); skor ±0,85 = topik sama, ±0,6 = tidak terkait (gemini-embedding-2).
+- 2026-11-07 — **K5 palet perintah + perintah `/`** ("lanjut ke tahap selanjutnya"). Ctrl+P di menu Knowledge menggantikan cetak
+  browser (seperti Obsidian; cetak tetap lewat menu browser). Perintah `/` hanya di awal baris atau setelah spasi agar path/URL
+  (`a/b`, `https://`) tidak memicunya. Templat yang disisipkan di tengah catatan membuang properti templat (tidak ada dua blok
+  properti). Tanpa perubahan backend.
+- 2026-11-07 — **K3 tugas lintas vault** ("lanjutkan tahap selanjutnya"). Format = plugin Tasks Obsidian agar tugas yang ditulis
+  di Obsidian dan di LifeOS sama persis (centang → `✅ tanggal`, berulang → baris baru di atas). Tugas vault **tidak** disalin ke
+  record Planner (berkas tetap sumber kebenaran); Planner Harian hanya menampilkannya. Ringkasan LifeOS di catatan harian
+  dilewati (salinan to-do Planner → tidak ganda). Penulisan balik memakai baris asli, bukan hash berkas, agar dua centang
+  beruntun di catatan yang sama tidak saling menolak, tetapi perubahan baris di Obsidian tetap ditolak 409.
+- 2026-11-07 — **K6 sematan catatan & blok** ("lanjutkan tahap pengembangan knowledge selanjutnya"). Sintaks Obsidian apa adanya
+  (`#Judul`, `#^id`, penanda `^id`) agar berkas tetap sama di Obsidian. Seperti Obsidian, memilih blok tanpa id di pelengkap
+  `[[catatan#^` menulis `^id` acak 6 karakter ke berkas tujuan; baris dicari persis & unik (berubah → ditolak, tidak menebak).
+  Tanpa perubahan backend.
+- 2026-11-07 — **K2 Bases** ("Lanjut K2 dulu"). Berkas `.base` = sumber kebenaran (tampilan yang sama terbuka di Obsidian);
+  server hanya baca/tulis YAML, evaluasi filter di browser atas daftar catatan yang sudah dimuat (tanpa query baru). Hanya subset
+  sintaks Obsidian yang didukung — ekspresi lain tidak merusak berkas, hanya diberi peringatan & diabaikan. Tampilan Kanban dari
+  usulan awal tidak dibuat (Bases Obsidian tidak punya Kanban); Tabel/Kartu/Daftar sesuai Obsidian. Lanjutan ("selesaikan bagian
+  K2 yang belum"): sematan `![[x.base]]` di catatan, ringkasan kaki tabel, sunting nilai di sel (tulis frontmatter ber-hash).
+- 2026-11-07 — **K7 riwayat versi catatan** (pola File recovery Obsidian). Disimpan di database (ikut backup), bukan di vault
+  (tidak tersinkron ke Obsidian/HP). Isi sebelum LifeOS menimpa selalu disimpan; versi dari Obsidian dicatat saat pindai,
+  dirapatkan per 5 menit (seperti selang snapshot Obsidian). Ditemukan saat merancang: isi sebelum simpan = versi terpantau
+  terakhir → versi itu ditandai `before_*` agar tidak ditimpa pindai berikutnya. Ditemukan saat uji: dialog membandingkan dengan
+  isi catatan lama di cache → isi terkini selalu dibaca ulang saat dialog dibuka.
+  Ditemukan saat restart WSL: pemantau run agen (`AgentService.tick`, `try/finally` tanpa `catch` dari `setInterval`) mematikan
+  proses backend ketika database sesaat putus → galat kini dicatat; pemindai vault & cermin juga diberi `.catch`.
 
 ## 13. Konvensi Kode
 
@@ -2288,6 +2378,11 @@ utama tetap < 500 kB (cek output `npm run build`).
   nginx sungguhan (`docker run … nginx:1.30-alpine` + `wget -S`).
 - Tes AI sungguhan lewat `javascript_tool` (panel tersembunyi): satu panggilan maks. ± 45 detik → tunggu bertahap
   (beberapa panggilan `await` 30–40 detik), jangan satu loop panjang.
+- Bila preview backend Claude mati ("exited with code 4294967295"), proses `nest start --watch` / `dist/main` anaknya bisa
+  tertinggal: preview baru pindah ke 4001, atau dua pengawas saling membangun ulang `dist/` sehingga backend restart di tengah smoke
+  (ECONNREFUSED). Cek proses node `*LifeOSackend*`, hentikan semuanya, lalu `preview_start` sekali.
+- Pekerjaan berkala (`setInterval(() => void this.x())`) wajib menangkap semua galat (`try/catch` atau `.catch`): penolakan
+  promise yang lolos = proses backend mati (Node 24), mis. saat database/Redis sesaat putus setelah restart WSL.
 - Kunci robot (`RobotService.exclusive`) dan sesi login jarak jauh ada di **memori satu proses backend** — jangan menjalankan
   backend lebih dari satu instans (kunci tidak berlaku lintas proses). Menguji "Jalankan sekarang" / menyalakan jadwal di akun
   yang punya sesi Connector = robot membuka SRIKANDI/e-Kinerja sungguhan → uji pakai user tanpa sesi (smoke) kecuali user

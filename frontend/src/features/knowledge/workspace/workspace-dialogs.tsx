@@ -31,6 +31,8 @@ import { useSearchParam } from "@/hooks/use-search-param";
 import { errorMessage } from "@/lib/api/client";
 import { knowledgeApi } from "@/lib/api/endpoints";
 import type { KnowledgeNoteListItem } from "@/types/api";
+import { CommandPalette } from "./command-palette";
+import { VersionHistoryDialog } from "./version-history-dialog";
 import { folderOf, noteName, templateNotes } from "./knowledge-logic";
 import { useOpenNote, useWorkspaceStore } from "./workspace-store";
 
@@ -56,7 +58,7 @@ function FolderPicker({
   );
 }
 
-/** Semua dialog menu Pengetahuan; dipasang sekali di halaman. */
+/** Semua dialog menu Knowledge; dipasang sekali di halaman. */
 export function WorkspaceDialogs() {
   const dialog = useWorkspaceStore((s) => s.dialog);
   const close = useWorkspaceStore((s) => s.close);
@@ -87,6 +89,8 @@ export function WorkspaceDialogs() {
       </Dialog>
       <DeleteDialogs />
       <QuickSwitcher />
+      <CommandPalette />
+      <VersionHistoryDialog />
     </>
   );
 }
