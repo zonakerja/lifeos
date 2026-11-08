@@ -10,6 +10,8 @@ export const ASSET_SOURCE = "asset";
 export const NOTEBOOK_SOURCE = "notebook_source";
 /** `sourceType` untuk catatan Markdown vault Obsidian (`knowledge_notes`). */
 export const OBSIDIAN_SOURCE = "obsidian";
+/** `sourceType` untuk berkas Canvas vault (`.canvas`); `sourceId` = path berkas di vault. */
+export const CANVAS_SOURCE = "obsidian_canvas";
 
 /** Koleksi potongan indeks: basis pengetahuan (vault & berkasnya) vs data kerja harian. */
 export const KNOWLEDGE_COLLECTION = "knowledge";
@@ -211,7 +213,10 @@ export function chunkStructured(text: string, size = 1800, overlap = 200): strin
  */
 export function chunkSource(sourceType: string, text: string): string[] {
   const clipped = text.slice(0, MAX_SOURCE_CHARS);
-  return sourceType === ASSET_SOURCE || sourceType === NOTEBOOK_SOURCE || sourceType === OBSIDIAN_SOURCE
+  return sourceType === ASSET_SOURCE ||
+    sourceType === NOTEBOOK_SOURCE ||
+    sourceType === OBSIDIAN_SOURCE ||
+    sourceType === CANVAS_SOURCE
     ? chunkStructured(clipped)
     : chunkText(clipped);
 }

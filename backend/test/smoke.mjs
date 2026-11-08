@@ -1483,6 +1483,24 @@ try {
     );
     r = await j("POST", "/knowledge/daily", { date: "2026-02-30" }, at);
     ok("knowledge daily invalid date 400", r.s === 400, r);
+    // Catatan berkala (lanjutan K1): mingguan (minggu ISO) & bulanan, dibuat sekali
+    r = await j("POST", "/knowledge/daily", { date: "2026-11-06", period: "week" }, at);
+    const weeklyId = r.d?.id;
+    ok("knowledge weekly note created", r.s === 201 && r.d.created === true && r.d.path === "Mingguan/2026-W45.md", r);
+    r = await j("GET", `/knowledge/notes/${weeklyId}/source`, null, at);
+    ok(
+      "knowledge weekly note content",
+      r.s === 200 && r.d.raw.includes("[[Harian/2026-11-06|Jum 6]]") && r.d.raw.includes("jenis: mingguan"),
+      r.d,
+    );
+    r = await j("POST", "/knowledge/daily", { date: "2026-11-02", period: "week" }, at);
+    ok("knowledge weekly note reused", r.s === 201 && r.d.created === false && r.d.id === weeklyId, r);
+    r = await j("POST", "/knowledge/daily", { date: "2026-11-06", period: "month" }, at);
+    const monthlyId = r.d?.id;
+    ok("knowledge monthly note created", r.s === 201 && r.d.path === "Bulanan/2026-11.md", r);
+    r = await j("POST", "/knowledge/daily", { date: "2026-11-06", period: "year" }, at);
+    ok("knowledge periodic invalid period 400", r.s === 400, r);
+    for (const id of [weeklyId, monthlyId]) if (id) await j("DELETE", `/knowledge/notes/${id}`, null, at);
     r = await j("GET", `/knowledge/notes/${dailyId}/similar`, null, at);
     ok("knowledge similar", r.s === 200 && typeof r.d.available === "boolean" && Array.isArray(r.d.items), r);
     r = await j("GET", `/knowledge/notes/${dailyId}/similar`, null, pt);
@@ -1563,6 +1581,52 @@ try {
       r.d,
     );
     await j("DELETE", `/knowledge/notes/${versionNoteId}`, null, at);
+    // Canvas (K8): berkas .canvas (JSON Canvas) dibaca/ditulis utuh, bentuk diperiksa, berubah di disk → 409
+    r = await j("POST", "/knowledge/canvases", { name: "Smoke canvas" }, at);
+    const canvasPath = r.d?.path;
+    ok("knowledge canvas created", r.s === 201 && canvasPath?.endsWith(".canvas") && r.d.data.nodes.length === 1, r);
+    const canvasHash = r.d?.hash;
+    const canvasData = {
+      nodes: [
+        { id: "a", type: "text", text: "Alur ORCA4417 pengajuan", x: 0, y: 0, width: 200, height: 100 },
+        { id: "b", type: "file", file: "Mulai di sini.md", x: 300, y: 0, width: 300, height: 200 },
+      ],
+      edges: [{ id: "e", fromNode: "a", toNode: "b" }],
+    };
+    r = await j("PUT", "/knowledge/canvases/file", { path: canvasPath, baseHash: canvasHash, data: canvasData }, at);
+    ok("knowledge canvas saved", r.s === 200 && r.d.data.edges.length === 1 && r.d.hash !== canvasHash, r.d);
+    r = await j("PUT", "/knowledge/canvases/file", { path: canvasPath, baseHash: canvasHash, data: canvasData }, at);
+    ok("knowledge canvas stale hash 409", r.s === 409, r);
+    r = await j("GET", `/knowledge/canvases/file?path=${encodeURIComponent(canvasPath)}`, null, at);
+    r = await j(
+      "PUT",
+      "/knowledge/canvases/file",
+      {
+        path: canvasPath,
+        baseHash: r.d.hash,
+        data: { nodes: canvasData.nodes, edges: [{ id: "x", fromNode: "a", toNode: "z" }] },
+      },
+      at,
+    );
+    ok("knowledge canvas invalid edge 400", r.s === 400, r);
+    r = await j("GET", "/knowledge/canvases", null, at);
+    ok("knowledge canvases list", r.s === 200 && r.d.some((c) => c.path === canvasPath), r.d);
+    r = await j("GET", `/knowledge/canvases/file?path=${encodeURIComponent(canvasPath)}`, null, pt);
+    ok("knowledge canvas isolated", r.s !== 200, r);
+    // Isi canvas ikut indeks RAG (koleksi knowledge, sourceId = path) dan hilang saat canvas dihapus
+    const canvasHits = async (present) => {
+      for (let i = 0; i < 30; i++) {
+        const res = await j("GET", "/ai/index/search?q=ORCA4417", null, at);
+        const found = (res.d ?? []).some((h) => h.sourceType === "obsidian_canvas" && h.sourceId === canvasPath);
+        if (found === present) return true;
+        await new Promise((done) => setTimeout(done, 500));
+      }
+      return false;
+    };
+    ok("knowledge canvas indexed", await canvasHits(true));
+    r = await j("DELETE", `/knowledge/canvases/file?path=${encodeURIComponent(canvasPath)}`, null, at);
+    ok("knowledge canvas to trash", r.s === 200 && r.d.trash.startsWith(".trash/"), r);
+    ok("knowledge canvas unindexed after delete", await canvasHits(false));
     // Bases (K2): berkas .base dibaca/ditulis sebagai YAML, berubah di disk → 409
     r = await j("POST", "/knowledge/bases", { name: "Smoke base" }, at);
     const basePath = r.d?.path;

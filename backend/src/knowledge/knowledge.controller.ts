@@ -202,11 +202,13 @@ export class KnowledgeController {
     return this.vault.deleteNote(user.id, id);
   }
 
-  /** Catatan harian tanggal itu (dibuat sekali bila belum ada). */
+  /** Catatan harian / mingguan / bulanan yang memuat tanggal itu (dibuat sekali bila belum ada). */
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Post("daily")
   openDaily(@CurrentUser() user: AuthUser, @Body() dto: DailyNoteDto) {
-    return this.daily.open(user.id, dto.date);
+    return dto.period && dto.period !== "day"
+      ? this.daily.openPeriod(user.id, dto.period, dto.date)
+      : this.daily.open(user.id, dto.date);
   }
 
   /** Riwayat versi catatan (isi sebelum ditimpa LifeOS + versi terpantau saat pindai). */
@@ -230,6 +232,35 @@ export class KnowledgeController {
     @Body() dto: RestoreVersionDto,
   ) {
     return this.vault.restoreVersion(user.id, id, versionId, dto.baseHash);
+  }
+
+  /** Canvas (berkas `.canvas`, JSON Canvas): papan kartu catatan/teks/tautan + garis penghubung. */
+  @Get("canvases")
+  canvases(@CurrentUser() user: AuthUser) {
+    return this.vault.listCanvases(user.id);
+  }
+
+  @Get("canvases/file")
+  canvasFile(@CurrentUser() user: AuthUser, @Query() dto: BaseFileDto) {
+    return this.vault.readCanvas(user.id, dto.path);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Post("canvases")
+  createCanvas(@CurrentUser() user: AuthUser, @Body() dto: CreateBaseDto) {
+    return this.vault.createCanvas(user.id, dto);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 240 } })
+  @Put("canvases/file")
+  saveCanvas(@CurrentUser() user: AuthUser, @Body() dto: SaveBaseDto) {
+    return this.vault.saveCanvas(user.id, dto);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Delete("canvases/file")
+  deleteCanvas(@CurrentUser() user: AuthUser, @Query() dto: BaseFileDto) {
+    return this.vault.deleteCanvas(user.id, dto.path);
   }
 
   /** Bases (berkas `.base` Obsidian): tampilan tersimpan atas catatan vault. */

@@ -315,6 +315,10 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   lokal dari browser) → `Harian/YYYY-MM-DD.md` dibuat **sekali** (`createAt`, `wx`; ada = dibuka, tidak pernah ditimpa) dari templat
   `90-Templat/Harian.md` bila ada (`{{tanggal}}` `{{judul}}` `{{jam}}` `{{lifeos}}` = tempat ringkasan) + ringkasan agenda, to-do,
   task jatuh tempo & terlambat tanggal itu (tautan wiki ke berkas cermin 80-LifeOS bila ada, selain itu tautan "buka" LifeOS).
+  **Catatan berkala** (lanjutan K1, pola Periodic Notes; logika murni + test `vault-periodic.ts`): `POST /knowledge/daily { date, period:
+  "week"|"month" }` → `Mingguan/YYYY-Www.md` (minggu ISO Senin–Minggu) / `Bulanan/YYYY-MM.md`, dibuat sekali dari
+  `90-Templat/Mingguan.md` / `Bulanan.md` bila ada (penanda sama dengan harian) + tautan catatan harian (mingguan) / mingguan (bulanan)
+  + agenda & task jatuh tempo periode itu (maks. 60 per bagian) — `KnowledgeDailyService.openPeriod`.
   **Catatan serupa** (K4): `GET /knowledge/notes/:id/similar` = rata-rata vektor potongan catatan vs potongan lain koleksi `knowledge`
   bermodel sama (SQL pgvector, tanpa panggilan AI); `available: false` = catatan belum punya embedding.
   **Tugas lintas vault** (K3, logika murni + test `vault-tasks.ts`, pola plugin Tasks): `GET /knowledge/tasks` = semua `- [ ]`
@@ -328,6 +332,15 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   PUT wajib `baseHash` → berubah di disk **409**; kunci utama ditulis ulang lewat dokumen `yaml`, kunci lain & komentar tetap;
   YAML rusak → `error`, tidak ditimpa; `80-LifeOS` baca saja; hapus = `.trash`), `POST /knowledge/bases { name, folder? }`.
   Server tidak mengevaluasi filter — mesin ekspresi ada di frontend (`base-engine.ts`).
+  **Canvas** (K8, logika murni + test `vault-canvas.ts`): berkas `.canvas` (JSON Canvas 1.0, sama dengan Canvas Obsidian) —
+  `GET /knowledge/canvases`, `GET|PUT|DELETE /knowledge/canvases/file?path=`, `POST /knowledge/canvases` (DTO sama dengan Bases);
+  PUT menulis utuh (indentasi tab) setelah `validateCanvas` (id unik, jenis text/file/link/group, posisi angka, garis merujuk
+  node yang ada) + `baseHash` → **409**; JSON rusak → `error`, tidak ditimpa. Pemindai & pembuat berkas bersama `listVaultFiles` /
+  `createVaultFile` (dipakai Bases juga). **Isi canvas diindeks RAG** (`canvasIndexText`: kartu teks urut posisi, rujukan catatan,
+  tautan, grup, hubungan "A → B (label)"): `sourceType = obsidian_canvas`, `sourceId = path`, koleksi `knowledge`; dimuat lewat
+  pemuat eksternal `AiIndexService.registerSourceLoader` (didaftarkan `KnowledgeVaultService`, tanpa ketergantungan melingkar);
+  diantre saat simpan/buat/hapus dari LifeOS dan saat pindai (`syncCanvasIndex`: waktu ubah per path di memori — restart = semua
+  diantre ulang, murah karena hash per potongan); templat & 80-LifeOS tidak diindeks. Canvas tidak masuk `knowledge_notes`.
   **Cermin hasil kerja → vault** (keputusan user 2026-11-06, `KnowledgeExportService` + logika murni & test `vault-export.ts`):
   satu arah LifeOS → folder `80-LifeOS/` (Catatan Bebas, List Bebas, Notes AI, My Notebook = indeks + catatan Studio + riwayat
   chat, Productivity = Project + Action, Area + struktur, Agenda yang punya hasil/induk, Resource Global), saling bertaut
@@ -378,7 +391,7 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   **Siapkan agen tanpa terminal** (`docs/AI-AGENT.md` §23.1): Hermes tidak menyimpan API key model — `model.provider: custom`
   → `AgentLlmController` `/agent/llm/v1/{models,chat/completions}` (OpenAI-compatible, streaming diteruskan) → Gemini/OpenAI:
   endpoint OpenAI-compatible resmi (`OPENAI_COMPAT_BASE`); **Claude: Messages API native** lewat SDK (`agent-claude.ts` + test:
-  terjemahan dua arah, cache otomatis, `drop_block`, `fallbacks`, blok pemikiran disimpan `ClaudeTurnMemory` di memori backend) —
+  terjemahan dua arah, prompt caching penanda per blok `applyCacheMode` (alat, sistem, blok terakhir), `drop_block`, `fallbacks`, blok pemikiran disimpan `ClaudeTurnMemory` di memori backend) —
   dengan key tersimpan; `lastModelCall.usage` = token + cache; provider = tugas routing **`agent`**
   (`ai_routing.agent`, kosong = provider aktif; `AiService.agentCredential`). Kunci Hermes → LifeOS = `HERMES_API_KEY`
   (`${API_SERVER_KEY}` di config Hermes) yang dikenali sebagai token akses biasa: `POST /agent/setup { scopes? }` membuat token
@@ -540,7 +553,7 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±440 kB (termasuk host editor ONLYOFFICE; sejak tahap 3 floating-ui/popper ikut chunk utama —
   sebelumnya chunk terpisah yang tetap dimuat saat start); tanpa
   peringatan ukuran chunk. Tab My Notebook = chunk `notebook-tab` (±42 kB). Menu Pengetahuan: `knowledge-page` ±82 kB,
-  `graph-canvas` ±185 kB, `note-editor` (CodeMirror) ±375 kB, `bases-tab` ±40 kB (juga dipakai sematan `![[x.base]]`) — dimuat malas.
+  `graph-canvas` ±185 kB, `note-editor` (CodeMirror) ±375 kB, `bases-tab` ±40 kB (juga dipakai sematan `![[x.base]]`), `canvas-tab` ±24 kB — dimuat malas.
 - **CSP produksi** (`nginx.conf`): `script-src 'self'`, `connect-src 'self'` (AI lewat backend), `style-src 'self'
   'unsafe-inline'`, `img/media blob: data:`. Domain eksternal baru → tambahkan di sini (lebih baik lewat backend).
 
@@ -587,7 +600,8 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   simpan otomatis 1,5 dtk, Ctrl+S, pelengkap `[[` + `[[catatan#` (judul) + `[[catatan#^` (blok; blok tanpa id diberi `^id` baru:
   catatan lain lewat `source` + `save` ber-`baseHash`, catatan sendiri dalam satu transaksi editor), bentrok → Muat versi terbaru / Simpan sebagai salinan; panel info Properti (formulir frontmatter),
   Garis besar, Backlink, Sebutan tanpa tautan, Tautan keluar, **Catatan serupa** (skor %, penanda "bertaut"), Graf lokal, Tanya AI;
-  tombol **Catatan hari ini** + pilih tanggal di header (`features/knowledge/daily-note-button.tsx`, juga ikon di Planner Harian
+  tombol **Catatan hari ini** + pilih tanggal (popover juga **Mingguan** / **Bulanan**; palet: Catatan minggu/bulan ini) di header
+  (`features/knowledge/daily-note-button.tsx`, `useDailyNote().open(date, after?, period?)`, juga ikon di Planner Harian
   `PlannerDailyNoteButton` — tampil bila vault sudah dipilih)), **Tugas** (K3, `tasks-tab.tsx`: kelompok Terlambat / Hari ini / 7 hari
   / Nanti / Tanpa tanggal / Selesai, atau per catatan; cari kata & `#tag`; centang optimistis `useToggleKnowledgeTask`; logika murni
   + test `task-logic.ts`; `VaultTaskRow` + `useVaultTaskToggle` juga dipakai `PlannerVaultTasks` di kartu To-Do Planner Harian =
@@ -601,7 +615,15 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   Max, Sum, Range, Stddev, Earliest, Latest, Checked, Unchecked, Empty, Filled, Unique); sel properti `note.*` disunting langsung
   (`EditableCell` → `setProperties` ber-hash; bukan tag, rumus, properti berkas, cermin 80-LifeOS; bentuk nilai mengikuti nilai lama
   `parseCellInput`); sematan `![[x.base]]` / `![[x.base#Tampilan]]` di catatan = `EmbeddedBase` dimuat malas dari `note-markdown`,
-  tautan `[[x.base]]` membuka tab Bases (`?base=` boleh nama berkas)), **Riwayat versi** (K7, menu ⋯ catatan & palet perintah →
+  tautan `[[x.base]]` membuka tab Bases (`?base=` boleh nama berkas)), **Canvas** (K8, `canvas-tab.tsx` dimuat malas, `?canvas=<path|nama>`;
+  logika murni + test `canvas-logic.ts`: warna preset "1"–"6" → token, geometri garis Bezier per sisi, pas layar, operasi
+  tambah/pindah (kisi 10, grup ikut memindah isinya)/ubah ukuran/hapus/hubungkan; papan geser + Ctrl/roda zoom, kartu teks
+  (Markdown, klik dua kali sunting), catatan/berkas (isi catatan / gambar), tautan (kartu, tanpa iframe), grup; titik di sisi kanan
+  kartu diseret ke kartu lain = garis; simpan otomatis 700 ms berantai dengan hash (409 → muat ulang); data terkini lewat ref
+  `latest` — **jangan** menghitung perubahan dari closure render; node/garis tak lengkap → hanya-baca; `[[x.canvas]]` /
+  `![[x.canvas]]` di catatan = papan mini baca-saja `EmbeddedCanvas` (dimuat malas dari `note-markdown`, dipaskan ke kotak 340 px,
+  klik judul / klik dua kali = buka tab Canvas; di dalam kartu/sematan lain = kartu pembuka); sitasi chatbot canvas →
+  `links.knowledgeCanvas(path)`), **Riwayat versi** (K7, menu ⋯ catatan & palet perintah →
   `version-history-dialog.tsx`: daftar versi + asal, Perubahan (diff baris `line-diff.ts` + test, dibanding isi terkini yang selalu
   dibaca ulang `useKnowledgeSource(id, { fresh: true })`) / Isi versi, Pulihkan dengan konfirmasi), **Graf** (`graph-canvas.tsx`
   react-force-graph-2d dimuat malas; bergaya Graph view Obsidian — panel Filter (cari, tag sebagai node, lampiran, hanya berkas
@@ -1981,6 +2003,27 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   dirapatkan per 5 menit (seperti selang snapshot Obsidian). Ditemukan saat merancang: isi sebelum simpan = versi terpantau
   terakhir → versi itu ditandai `before_*` agar tidak ditimpa pindai berikutnya. Ditemukan saat uji: dialog membandingkan dengan
   isi catatan lama di cache → isi terkini selalu dibaca ulang saat dialog dibuka.
+- 2026-11-07 — **K8 Canvas** ("lanjutkan pengembangan tahap selanjutnya"; perubahan sebelumnya di-commit dulu atas perintah user).
+  Format terbuka JSON Canvas apa adanya (kunci tak dikenal dipertahankan, indentasi tab seperti Obsidian) sehingga berkas sama
+  dengan Canvas Obsidian. Tahap 1 penampil + tahap 2 sunting dasar sekaligus (pindah, ubah ukuran, tambah teks/catatan/tautan/grup,
+  sunting teks, hubungkan, warna, hapus); papan digambar sendiri dengan DOM + SVG (tanpa pustaka baru). Kartu tautan tidak memuat
+  situs dalam iframe (CSP produksi & privasi). Ditemukan saat uji: akhir seretan/sunting menyimpan data lama karena perubahan
+  dihitung dari closure render / updater React → semua perubahan dihitung dari ref data terkini.
+- 2026-11-07 — **Prompt caching proxy agen → penanda per blok** (uji atas permintaan user, dokumentasi Classai: cache otomatis, token
+  cache ditagih 50%). Uji tiga format (tingkat atas / per blok / tanpa penanda) × 3 panggilan identik ±8 ribu token lewat Classai: semua
+  melaporkan cache 0 karena router membuang kolom cache dari `usage` (mentah hanya `input_tokens`/`output_tokens`). Dipilih penanda per
+  blok (format yang dikenali API Anthropic langsung maupun router yang memasang penanda sendiri bila belum ada).
+  **Terbukti 2026-11-09 lewat dasbor Classai** (Usage → "tokens from packages"): 4 panggilan identik = 32 rb token tercatat, hanya 20 rb
+  terpotong dari paket (8 rb penuh + 3 × 4 rb setengah harga). Riwayat sebelumnya juga cocok dengan cache aktif di ketiga format (172 rb
+  tercatat, 126 rb terpotong) → log "Token" dasbor & LifeOS = token mentah, potongan hanya terlihat di "tokens from packages".
+- 2026-11-07 — **Celah K1–K8 ditutup** (permintaan user: "lakukan pekerjaan K1 sd K8 yang masih terlewat"): catatan berkala
+  mingguan/bulanan (bagian "periodic" K1), isi canvas di indeks RAG (sumber terpisah `obsidian_canvas`, bukan baris
+  `knowledge_notes`, agar canvas tidak muncul sebagai catatan yang bisa disunting/ditimpa teks), sematan canvas sebagai papan mini.
+  Kanban (K2) sengaja tidak dibuat (Bases Obsidian tidak punya). Ditemukan saat uji: semua sematan (catatan, base, canvas) dirender
+  `<div>` di dalam `<p>` (HTML tidak sah, peringatan React) → paragraf berisi sematan dirender sebagai `<div>`.
+  Dicek atas pertanyaan user: Classai Router (Claude Opus 5.5) tidak membatasi topik, tetapi model menyebut dirinya "Claude Code
+  lewat Classai Router" → router kemungkinan menyisipkan system prompt Claude Code (LifeOS sendiri tidak mengirim system prompt di
+  `generate`); jawaban umum tetap benar.
   Ditemukan saat restart WSL: pemantau run agen (`AgentService.tick`, `try/finally` tanpa `catch` dari `setInterval`) mematikan
   proses backend ketika database sesaat putus → galat kini dicatat; pemindai vault & cermin juga diberi `.catch`.
 
@@ -2087,7 +2130,8 @@ payload otomatis ikut (kecuali key berakhiran `Id`, lihat `KEEP_KEYS`). Lalu "In
 Mengganti model/dimensi embedding = migrasi kolom `vector(N)` + indeks HNSW baru + bangun ulang semua indeks.
 
 **Menambah sumber ke basis pengetahuan / chat AI**: sumber baru dengan koleksi sendiri → `SourceDocument.collection`
-+ `metadata` di `AiIndexService` (`loadSource` & `loadAllSources`), jenis pemotongan di `chunkSource`, label sumber di
++ `metadata` di `AiIndexService` (`loadSource` & `loadAllSources`; sumber milik modul lain yang bergantung pada AiIndexService →
+`registerSourceLoader(sourceType, { load, loadAll })`, contoh Canvas di `KnowledgeVaultService`), jenis pemotongan di `chunkSource`, label sumber di
 `knowledge-index-settings.tsx` & `citationTarget` (`knowledge-utils.ts`) agar sitasi bisa dibuka. Aturan menjawab / bagian prompt →
 `buildAssistantPrompt` (+ test). Status yang tidak boleh dipakai menjawab → `EXCLUDED_STATUSES`.
 
@@ -2357,7 +2401,9 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Hermes 0.22.2–0.22.5: `GET /v1/skills` selalu 500 (`_find_all_skills() got an unexpected keyword argument
   'include_editorial'`) → daftar skill dibaca backend dari folder repo. Cek ulang saat upgrade Hermes.
 - Claude Opus/Sonnet 5.5 lewat proxy agen: `ClaudeTurnMemory` ada di memori satu proses (seperti peta run agen). Cek cache lewat
-  **Token: dari cache** di kartu Siapkan agen; `0` terus-menerus = awalan berubah (mis. system prompt Hermes). Uji tanpa biaya:
+  **Token: dari cache** di kartu Siapkan agen; `0` terus-menerus = awalan berubah (mis. system prompt Hermes) **atau** jalur lewat router
+  yang membuang angka cache dari `usage` (Classai Router: hanya `input_tokens`/`output_tokens`, diuji 2026-11-07) — cek hemat cache di
+  dasbor router (Classai: Usage → "tokens from packages" dibanding total token), bukan di LifeOS. Uji tanpa biaya:
   `ANTHROPIC_BASE_URL` menunjuk server tiruan (SDK membacanya otomatis) dengan user sementara.
 - Mount skill `./agents/hermes/skills:/opt/data/skills/lifeos` membuat Docker membuat `/opt/data/skills` milik root di volume
   → skill bawaan Hermes gagal disalin ("Permission denied"). `infra/hermes/up.sh` meng-`chown 10000` sekali lalu restart.
@@ -2383,6 +2429,9 @@ utama tetap < 500 kB (cek output `npm run build`).
   (ECONNREFUSED). Cek proses node `*LifeOSackend*`, hentikan semuanya, lalu `preview_start` sekali.
 - Pekerjaan berkala (`setInterval(() => void this.x())`) wajib menangkap semua galat (`try/catch` atau `.catch`): penolakan
   promise yang lolos = proses backend mati (Node 24), mis. saat database/Redis sesaat putus setelah restart WSL.
+- Komponen interaktif yang menyimpan saat `pointerup`/`blur` (Canvas): updater `setState(fn)` baru dijalankan saat render
+  berikutnya dan closure handler bisa memegang state lama → event beruntun dalam satu tugas menyimpan isi lama. Hitung perubahan
+  dari ref data terkini (`latest.current`) lalu `setState(nilai)`.
 - Kunci robot (`RobotService.exclusive`) dan sesi login jarak jauh ada di **memori satu proses backend** — jangan menjalankan
   backend lebih dari satu instans (kunci tidak berlaku lintas proses). Menguji "Jalankan sekarang" / menyalakan jadwal di akun
   yang punya sesi Connector = robot membuka SRIKANDI/e-Kinerja sungguhan → uji pakai user tanpa sesi (smoke) kecuali user

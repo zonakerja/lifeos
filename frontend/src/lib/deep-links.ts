@@ -31,6 +31,8 @@ export const links = {
   /** Menu Knowledge: buka catatan vault (opsional lompat ke judul) */
   knowledgeNote: (id: string, heading?: string) =>
     `/knowledge/notes?note=${encodeURIComponent(id)}${heading ? `&h=${encodeURIComponent(heading)}` : ""}`,
+  /** Menu Knowledge → tab Canvas: buka berkas `.canvas` (path vault) */
+  knowledgeCanvas: (path: string) => `/knowledge/canvas?canvas=${encodeURIComponent(path)}`,
   notebook: (id?: string) => (id ? `/notes/notebook?notebook=${encodeURIComponent(id)}` : "/notes/notebook"),
   note: (tab: "free" | "ai", id: string | number) => `/notes/${tab}?note=${encodeURIComponent(String(id))}`,
   /** Sorot satu list di tab List Bebas. */

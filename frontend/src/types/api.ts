@@ -162,9 +162,12 @@ export interface AgentActivity {
 
 // ---------------------------------------------------------------- Chatbot LifeOS & basis pengetahuan
 
+/** Catatan berkala di menu Knowledge: harian, mingguan (minggu ISO), bulanan */
+export type KnowledgePeriod = "day" | "week" | "month";
+
 export interface AiChatCitation {
   n: number;
-  /** Record type, `asset`, atau `obsidian` (catatan vault) */
+  /** Record type, `asset`, `obsidian` (catatan vault), atau `obsidian_canvas` (berkas canvas, sourceId = path) */
   sourceType: string;
   sourceId: string;
   collection: string;

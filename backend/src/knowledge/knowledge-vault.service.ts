@@ -14,7 +14,8 @@ import { cp, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/p
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { AiIndexQueueService } from "../ai/index/ai-index-queue.service";
 import { AiIndexService } from "../ai/index/ai-index.service";
-import { ASSET_SOURCE, OBSIDIAN_SOURCE } from "../ai/index/index-text";
+import { ASSET_SOURCE, CANVAS_SOURCE, KNOWLEDGE_COLLECTION, OBSIDIAN_SOURCE } from "../ai/index/index-text";
+import type { SourceDocument } from "../ai/index/ai-index.service";
 import { AuthUser } from "../common/types/auth-user";
 import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
@@ -29,6 +30,17 @@ import {
   updateBaseYaml,
   validateBase,
 } from "./vault-bases";
+import {
+  canvasIndexText,
+  CANVAS_EXT,
+  type CanvasData,
+  DEFAULT_CANVAS,
+  isCanvasPath,
+  MAX_CANVAS_BYTES,
+  parseCanvas,
+  serializeCanvas,
+  validateCanvas,
+} from "./vault-canvas";
 import { isExportPath } from "./vault-export";
 import { movedVersionPath, versionAction, versionsToPrune, type VersionReason } from "./vault-history";
 import { applyTaskToggle, parseTasks, type VaultTask } from "./vault-tasks";
@@ -129,6 +141,8 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
   private readonly rerun = new Set<string>();
   private readonly status = new Map<string, ScanStatus>();
   private interval?: NodeJS.Timeout;
+  /** Waktu ubah berkas canvas yang terakhir diantrekan ke indeks, per user (hilang saat restart = diantre ulang, murah). */
+  private readonly canvasMtimes = new Map<string, Map<string, number>>();
 
   constructor(
     config: ConfigService,
@@ -139,6 +153,14 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
   ) {
     const dir = config.get<string>("KNOWLEDGE_VAULTS_DIR");
     this.root = dir ? resolve(dir) : null;
+    this.aiIndex.registerSourceLoader(CANVAS_SOURCE, {
+      load: (userId, path) => this.canvasDocument(userId, path),
+      loadAll: async (userId) => {
+        const files = await this.listVaultFiles(userId, CANVAS_EXT).catch(() => []);
+        const docs = await Promise.all(files.map((f) => this.canvasDocument(userId, f.path).catch(() => null)));
+        return docs.filter((d): d is SourceDocument => d !== null);
+      },
+    });
   }
 
   get configured() {
@@ -224,7 +246,8 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
   private async clear(userId: string) {
     const notes = await this.prisma.knowledgeNote.findMany({ where: { userId }, select: { id: true, assetId: true } });
     await this.prisma.knowledgeNote.deleteMany({ where: { userId } });
-    await this.prisma.aiChunk.deleteMany({ where: { userId, sourceType: OBSIDIAN_SOURCE } });
+    await this.prisma.aiChunk.deleteMany({ where: { userId, sourceType: { in: [OBSIDIAN_SOURCE, CANVAS_SOURCE] } } });
+    this.canvasMtimes.delete(userId);
     for (const note of notes) if (note.assetId) await this.removeAsset(userId, note.assetId);
   }
 
@@ -343,7 +366,43 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (changed) await this.resolveLinks(userId);
+    await this.syncCanvasIndex(userId);
     this.setStatus(userId, { lastScanAt: new Date().toISOString(), lastError: undefined, changed });
+  }
+
+  /** Antrekan canvas yang baru / berubah / hilang ke indeks RAG (isi dibandingkan hash per potongan, jadi aman diulang). */
+  private async syncCanvasIndex(userId: string) {
+    const files = await this.listVaultFiles(userId, CANVAS_EXT).catch(() => null);
+    if (!files) return;
+    const known = this.canvasMtimes.get(userId) ?? new Map<string, number>();
+    const next = new Map(files.map((f) => [f.path, f.mtime.getTime()]));
+    for (const [path, mtime] of next) {
+      if (known.get(path) !== mtime) await this.indexQueue.enqueueSource(userId, CANVAS_SOURCE, path);
+    }
+    for (const path of known.keys()) {
+      if (!next.has(path)) await this.indexQueue.enqueueSource(userId, CANVAS_SOURCE, path);
+    }
+    this.canvasMtimes.set(userId, next);
+  }
+
+  /** Canvas vault → dokumen koleksi pengetahuan (templat & cermin 80-LifeOS tidak diindeks; JSON rusak = dilewati). */
+  private async canvasDocument(userId: string, path: string): Promise<SourceDocument | null> {
+    if (!isCanvasPath(path) || [TEMPLATE_DIR, EXPORT_DIR].includes(path.split("/")[0])) return null;
+    const absolute = this.inVault(await this.vaultBase(userId), this.validPath(path, "any"));
+    const raw = await readFile(absolute, "utf8").catch(() => null);
+    if (raw === null || Buffer.byteLength(raw) > MAX_CANVAS_BYTES) return null;
+    const { data, error } = parseCanvas(raw);
+    if (error) return null;
+    const text = canvasIndexText(path, data);
+    if (!text.replace(/^# .*$/m, "").trim()) return null;
+    return {
+      sourceType: CANVAS_SOURCE,
+      sourceId: path,
+      title: `Canvas: ${(path.split("/").pop() ?? path).slice(0, -CANVAS_EXT.length)}`,
+      text,
+      collection: KNOWLEDGE_COLLECTION,
+      metadata: { path, jenis: "canvas" },
+    };
   }
 
   private async walk(base: string): Promise<VaultEntry[]> {
@@ -1258,7 +1317,12 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
   // ---------------------------------------------------------------- Bases (K2): berkas `.base` Obsidian
 
   /** Semua berkas `.base` di vault (selain folder tersembunyi seperti `.trash`). */
-  async listBases(userId: string) {
+  listBases(userId: string) {
+    return this.listVaultFiles(userId, BASE_EXT);
+  }
+
+  /** Semua berkas berakhiran `ext` di vault (selain folder tersembunyi seperti `.trash`), maks. 300. */
+  private async listVaultFiles(userId: string, ext: string) {
     const base = await this.vaultBase(userId);
     const result: { path: string; name: string; mtime: Date }[] = [];
     const visit = async (dir: string) => {
@@ -1267,14 +1331,97 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
         const absolute = join(dir, item.name);
         if (item.isDirectory()) {
           if (!isIgnoredDir(item.name)) await visit(absolute);
-        } else if (item.isFile() && isBasePath(item.name)) {
+        } else if (item.isFile() && item.name.toLowerCase().endsWith(ext)) {
           const path = relative(base, absolute).split(sep).join("/");
-          result.push({ path, name: item.name.slice(0, -BASE_EXT.length), mtime: (await stat(absolute)).mtime });
+          result.push({ path, name: item.name.slice(0, -ext.length), mtime: (await stat(absolute)).mtime });
         }
       }
     };
     await visit(base);
     return result.sort((a, b) => a.path.localeCompare(b.path, "id"));
+  }
+
+  /** Buat berkas baru `<nama>[ n]<ext>` di folder (nama sama → diberi nomor, tidak pernah menimpa). */
+  private async createVaultFile(
+    userId: string,
+    input: { folder?: string; name: string },
+    ext: string,
+    content: string,
+  ) {
+    const base = await this.vaultBase(userId);
+    const folder = input.folder?.trim() ? this.validPath(input.folder, "folder") : "";
+    const name = safeFileName(input.name);
+    if (!name) throw new BadRequestException("Nama wajib diisi.");
+    if (isExportPath(joinVaultPath(folder, "x"))) throw new BadRequestException("Folder 80-LifeOS dikelola LifeOS.");
+    for (let n = 1; n < 100; n++) {
+      const path = joinVaultPath(folder, `${name}${n > 1 ? ` ${n}` : ""}${ext}`);
+      const absolute = this.inVault(base, path);
+      await mkdir(dirname(absolute), { recursive: true });
+      const created = await writeFile(absolute, content, { encoding: "utf8", flag: "wx" }).then(
+        () => true,
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "EEXIST") return false;
+          throw error;
+        },
+      );
+      if (created) return path;
+    }
+    throw new ConflictException("Terlalu banyak berkas bernama sama.");
+  }
+
+  // ---------------------------------------------------------------- Canvas (K8): berkas `.canvas` (JSON Canvas)
+
+  listCanvases(userId: string) {
+    return this.listVaultFiles(userId, CANVAS_EXT);
+  }
+
+  private canvasPath(input: string) {
+    const path = this.validPath(input, "any");
+    if (!isCanvasPath(path)) throw new BadRequestException("Berkas bukan canvas (.canvas).");
+    return path;
+  }
+
+  async readCanvas(userId: string, input: string) {
+    const path = this.canvasPath(input);
+    const absolute = this.inVault(await this.vaultBase(userId), path);
+    const raw = await readFile(absolute, "utf8").catch(() => {
+      throw new NotFoundException("Berkas canvas tidak ditemukan di vault.");
+    });
+    if (Buffer.byteLength(raw) > MAX_CANVAS_BYTES) throw new BadRequestException("Berkas canvas terlalu besar.");
+    const { data, error } = parseCanvas(raw);
+    return { path, hash: sha256(raw), data, error, readOnly: isExportPath(path) };
+  }
+
+  async createCanvas(userId: string, input: { folder?: string; name: string }) {
+    const path = await this.createVaultFile(userId, input, CANVAS_EXT, DEFAULT_CANVAS);
+    await this.indexQueue.enqueueSource(userId, CANVAS_SOURCE, path);
+    return this.readCanvas(userId, path);
+  }
+
+  /** Simpan canvas utuh (bentuk diperiksa); berubah di disk sejak dibuka → 409, tidak pernah menimpa. */
+  async saveCanvas(userId: string, input: { path: string; data: Record<string, unknown>; baseHash: string }) {
+    const path = this.canvasPath(input.path);
+    if (isExportPath(path)) throw new BadRequestException("Folder 80-LifeOS dikelola LifeOS.");
+    const invalid = validateCanvas(input.data);
+    if (invalid) throw new BadRequestException(invalid);
+    const absolute = this.inVault(await this.vaultBase(userId), path);
+    await this.readChecked(absolute, input.baseHash);
+    const next = serializeCanvas(input.data as CanvasData);
+    if (Buffer.byteLength(next) > MAX_CANVAS_BYTES) throw new BadRequestException("Berkas canvas terlalu besar.");
+    await this.writeAtomic(absolute, next);
+    await this.indexQueue.enqueueSource(userId, CANVAS_SOURCE, path);
+    return this.readCanvas(userId, path);
+  }
+
+  async deleteCanvas(userId: string, input: string) {
+    const path = this.canvasPath(input);
+    if (isExportPath(path)) throw new BadRequestException("Folder 80-LifeOS dikelola LifeOS.");
+    const base = await this.vaultBase(userId);
+    if (!(await stat(this.inVault(base, path)).catch(() => null)))
+      throw new NotFoundException("Berkas canvas tidak ditemukan.");
+    const trash = await this.toTrash(base, path);
+    await this.indexQueue.enqueueSource(userId, CANVAS_SOURCE, path);
+    return { trash };
   }
 
   private basePath(input: string) {
@@ -1297,25 +1444,7 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
 
   /** Base baru (satu tampilan tabel); nama sama → diberi nomor. */
   async createBase(userId: string, input: { folder?: string; name: string }) {
-    const base = await this.vaultBase(userId);
-    const folder = input.folder?.trim() ? this.validPath(input.folder, "folder") : "";
-    const name = safeFileName(input.name);
-    if (!name) throw new BadRequestException("Nama base wajib diisi.");
-    if (isExportPath(joinVaultPath(folder, "x"))) throw new BadRequestException("Folder 80-LifeOS dikelola LifeOS.");
-    for (let n = 1; n < 100; n++) {
-      const path = joinVaultPath(folder, `${name}${n > 1 ? ` ${n}` : ""}${BASE_EXT}`);
-      const absolute = this.inVault(base, path);
-      await mkdir(dirname(absolute), { recursive: true });
-      const created = await writeFile(absolute, DEFAULT_BASE, { encoding: "utf8", flag: "wx" }).then(
-        () => true,
-        (error: NodeJS.ErrnoException) => {
-          if (error.code === "EEXIST") return false;
-          throw error;
-        },
-      );
-      if (created) return this.readBase(userId, path);
-    }
-    throw new ConflictException("Terlalu banyak base bernama sama.");
+    return this.readBase(userId, await this.createVaultFile(userId, input, BASE_EXT, DEFAULT_BASE));
   }
 
   /** Simpan base (kunci utama ditulis ulang, sisanya dipertahankan). Berkas berubah di disk → 409. */

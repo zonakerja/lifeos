@@ -170,7 +170,8 @@ function toolChoice(body: Json, model: string, hasTools: boolean): Params["tool_
 
 /**
  * Body `chat/completions` dari Hermes → permintaan Messages API. `temperature`/`top_p` tidak diteruskan (ditolak model
- * baru); cache otomatis lewat `cache_control` tingkat atas. Null bila bukan permintaan chat.
+ * baru); prompt caching lewat penanda per blok (`applyCacheMode` "blocks": alat, instruksi sistem, blok terakhir) — format
+ * yang dikenali API Anthropic langsung maupun router. Null bila bukan permintaan chat.
  */
 export function claudeRequest(
   body: unknown,
@@ -242,19 +243,23 @@ export function claudeRequest(
 
   return {
     betas,
-    params: {
-      model,
-      max_tokens,
-      messages,
-      cache_control: { type: "ephemeral" },
-      ...(system.length ? { system: system.join("\n\n") } : {}),
-      ...(tools.length ? { tools } : {}),
-      ...(choice ? { tool_choice: choice } : {}),
-      ...(stops.length ? { stop_sequences: stops } : {}),
-      ...(Object.keys(output_config).length ? { output_config } : {}),
-      ...(binding ? { thinking: { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } } } : {}),
-      ...(fallback ? { fallbacks: "default" as const } : {}),
-    } as Params,
+    params: applyCacheMode(
+      {
+        model,
+        max_tokens,
+        messages,
+        ...(system.length ? { system: system.join("\n\n") } : {}),
+        ...(tools.length ? { tools } : {}),
+        ...(choice ? { tool_choice: choice } : {}),
+        ...(stops.length ? { stop_sequences: stops } : {}),
+        ...(Object.keys(output_config).length ? { output_config } : {}),
+        ...(binding
+          ? { thinking: { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } } }
+          : {}),
+        ...(fallback ? { fallbacks: "default" as const } : {}),
+      } as Params,
+      "blocks",
+    ),
   };
 }
 
@@ -376,4 +381,36 @@ export function runClaude(
   stream.on("connect", onConnect);
   stream.on("text", onText);
   return stream.finalMessage();
+}
+
+/**
+ * Cara memasang penanda prompt caching: `top` = satu penanda tingkat atas (cache otomatis Anthropic API langsung), `blocks` =
+ * penanda per blok (alat terakhir, instruksi sistem, blok terakhir pesan terakhir — dipakai: dikenali semua jalur, termasuk router
+ * yang memasang penanda sendiri bila belum ada), `none` = tanpa penanda. Maks. 3 penanda (batas Anthropic 4).
+ */
+export type CacheMode = "top" | "blocks" | "none";
+
+export function applyCacheMode(params: Params, mode: CacheMode): Params {
+  const next = { ...params } as Params & { cache_control?: unknown };
+  delete next.cache_control;
+  if (mode === "top") return { ...next, cache_control: { type: "ephemeral" } } as Params;
+  if (mode === "none") return next;
+  const mark = { type: "ephemeral" as const };
+  if (next.tools?.length) {
+    const tools = [...next.tools];
+    tools[tools.length - 1] = { ...tools[tools.length - 1], cache_control: mark } as (typeof tools)[number];
+    next.tools = tools;
+  }
+  if (typeof next.system === "string" && next.system) {
+    next.system = [{ type: "text", text: next.system, cache_control: mark }];
+  }
+  const messages = [...next.messages];
+  const last = messages[messages.length - 1];
+  if (last && Array.isArray(last.content) && last.content.length) {
+    const content = [...last.content];
+    content[content.length - 1] = { ...content[content.length - 1], cache_control: mark } as (typeof content)[number];
+    messages[messages.length - 1] = { ...last, content };
+    next.messages = messages;
+  }
+  return next;
 }

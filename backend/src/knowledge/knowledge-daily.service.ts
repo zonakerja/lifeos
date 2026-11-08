@@ -16,6 +16,14 @@ import {
   type DailyTodo,
 } from "./vault-daily";
 import { EXPORT_DIR } from "./vault-parser";
+import {
+  buildPeriodicNote,
+  buildPeriodicSection,
+  periodOf,
+  type PeriodicAgenda,
+  type PeriodicTask,
+  type PeriodKind,
+} from "./vault-periodic";
 
 type Row = Record<string, unknown> & { id: string };
 const MAX_OVERDUE = 20;
@@ -46,6 +54,49 @@ export class KnowledgeDailyService {
     const template = await this.vault.readOptional(userId, DAILY_TEMPLATE);
     const content = buildDailyNote({ date, section, template, now: new Date() });
     return this.vault.createAt(userId, path, content);
+  }
+
+  /** Catatan mingguan / bulanan yang memuat tanggal itu; dibuat sekali (berkas yang sudah ada tidak pernah ditimpa). */
+  async openPeriod(userId: string, kind: PeriodKind, date: string) {
+    if (!isYmd(date)) throw new BadRequestException("Tanggal tidak valid (format YYYY-MM-DD).");
+    const period = periodOf(kind, date);
+    const existing = await this.prisma.knowledgeNote.findUnique({
+      where: { userId_path: { userId, path: period.path } },
+      select: { id: true },
+    });
+    if (existing) return { id: existing.id, path: period.path, created: false };
+    const start = new Date(`${period.start}T00:00:00.000Z`);
+    const end = new Date(`${period.end}T00:00:00.000Z`);
+    const [agenda, tasks, mirror] = await Promise.all([
+      this.rows(userId, "schedule", {
+        OR: [{ startDate: { gte: start, lte: end } }, { startDate: null, date: { gte: start, lte: end } }],
+      }),
+      this.rows(userId, "para_task", { dueDate: { gte: start, lte: end } }),
+      this.mirror(userId),
+    ]);
+    const section = buildPeriodicSection({
+      period,
+      appUrl: this.appUrl,
+      agenda: agenda as unknown as PeriodicAgenda[],
+      tasks: tasks as unknown as PeriodicTask[],
+      mirror,
+    });
+    const template = await this.vault.readOptional(userId, period.template);
+    return this.vault.createAt(userId, period.path, buildPeriodicNote({ period, section, template, now: new Date() }));
+  }
+
+  /** Berkas cermin 80-LifeOS per `lifeos_id` (bila cermin menyala) → tautan wiki agar catatan ikut tergambar di graf. */
+  private async mirror(userId: string) {
+    const mirrorNotes = await this.prisma.knowledgeNote.findMany({
+      where: { userId, path: { startsWith: `${EXPORT_DIR}/` } },
+      select: { path: true, frontmatter: true },
+    });
+    const mirror = new Map<string, string>();
+    for (const n of mirrorNotes) {
+      const fm = n.frontmatter as Record<string, unknown> | null;
+      if (fm?.sumber === "lifeos" && typeof fm.lifeos_id === "string") mirror.set(fm.lifeos_id, n.path);
+    }
+    return mirror;
   }
 
   private async rows(userId: string, type: RecordType, where: Record<string, unknown>, take?: number) {
@@ -86,16 +137,7 @@ export class KnowledgeDailyService {
         kind: "activity",
         areaId: (a.areaId as string) ?? null,
       });
-    // Berkas cermin 80-LifeOS (bila cermin menyala) → tautan wiki agar catatan harian ikut tergambar di graf
-    const mirrorNotes = await this.prisma.knowledgeNote.findMany({
-      where: { userId, path: { startsWith: `${EXPORT_DIR}/` } },
-      select: { path: true, frontmatter: true },
-    });
-    const mirror = new Map<string, string>();
-    for (const n of mirrorNotes) {
-      const fm = n.frontmatter as Record<string, unknown> | null;
-      if (fm?.sumber === "lifeos" && typeof fm.lifeos_id === "string") mirror.set(fm.lifeos_id, n.path);
-    }
+    const mirror = await this.mirror(userId);
     return buildDailySection({
       date,
       appUrl: this.appUrl,

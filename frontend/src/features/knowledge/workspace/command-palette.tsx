@@ -233,6 +233,20 @@ export function CommandPalette() {
         keywords: "daily tomorrow harian",
         run: () => daily.open(dayFromToday(1)),
       },
+      {
+        id: "weekly",
+        label: "Catatan minggu ini",
+        icon: CalendarDays,
+        keywords: "weekly periodic mingguan minggu",
+        run: () => daily.open(dayFromToday(0), undefined, "week"),
+      },
+      {
+        id: "monthly",
+        label: "Catatan bulan ini",
+        icon: CalendarDays,
+        keywords: "monthly periodic bulanan bulan",
+        run: () => daily.open(dayFromToday(0), undefined, "month"),
+      },
       ...(realNotes.length
         ? [
             {

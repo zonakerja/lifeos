@@ -29,7 +29,7 @@ import {
   WORKSPACE_COLLECTION,
 } from "./index-text";
 
-interface SourceDocument {
+export interface SourceDocument {
   sourceType: string;
   sourceId: string;
   title: string;
@@ -37,6 +37,12 @@ interface SourceDocument {
   /** `knowledge` (vault Obsidian & berkasnya) atau `workspace` (data kerja) */
   collection: string;
   metadata?: Record<string, unknown> | null;
+}
+
+/** Pemuat sumber yang dimiliki modul lain (mis. Canvas vault dibaca dari disk oleh modul knowledge). */
+export interface ExternalSourceLoader {
+  load(userId: string, sourceId: string): Promise<SourceDocument | null>;
+  loadAll(userId: string): Promise<SourceDocument[]>;
 }
 
 interface FindManyDelegate {
@@ -99,6 +105,13 @@ export class AiIndexService {
     @Inject(forwardRef(() => ExtractionQueueService)) private readonly extraction: ExtractionQueueService,
     @Inject(REDIS_CLIENT) private readonly redis: IORedis,
   ) {}
+
+  private readonly loaders = new Map<string, ExternalSourceLoader>();
+
+  /** Daftarkan pemuat untuk `sourceType` milik modul lain (tanpa ketergantungan melingkar). */
+  registerSourceLoader(sourceType: string, loader: ExternalSourceLoader) {
+    this.loaders.set(sourceType, loader);
+  }
 
   // ---------------------------------------------------------------- Pemrosesan job
 
@@ -262,6 +275,8 @@ export class AiIndexService {
           }
         : null;
     }
+    const external = this.loaders.get(sourceType);
+    if (external) return external.load(userId, sourceId).catch(() => null);
     if (sourceType === OBSIDIAN_SOURCE) {
       const note = await this.prisma.knowledgeNote.findFirst({ where: { id: sourceId, userId, kind: "note" } });
       return note ? this.noteDocument(note) : null;
@@ -367,6 +382,7 @@ export class AiIndexService {
       const doc = this.noteDocument(note);
       if (doc) docs.push(doc);
     }
+    for (const loader of this.loaders.values()) docs.push(...(await loader.loadAll(userId).catch(() => [])));
     return docs;
   }
 

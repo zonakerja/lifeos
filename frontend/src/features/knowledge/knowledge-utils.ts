@@ -61,6 +61,8 @@ export type CitationTarget =
 /** Ke mana sitasi chatbot dibuka: catatan vault (dialog), berkas (pratinjau), atau halaman item LifeOS. */
 export function citationTarget(citation: AiChatCitation): CitationTarget {
   if (citation.sourceType === "obsidian") return { kind: "knowledge", noteId: citation.sourceId };
+  if (citation.sourceType === "obsidian_canvas")
+    return { kind: "page", path: links.knowledgeCanvas(citation.sourceId) };
   if (citation.sourceType === "asset") {
     return { kind: "file", uploadId: citation.sourceId, name: citation.title.replace(/^[^:]+:\s*/, "") };
   }
@@ -96,6 +98,7 @@ export function answerForInbox(content: string, citations: AiChatCitation[] | nu
     const citation = byN.get(Number(n));
     if (!citation) return match;
     const title = citation.title.replace(/^[^:]+:\s*/, "");
+    if (citation.sourceType === "obsidian_canvas") return `([[${title}.canvas]])`;
     return citation.sourceType === "obsidian" ? `([[${title}]])` : `(${title})`;
   });
   return replaced.trim();

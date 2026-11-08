@@ -29,6 +29,10 @@ describe("citationTarget", () => {
       name: "PMK.pdf",
     });
     expect(citationTarget(citation({ sourceType: "free_note", sourceId: "f1" }))).toMatchObject({ kind: "page" });
+    expect(citationTarget(citation({ sourceType: "obsidian_canvas", sourceId: "Peta/Alur.canvas" }))).toEqual({
+      kind: "page",
+      path: "/knowledge/canvas?canvas=Peta%2FAlur.canvas",
+    });
     expect(citationTarget(citation({ sourceType: "archive_jra", sourceId: "j1" }))).toEqual({ kind: "none" });
   });
 

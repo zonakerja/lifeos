@@ -31,6 +31,12 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
   agenda, to-do, dan task hari itu. Opsional: buat templat sendiri `90-Templat/Harian.md` dan taruh `{{lifeos}}` di tempat ringkasan.
   Panel Info catatan kini punya **Catatan serupa** — bila tertulis "belum tersedia", jalankan **Indeks ulang** di Tools → Indeks
   Pengetahuan (butuh key embedding Gemini/OpenAI yang aktif).
+- [ ] **A19** Coba catatan **mingguan/bulanan** di menu Knowledge: panah di samping **Catatan hari ini** → **Mingguan** / **Bulanan**
+  (atau Ctrl+P → "Catatan minggu ini"). Opsional: buat templat `90-Templat/Mingguan.md` / `Bulanan.md` dengan `{{lifeos}}`.
+  Sematkan canvas di catatan dengan `![[Nama.canvas]]`, dan coba tanya chatbot tentang isi sebuah canvas.
+- [ ] **A18** Coba tab **Canvas** di menu Knowledge: **Baru** → tambah kartu **Teks**, **Catatan**, **Tautan**, atau **Grup** →
+  seret kartu untuk memindah, seret titik bulat di sisi kanan kartu ke kartu lain untuk membuat garis, klik dua kali kartu teks untuk
+  menulis. Berkas `.canvas`-nya juga terbuka di Canvas Obsidian.
 - [ ] **A17** Coba **Riwayat versi** di menu Knowledge: buka catatan → tombol ⋯ → **Riwayat versi** (atau Ctrl+P → "riwayat").
   Pilih versi untuk melihat perubahannya, lalu **Pulihkan** bila perlu. Di tab **Bases**, nilai properti kini bisa diubah langsung
   di sel tabel, ringkasan kolom diatur di **Atur tampilan**, dan base bisa ditampilkan di catatan dengan `![[Nama.base]]`.
@@ -560,3 +566,5 @@ Telegram Anda yang diizinkan. Minta Claude menyiapkan service otomatis (systemd)
 | 2026-11-07 | A15 baru: sematan bagian & blok di Knowledge |
 | 2026-11-07 | A16 baru: tab Bases (tampilan tersimpan .base) di Knowledge |
 | 2026-11-07 | A17 baru: riwayat versi catatan & lanjutan Bases |
+| 2026-11-07 | A18 baru: tab Canvas di Knowledge |
+| 2026-11-07 | A19 baru: catatan mingguan/bulanan, sematan & pencarian canvas |

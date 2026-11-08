@@ -1,6 +1,6 @@
 import "katex/dist/katex.min.css";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, FilePlus2, Paperclip } from "lucide-react";
+import { ChevronRight, FilePlus2, Frame, Paperclip } from "lucide-react";
 import {
   Children,
   createContext,
@@ -43,6 +43,7 @@ import { openWorkspaceDialog } from "./workspace-store";
 
 /** Sematan base `![[x.base]]` dimuat malas (mesin Bases ada di chunk tab Bases). */
 const EmbeddedBase = lazy(() => import("./bases-tab"));
+const EmbeddedCanvas = lazy(() => import("./canvas-tab").then((m) => ({ default: m.EmbeddedCanvas })));
 
 const urlTransform = (url: string) =>
   url.startsWith(LINK_SCHEME) || url.startsWith(EMBED_SCHEME) || url.startsWith(BLOCK_SCHEME)
@@ -84,7 +85,7 @@ const textOf = (node: ReactNode): string =>
         : "";
 
 /** Gambar vault dibaca lewat API (Bearer) sebagai blob — tag <img> tidak bisa mengirim token. */
-function VaultImage({ name, alt }: { name: string; alt: string }) {
+export function VaultImage({ name, alt }: { name: string; alt: string }) {
   const token = useAuthStore((s) => s.accessToken);
   const { data, isLoading, error } = useQuery({
     queryKey: ["knowledge", "attachment", name],
@@ -238,6 +239,16 @@ export function NoteMarkdown({ content, className, depth = 0, noteId }: NoteMark
         rehypePlugins={[rehypeKatex]}
         urlTransform={urlTransform}
         components={{
+          // paragraf berisi sematan (catatan, base, canvas = blok <div>) dirender sebagai <div>: <div> di dalam <p> tidak sah
+          p: ({ node, children }) =>
+            node?.children.some(
+              (c) =>
+                c.type === "element" && c.tagName === "img" && String(c.properties?.src ?? "").startsWith(EMBED_SCHEME),
+            ) ? (
+              <div className="my-[1.25em]">{children}</div>
+            ) : (
+              <p>{children}</p>
+            ),
           h1: heading("h1"),
           h2: heading("h2"),
           h3: heading("h3"),
@@ -266,6 +277,16 @@ export function NoteMarkdown({ content, className, depth = 0, noteId }: NoteMark
               return (
                 <Link
                   to={`/knowledge/bases?base=${encodeURIComponent(target.split("#")[0].trim())}`}
+                  className="font-medium text-module underline decoration-module/40 underline-offset-2"
+                >
+                  {children}
+                </Link>
+              );
+            }
+            if (/\.canvas$/i.test(target.trim())) {
+              return (
+                <Link
+                  to={`/knowledge/canvas?canvas=${encodeURIComponent(target.trim())}`}
                   className="font-medium text-module underline decoration-module/40 underline-offset-2"
                 >
                   {children}
@@ -315,6 +336,23 @@ export function NoteMarkdown({ content, className, depth = 0, noteId }: NoteMark
               return (
                 <Suspense fallback={<Spinner className="my-2" />}>
                   <EmbeddedBase target={target} />
+                </Suspense>
+              );
+            }
+            if (/\.canvas$/i.test(target.trim())) {
+              // di dalam kartu/sematan lain → kartu pembuka saja (mencegah sematan bertingkat)
+              if (depth >= 1)
+                return (
+                  <Link
+                    to={`/knowledge/canvas?canvas=${encodeURIComponent(target.trim())}`}
+                    className="my-2 inline-flex items-center gap-1.5 rounded-lg border bg-muted/30 px-3 py-2 text-sm font-medium text-module hover:bg-muted"
+                  >
+                    <Frame className="size-4" /> {target.replace(/\.canvas$/i, "")} (canvas)
+                  </Link>
+                );
+              return (
+                <Suspense fallback={<Spinner className="my-2" />}>
+                  <EmbeddedCanvas target={target.trim()} />
                 </Suspense>
               );
             }

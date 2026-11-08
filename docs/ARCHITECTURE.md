@@ -337,6 +337,9 @@ tetap Asset LifeOS di object storage.
 > Obsidian; filter dievaluasi frontend `base-engine.ts`) — detail CLAUDE.md §8 & §8b.
 > Tambahan 2026-11-07: riwayat versi catatan vault — tabel `knowledge_note_versions` (isi sebelum LifeOS menimpa + versi terpantau
 > saat pindai, maks. 30 per path), `GET /knowledge/notes/:id/versions[/:vid]`, `POST …/:vid/restore` — detail CLAUDE.md §8.
+> Tambahan 2026-11-07: Canvas `GET|POST /knowledge/canvases`, `GET|PUT|DELETE /knowledge/canvases/file` (`vault-canvas.ts`, JSON
+> Canvas 1.0; tampilan & sunting di frontend `canvas-tab.tsx`) — detail CLAUDE.md §8 & §8b. Isi canvas diindeks RAG sebagai sumber
+> `obsidian_canvas` (sourceId = path) lewat `AiIndexService.registerSourceLoader`; catatan berkala `POST /knowledge/daily { period }`.
 
 Rencana & keputusan: [AI-AGENT.md](AI-AGENT.md) §9–§17 (tahap 1 "fondasi pengetahuan" & tahap 2 "konektor Obsidian").
 

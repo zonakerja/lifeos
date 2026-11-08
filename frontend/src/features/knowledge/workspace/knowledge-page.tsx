@@ -37,6 +37,8 @@ import { WorkspaceDialogs } from "./workspace-dialogs";
 
 /** Tab Bases dimuat malas (mesin ekspresi + penyunting tidak perlu dimuat untuk tab lain). */
 const BasesTab = lazy(() => import("./bases-tab").then((m) => ({ default: m.BasesTab })));
+/** Tab Canvas dimuat malas (papan kartu + penyunting). */
+const CanvasTab = lazy(() => import("./canvas-tab").then((m) => ({ default: m.CanvasTab })));
 import { openWorkspaceDialog, useOpenNote } from "./workspace-store";
 
 /**
@@ -76,6 +78,10 @@ export function Component() {
                 <GraphTab />
               ) : tab === "table" ? (
                 <TableTab />
+              ) : tab === "canvas" ? (
+                <Suspense fallback={<Spinner className="m-6" />}>
+                  <CanvasTab />
+                </Suspense>
               ) : tab === "bases" ? (
                 <Suspense fallback={<Spinner className="m-6" />}>
                   <BasesTab />

@@ -101,6 +101,7 @@ import type {
   UserRole,
   UserStats,
   UserSummary,
+  KnowledgePeriod,
 } from "@/types/api";
 
 export interface ProfileInput {
@@ -391,6 +392,14 @@ export const knowledgeApi = {
       body: { baseHash },
     }),
   bases: () => request<KnowledgeBaseListItem[]>("/knowledge/bases"),
+  canvases: () => request<KnowledgeBaseListItem[]>("/knowledge/canvases"),
+  canvasFile: (path: string) => request<KnowledgeBaseFile>(`/knowledge/canvases/file?path=${encodeURIComponent(path)}`),
+  createCanvas: (input: { folder?: string; name: string }) =>
+    request<KnowledgeBaseFile>("/knowledge/canvases", { method: "POST", body: input }),
+  saveCanvas: (input: { path: string; data: Record<string, unknown>; baseHash: string }) =>
+    request<KnowledgeBaseFile>("/knowledge/canvases/file", { method: "PUT", body: input }),
+  deleteCanvas: (path: string) =>
+    request<{ trash: string }>(`/knowledge/canvases/file?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
   baseFile: (path: string) => request<KnowledgeBaseFile>(`/knowledge/bases/file?path=${encodeURIComponent(path)}`),
   createBase: (input: { folder?: string; name: string }) =>
     request<KnowledgeBaseFile>("/knowledge/bases", { method: "POST", body: input }),
@@ -401,11 +410,11 @@ export const knowledgeApi = {
   /** Centang / buka lagi tugas vault → ditulis balik ke berkasnya */
   toggleTask: (input: { noteId: string; index: number; raw: string; done: boolean; today: string }) =>
     request<{ ok: true; line: number }>("/knowledge/tasks/toggle", { method: "POST", body: input }),
-  /** Catatan harian `Harian/YYYY-MM-DD.md` (dibuat sekali bila belum ada) */
-  openDaily: (date: string) =>
+  /** Catatan harian `Harian/YYYY-MM-DD.md` / mingguan `Mingguan/YYYY-Www.md` / bulanan `Bulanan/YYYY-MM.md` (dibuat sekali) */
+  openDaily: ({ date, period = "day" }: { date: string; period?: KnowledgePeriod }) =>
     request<{ id: string | null; path: string; created: boolean }>("/knowledge/daily", {
       method: "POST",
-      body: { date },
+      body: { date, period },
     }),
   linkMention: (id: string, sourceId: string) =>
     request<{ ok: true }>(`/knowledge/notes/${id}/link-mention`, { method: "POST", body: { sourceId } }),

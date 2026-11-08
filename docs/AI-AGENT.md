@@ -1709,7 +1709,7 @@ Usulan (urut manfaat untuk pekerjaan user; nomor = usulan, bukan keputusan):
 | K5 ✅ | **Command palette** (Ctrl+P) + perintah `/` di editor | Semua aksi menu Knowledge (catatan baru, pindah, templat, sisip tautan/callout/tabel) dari satu palet | Sedang | Kecil |
 | K6 ✅ | **Sematan catatan & blok** | `![[catatan]]`, `![[catatan#Judul]]`, `[[catatan#^id]]` dirender (sekarang hanya gambar); pelengkap `^id` di editor | Sedang | Sedang |
 | K7 ✅ | **File recovery** | Riwayat versi per catatan untuk tulisan dari LifeOS (snapshot sebelum menimpa, maks. n) + bandingkan & pulihkan | Sedang (pengaman) | Sedang |
-| K8 | **Canvas** (JSON Canvas, format terbuka) | Tahap 1 penampil `.canvas` (kartu catatan, teks, tautan, panah); tahap 2 sunting | Sedang | Besar |
+| K8 ✅ | **Canvas** (JSON Canvas, format terbuka) | Tahap 1 penampil `.canvas` (kartu catatan, teks, tautan, panah); tahap 2 sunting | Sedang | Besar |
 | K9 | **Note composer** | Ekstrak pilihan teks ke catatan baru (diganti tautan) & gabung dua catatan | Rendah–sedang | Kecil |
 | K10 | Mermaid, catatan kaki, jumlah kata, catatan acak, ganti nama tag se-vault | Pelengkap pembaca & penjelajah | Rendah | Kecil masing-masing |
 | K11 | Tab/belah tampilan beberapa catatan | Membuka 2 catatan berdampingan (≥ 1280 px) | Rendah | Sedang |
@@ -1750,4 +1750,15 @@ nilai properti langsung di sel tabel (unit +2, UI diuji: nilai 10 → 50, rata-r
 **K7 selesai 2026-11-07**: **Riwayat versi** di menu ⋯ catatan & palet perintah — isi catatan sebelum LifeOS menimpanya (editor,
 properti, tugas, tautan, pindah, pulihkan) + versi terpantau saat pindai (perubahan dari Obsidian, per 5 menit), maks. 30 versi per
 catatan, ikut saat catatan/folder dipindah; dialog Perubahan (diff baris) / Isi versi, **Pulihkan** (isi sekarang disimpan dulu).
-Diuji: unit backend +2 & frontend +3, smoke +6, UI desktop & HP (catatan uji dihapus). Berikutnya menurut urutan: K8 Canvas.
+Diuji: unit backend +2 & frontend +3, smoke +6, UI desktop & HP (catatan uji dihapus).
+
+**K8 selesai 2026-11-07**: tab **Canvas** membaca & menulis berkas `.canvas` (JSON Canvas, sama dengan Canvas Obsidian): kartu
+teks (Markdown), catatan/berkas vault, tautan web, grup; garis berpanah & berlabel; geser, zoom, pas layar; sunting = pindah (grup
+ikut memindah isinya), ubah ukuran, tambah kartu, sunting teks, hubungkan dengan menyeret titik kartu, warna, hapus; simpan
+otomatis ber-hash (berubah di Obsidian → dimuat ulang). Diuji: unit backend +3 & frontend +6, smoke +7, UI desktop & HP (canvas uji
+dihapus). Daftar K1–K8 selesai; sisa usulan K9 note composer, K10 pelengkap kecil, K11 tampilan berdampingan.
+
+**Celah K1–K8 ditutup 2026-11-07**: catatan **mingguan** (`Mingguan/YYYY-Www.md`, minggu ISO) & **bulanan** (`Bulanan/YYYY-MM.md`)
+dari templat `90-Templat/Mingguan.md` / `Bulanan.md` + tautan harian/mingguan + agenda & task periode itu; **isi canvas ikut indeks RAG**
+(dijawab chatbot dengan sitasi yang membuka tab Canvas); **sematan `![[x.canvas]]`** = papan mini baca-saja. Kanban (usulan awal K2)
+sengaja tidak dibuat karena Bases Obsidian tidak punya Kanban. Diuji: unit backend +5 & frontend +1, smoke +7, UI.

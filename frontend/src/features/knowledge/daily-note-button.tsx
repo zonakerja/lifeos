@@ -1,4 +1,4 @@
-import { CalendarDays, ChevronDown, Loader2 } from "lucide-react";
+import { Calendar, CalendarDays, CalendarRange, ChevronDown, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -9,23 +9,31 @@ import { useKnowledgeStatus } from "@/data/use-knowledge";
 import { useKnowledgeActions } from "@/data/use-knowledge-workspace";
 import { errorMessage } from "@/lib/api/client";
 import { todayYMD } from "@/lib/dates";
+import type { KnowledgePeriod } from "@/types/api";
 import { useOpenNote } from "./workspace/workspace-store";
 
 const HELP =
-  "Berkas Harian/YYYY-MM-DD.md dibuat sekali dari templat 90-Templat/Harian.md (bila ada) + ringkasan agenda, to-do, dan task tanggal itu. Setelah dibuat, isinya milik Anda — LifeOS tidak menimpanya.";
+  "Berkas Harian/YYYY-MM-DD.md dibuat sekali dari templat 90-Templat/Harian.md (bila ada) + ringkasan agenda, to-do, dan task tanggal itu. Mingguan (Mingguan/YYYY-Www.md) & bulanan (Bulanan/YYYY-MM.md) memakai templat Mingguan.md / Bulanan.md. Setelah dibuat, isinya milik Anda — LifeOS tidak menimpanya.";
+
+const PERIOD_LABEL: Record<KnowledgePeriod, string> = { day: "harian", week: "mingguan", month: "bulanan" };
 
 export function useDailyNote() {
   const { openDaily } = useKnowledgeActions();
   const openNote = useOpenNote();
-  const open = (date: string, after?: () => void) =>
-    openDaily.mutate(date, {
-      onSuccess: (r) => {
-        if (r.id) openNote(r.id);
-        toast.success(r.created ? `Catatan harian ${date} dibuat` : `Membuka catatan harian ${date}`);
-        after?.();
+  const open = (date: string, after?: () => void, period: KnowledgePeriod = "day") =>
+    openDaily.mutate(
+      { date, period },
+      {
+        onSuccess: (r) => {
+          if (r.id) openNote(r.id);
+          const name = r.path.split("/").pop()?.replace(/\.md$/, "") ?? date;
+          toast.success(r.created ? `Catatan ${PERIOD_LABEL[period]} ${name} dibuat` : `Membuka catatan ${name}`);
+          after?.();
+        },
+        onError: (error) =>
+          toast.error(`Gagal membuka catatan ${PERIOD_LABEL[period]}`, { description: errorMessage(error) }),
       },
-      onError: (error) => toast.error("Gagal membuka catatan harian", { description: errorMessage(error) }),
-    });
+    );
   return { open, pending: openDaily.isPending };
 }
 
@@ -58,11 +66,29 @@ export function DailyNoteButton() {
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" className="grid w-72 gap-2">
-          <Label htmlFor="daily-note-date">Catatan harian tanggal</Label>
+          <Label htmlFor="daily-note-date">Catatan harian / berkala untuk tanggal</Label>
           <Input id="daily-note-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           <Button size="sm" disabled={!date || pending} onClick={() => open(date, () => setPopover(false))}>
             <CalendarDays /> Buka catatan harian
           </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!date || pending}
+              onClick={() => open(date, () => setPopover(false), "week")}
+            >
+              <CalendarRange /> Mingguan
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!date || pending}
+              onClick={() => open(date, () => setPopover(false), "month")}
+            >
+              <Calendar /> Bulanan
+            </Button>
+          </div>
           <p className="text-xs text-muted-foreground">{HELP}</p>
         </PopoverContent>
       </Popover>

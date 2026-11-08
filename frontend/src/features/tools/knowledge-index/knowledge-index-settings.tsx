@@ -33,6 +33,7 @@ import type { AiSettings } from "@/types/api";
 const SOURCE_LABELS: Record<string, string> = {
   asset: "Berkas",
   obsidian: "Pengetahuan (Obsidian)",
+  obsidian_canvas: "Canvas (Obsidian)",
   schedule: "Agenda",
   routine: "Rutinitas",
   todo: "To-do",

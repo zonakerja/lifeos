@@ -199,6 +199,11 @@ export class DailyNoteDto {
   @IsString()
   @Length(10, 10)
   date: string;
+
+  @ApiPropertyOptional({ enum: ["day", "week", "month"], description: "Harian (bawaan), mingguan, atau bulanan" })
+  @IsOptional()
+  @IsIn(["day", "week", "month"])
+  period?: "day" | "week" | "month";
 }
 
 export class ToggleTaskDto {
@@ -228,7 +233,7 @@ export class ToggleTaskDto {
 }
 
 export class BaseFileDto {
-  @ApiProperty({ description: "Path berkas .base di vault" })
+  @ApiProperty({ description: "Path berkas .base / .canvas di vault" })
   @IsString()
   @MinLength(1)
   @MaxLength(400)
@@ -256,7 +261,7 @@ export class SaveBaseDto {
   @MaxLength(400)
   path: string;
 
-  @ApiProperty({ description: "Isi base (filters, formulas, properties, views)" })
+  @ApiProperty({ description: "Isi base (filters, formulas, properties, views) atau canvas (nodes, edges)" })
   @IsObject()
   data: Record<string, unknown>;
 

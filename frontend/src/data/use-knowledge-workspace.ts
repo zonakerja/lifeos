@@ -15,6 +15,8 @@ export const knowledgeKeys = {
   versions: (id: string) => ["knowledge", "versions", id] as const,
   version: (id: string, versionId: string) => ["knowledge", "version", id, versionId] as const,
   bases: ["knowledge", "bases"] as const,
+  canvases: ["knowledge", "canvases"] as const,
+  canvas: (path: string) => ["knowledge", "canvas", path] as const,
   base: (path: string) => ["knowledge", "base", path] as const,
   search: (q: string, mode: string) => ["knowledge", "search", mode, q] as const,
 };
@@ -126,6 +128,37 @@ export function useRestoreKnowledgeVersion() {
       knowledgeApi.restoreVersion(input.id, input.versionId, input.baseHash),
     onSuccess: () => void refresh(),
   });
+}
+
+/** Daftar berkas `.canvas` di vault. */
+export function useKnowledgeCanvases(enabled = true) {
+  return useQuery({ queryKey: knowledgeKeys.canvases, queryFn: knowledgeApi.canvases, enabled, staleTime: 15_000 });
+}
+
+/** Isi satu canvas (tidak dibaca ulang berkala agar tidak mengganggu penyuntingan; tombol muat ulang tersedia). */
+export function useKnowledgeCanvas(path: string | null) {
+  return useQuery({
+    queryKey: knowledgeKeys.canvas(path ?? "-"),
+    queryFn: () => knowledgeApi.canvasFile(path!),
+    enabled: !!path,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useKnowledgeCanvasActions() {
+  const client = useQueryClient();
+  const refreshList = () => client.invalidateQueries({ queryKey: knowledgeKeys.canvases });
+  return {
+    create: useMutation({
+      mutationFn: knowledgeApi.createCanvas,
+      onSuccess: (file) => {
+        client.setQueryData(knowledgeKeys.canvas(file.path), file);
+        void refreshList();
+      },
+    }),
+    save: useMutation({ mutationFn: knowledgeApi.saveCanvas }),
+    remove: useMutation({ mutationFn: knowledgeApi.deleteCanvas, onSuccess: () => void refreshList() }),
+  };
 }
 
 /** Daftar berkas `.base` di vault. */

@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it } from "vitest";
 import {
+  applyCacheMode,
   basicClaudeRequest,
   chatCompletion,
   chunkFactory,
@@ -35,13 +36,13 @@ describe("claudeRequest", () => {
     );
     expect(result?.params).toMatchObject({
       model: OPUS,
-      system: "Aturan A\n\nAturan B",
-      messages: [{ role: "user", content: [{ type: "text", text: "hai" }] }],
-      cache_control: { type: "ephemeral" },
+      system: [{ type: "text", text: "Aturan A\n\nAturan B", cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: [{ type: "text", text: "hai", cache_control: { type: "ephemeral" } }] }],
       thinking: { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } },
       output_config: { effort: "medium" },
       fallbacks: "default",
     });
+    expect(result?.params).not.toHaveProperty("cache_control");
     expect(result?.params).not.toHaveProperty("temperature");
     expect(result?.params).not.toHaveProperty("top_p");
     expect(result?.betas).toEqual(["thinking-binding-controls-2026-08-01", "server-side-fallback-2026-07-01"]);
@@ -96,11 +97,13 @@ describe("claudeRequest", () => {
         role: "user",
         content: [
           { type: "tool_result", tool_use_id: "a1", content: "hasil 1" },
-          { type: "tool_result", tool_use_id: "a_2", content: "hasil 2" },
+          { type: "tool_result", tool_use_id: "a_2", content: "hasil 2", cache_control: { type: "ephemeral" } },
         ],
       },
     ]);
-    expect(result?.params.tools).toEqual([{ name: "cari", description: "Cari", input_schema: { type: "object" } }]);
+    expect(result?.params.tools).toEqual([
+      { name: "cari", description: "Cari", input_schema: { type: "object" }, cache_control: { type: "ephemeral" } },
+    ]);
   });
 
   it("tool_choice paksa jadi auto pada model yang menolaknya", () => {
@@ -143,7 +146,7 @@ describe("claudeRequest", () => {
     expect(result?.params.messages[0].content).toEqual([
       { type: "image", source: { type: "base64", media_type: "image/png", data: "QUJD" } },
       { type: "image", source: { type: "url", url: "https://x.test/a.png" } },
-      { type: "text", text: "apa ini" },
+      { type: "text", text: "apa ini", cache_control: { type: "ephemeral" } },
     ]);
   });
 });
@@ -164,7 +167,8 @@ describe("Claude lewat router", () => {
     const basic = basicClaudeRequest(full);
     expect(basic.betas).toEqual([]);
     expect(basic.params).not.toHaveProperty("fallbacks");
-    expect(basic.params).toMatchObject({ cache_control: { type: "ephemeral" }, thinking: { type: "adaptive" } });
+    expect(basic.params).toMatchObject({ thinking: { type: "adaptive" } });
+    expect(basic.params.tools?.[0]).toMatchObject({ cache_control: { type: "ephemeral" } });
     expect((basic.params as { thinking: object }).thinking).not.toHaveProperty("block_binding");
     expect(basic.params.tools?.length).toBe(1);
     // permintaan asli tidak berubah
@@ -297,7 +301,8 @@ describe("runClaude dengan SDK sungguhan", () => {
     );
     expect(connected).toBe(1);
     expect(texts).toEqual(["Sa", "ya"]);
-    expect(requests[0]).toMatchObject({ stream: true, cache_control: { type: "ephemeral" } });
+    expect(requests[0]).toMatchObject({ stream: true });
+    expect(JSON.stringify(requests[0])).toContain('"cache_control":{"type":"ephemeral"}');
     expect(requests[0]).not.toHaveProperty("betas");
 
     expect(replayableBlocks(message.content)).toEqual([
@@ -361,5 +366,45 @@ describe("keluaran format OpenAI", () => {
       finish_reason: "content_filter",
       message: { content: "Ditolak." },
     });
+  });
+});
+
+describe("applyCacheMode", () => {
+  const params = {
+    model: OPUS,
+    max_tokens: 10,
+    cache_control: { type: "ephemeral" },
+    system: "Aturan",
+    tools: [tool, { ...tool, name: "kedua" }],
+    messages: [
+      { role: "user", content: [{ type: "text", text: "a" }] },
+      { role: "assistant", content: [{ type: "text", text: "b" }] },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "c" },
+          { type: "text", text: "d" },
+        ],
+      },
+    ],
+  } as unknown as Parameters<typeof applyCacheMode>[0];
+
+  it("per blok: alat terakhir, instruksi sistem, blok terakhir pesan terakhir; tanpa penanda tingkat atas", () => {
+    const out = applyCacheMode(params, "blocks") as unknown as Record<string, any>;
+    expect(out).not.toHaveProperty("cache_control");
+    expect(out.tools[0]).not.toHaveProperty("cache_control");
+    expect(out.tools[1].cache_control).toEqual({ type: "ephemeral" });
+    expect(out.system).toEqual([{ type: "text", text: "Aturan", cache_control: { type: "ephemeral" } }]);
+    expect(out.messages[0].content[0]).not.toHaveProperty("cache_control");
+    expect(out.messages[2].content[0]).not.toHaveProperty("cache_control");
+    expect(out.messages[2].content[1].cache_control).toEqual({ type: "ephemeral" });
+    expect(JSON.stringify(out).match(/cache_control/g)?.length).toBe(3);
+    // masukan tidak diubah
+    expect((params as unknown as Record<string, any>).messages[2].content[1]).not.toHaveProperty("cache_control");
+  });
+
+  it("tingkat atas & tanpa penanda", () => {
+    expect(applyCacheMode(params, "top")).toMatchObject({ cache_control: { type: "ephemeral" }, system: "Aturan" });
+    expect(JSON.stringify(applyCacheMode(params, "none"))).not.toContain("cache_control");
   });
 });
