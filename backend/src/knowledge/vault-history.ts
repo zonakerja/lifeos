@@ -11,6 +11,8 @@ export const VERSION_REASONS = [
   "before_link",
   "before_move",
   "before_restore",
+  "before_merge",
+  "before_extract",
 ] as const;
 export type VersionReason = (typeof VERSION_REASONS)[number];
 

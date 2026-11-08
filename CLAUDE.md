@@ -341,6 +341,14 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   pemuat eksternal `AiIndexService.registerSourceLoader` (didaftarkan `KnowledgeVaultService`, tanpa ketergantungan melingkar);
   diantre saat simpan/buat/hapus dari LifeOS dan saat pindai (`syncCanvasIndex`: waktu ubah per path di memori — restart = semua
   diantre ulang, murah karena hash per potongan); templat & 80-LifeOS tidak diindeks. Canvas tidak masuk `knowledge_notes`.
+  **Note composer** (K9, logika murni + test `vault-compose.ts`, pola core plugin Obsidian): `POST /knowledge/notes/:id/merge { targetId+targetHash |
+  newTitle+folder, position, heading, baseHash }` & `POST /knowledge/notes/:id/extract { from, to, text, after, baseHash, … }`. Urutan tulis wajib: tujuan →
+  perujuk (`rewriteReferrers`) → canvas (`updateCanvasRefs`) → sumber paling akhir (gabung = ke `.trash`), jadi gagal di tengah = teks ganda, tidak pernah hilang.
+  Hash basi / pilihan tidak cocok → **409**. Gabung: nilai properti tujuan menang, `tags`/`aliases` disatukan, nama sumber masuk `aliases`, `title` sumber tidak
+  ikut; `## Judul sumber` + perujuk `[[Tujuan#Judul sumber|Judul sumber]]` (bisa dimatikan; baris tabel tanpa alias); id blok bentrok → `id-2`. Ekstrak: posisi
+  dihitung atas teks LF, perujuk & `[[#…]]` ke judul/blok yang pindah diarahkan ke tujuan, `[[#x]]` ke bagian yang tertinggal menjadi `[[Asal#x]]`. Catatan baru memakai
+  templat `90-Templat/Note Composer.md` bila ada (`{{content}}`, `{{fromTitle}}`, `{{newTitle}}`, `{{date:FORMAT}}`). Versi `before_merge`/`before_extract`. Bukan alat
+  MCP: agen tetap hanya menulis `00-Inbox`. **Rujukan canvas** kini ikut saat catatan/folder diganti nama atau dipindah (`retargetCanvasNodes`).
   **Cermin hasil kerja → vault** (keputusan user 2026-11-06, `KnowledgeExportService` + logika murni & test `vault-export.ts`):
   satu arah LifeOS → folder `80-LifeOS/` (Catatan Bebas, List Bebas, Notes AI, My Notebook = indeks + catatan Studio + riwayat
   chat, Productivity = Project + Action, Area + struktur, Agenda yang punya hasil/induk, Resource Global), saling bertaut
@@ -635,7 +643,7 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   Ctrl+O (`CommandDialog` + `<Command>`) + **palet perintah Ctrl+P** (K5, `command-palette.tsx`: grup Catatan ini / Sisipkan di
   editor / Vault / Buka tab; catatan terbuka & editor aktif didaftarkan ke store sebagai `active` & `editor` oleh `NoteView` &
   `NoteEditor`) + **perintah `/` di editor** (awal baris / setelah spasi; potongan Markdown & templat `90-Templat` — logika murni +
-  test `editor-snippets.ts`; perintah sisip baru → `SNIPPETS`); dialog bersama `workspace-dialogs.tsx` + store `workspace-store.ts`. Dialog sitasi
+  test `editor-snippets.ts`; perintah sisip baru → `SNIPPETS`); **Note composer** (K9, `compose-dialog.tsx`): gabung dari palet, menu ⋯ catatan, klik kanan penjelajah; ekstrak dari palet saat mode sunting + ada pilihan (`EditorBridge.selection`, judul bawaan `extractTitle`, sisa teks diingat per browser `lifeos.noteComposer.after`); sebelum dikirim editor di-`flush`, sesudahnya `active.control.reload()`; dialog bersama `workspace-dialogs.tsx` + store `workspace-store.ts`. Dialog sitasi
   `KnowledgeNoteHost` punya "Buka di menu Knowledge" (`links.knowledgeNote(id, heading?)`). **Tools → Basis Pengetahuan**
   (`features/tools/knowledge/knowledge-settings.tsx`, hook `data/use-knowledge.ts`) = **pengaturan saja** (keputusan user
   2026-11-06: daftar catatan & daftar masalah pindah ke menu Knowledge): profil kerja, vault (pakai folder / buat dari templat /
@@ -2009,6 +2017,10 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   sunting teks, hubungkan, warna, hapus); papan digambar sendiri dengan DOM + SVG (tanpa pustaka baru). Kartu tautan tidak memuat
   situs dalam iframe (CSP produksi & privasi). Ditemukan saat uji: akhir seretan/sunting menyimpan data lama karena perubahan
   dihitung dari closure render / updater React → semua perubahan dihitung dari ref data terkini.
+- 2026-11-09 — **K9 Note composer** (riset lalu "bangun", keputusan K9-A…C sesuai rekomendasi; `docs/AI-AGENT.md` §25.7): properti digabung (tujuan menang, tag & alias
+  disatukan), `## Judul sumber` + perujuk ke bagian itu, celah lama ganti nama / pindah catatan yang memutus node `file` di `.canvas` ikut ditutup. Ekstrak dikerjakan
+  server (posisi + teks + hash), bukan transaksi editor, agar satu aturan & urutan tulis yang aman; editor di-flush lalu dimuat ulang (undo editor hilang, diganti riwayat
+  versi K7). Pilihan sisa teks disimpan per browser, bukan `knowledge_prefs` (perubahan rencana: tidak perlu lintas perangkat). Target heading & pecah per heading = tahap 2.
 - 2026-11-07 — **Prompt caching proxy agen → penanda per blok** (uji atas permintaan user, dokumentasi Classai: cache otomatis, token
   cache ditagih 50%). Uji tiga format (tingkat atas / per blok / tanpa penanda) × 3 panggilan identik ±8 ribu token lewat Classai: semua
   melaporkan cache 0 karena router membuang kolom cache dari `usage` (mentah hanya `input_tokens`/`output_tokens`). Dipilih penanda per

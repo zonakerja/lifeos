@@ -11,6 +11,7 @@ import {
   History,
   FolderSync,
   Loader2,
+  Combine,
   MoreHorizontal,
   Paperclip,
   Pencil,
@@ -43,7 +44,7 @@ import { cn } from "@/lib/utils";
 import type { KnowledgeNoteListItem } from "@/types/api";
 import { folderOf, isMirrorNote, mirrorAppPath, noteName, obsidianUri } from "./knowledge-logic";
 import { NoteMarkdown } from "./note-markdown";
-import { openWorkspaceDialog, useWorkspaceStore } from "./workspace-store";
+import { openWorkspaceDialog, useWorkspaceStore, type EditorControl } from "./workspace-store";
 
 const NoteEditor = lazy(() => import("./note-editor"));
 
@@ -72,7 +73,7 @@ export function NoteView({
   const [mode, setMode] = useState<"read" | "edit">("read");
   const [heading, setHeading] = useSearchParam("h");
   const scroller = useRef<HTMLDivElement>(null);
-  const editorRef = useRef<{ flush: () => Promise<boolean> } | null>(null);
+  const editorRef = useRef<EditorControl | null>(null);
 
   const switchMode = useCallback(
     async (next: "read" | "edit") => {
@@ -98,6 +99,7 @@ export function NoteView({
         mirror,
         mode,
         setMode: (next) => void switchMode(next),
+        control: editorRef,
         bookmarked,
         toggleBookmark: () =>
           void savePrefs({
@@ -223,6 +225,15 @@ export function NoteView({
                 </DropdownMenuItem>
               </>
             )}
+            {!mirror && note.kind === "note" && (
+              <DropdownMenuItem
+                onSelect={() =>
+                  openWorkspaceDialog({ kind: "compose", mode: "merge", source: { id: note.id, path: note.path } })
+                }
+              >
+                <Combine /> Gabungkan ke catatan lain…
+              </DropdownMenuItem>
+            )}
             {!mirror && (
               <DropdownMenuItem
                 onSelect={() => openWorkspaceDialog({ kind: "versions", id: note.id, title: note.title })}
@@ -307,7 +318,7 @@ function EditPane({
   id: string;
   title: string;
   notes: KnowledgeNoteListItem[];
-  controlRef: React.RefObject<{ flush: () => Promise<boolean> } | null>;
+  controlRef: React.RefObject<EditorControl | null>;
 }) {
   const { data: source, isLoading, refetch } = useKnowledgeSource(id);
   const { save, createNote } = useKnowledgeActions();
@@ -351,23 +362,24 @@ function EditPane({
     return run;
   }, [id, save]);
 
-  useEffect(() => {
-    controlRef.current = { flush: doSave };
-    return () => {
-      controlRef.current = null;
-      // Keluar dari mode sunting / pindah catatan: perubahan yang belum tersimpan dikirim
-      if (text.current !== null) void doSave();
-    };
-  }, [controlRef, doSave]);
-
-  const reloadLatest = async () => {
+  const reloadLatest = useCallback(async () => {
+    clearTimeout(timer.current);
     text.current = null;
     hash.current = null;
     const fresh = await refetch();
     hash.current = fresh.data?.hash ?? null;
     setVersion((v) => v + 1);
     setState("idle");
-  };
+  }, [refetch]);
+
+  useEffect(() => {
+    controlRef.current = { flush: doSave, reload: reloadLatest };
+    return () => {
+      controlRef.current = null;
+      // Keluar dari mode sunting / pindah catatan: perubahan yang belum tersimpan dikirim
+      if (text.current !== null) void doSave();
+    };
+  }, [controlRef, doSave, reloadLatest]);
 
   const saveAsCopy = async () => {
     if (text.current === null || !source) return;

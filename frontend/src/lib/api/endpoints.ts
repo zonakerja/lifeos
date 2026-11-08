@@ -101,6 +101,8 @@ import type {
   UserRole,
   UserStats,
   UserSummary,
+  KnowledgeExtractInput,
+  KnowledgeMergeInput,
   KnowledgePeriod,
 } from "@/types/api";
 
@@ -376,6 +378,18 @@ export const knowledgeApi = {
     request<{ id: string | null; path: string }>("/knowledge/notes", { method: "POST", body: input }),
   moveNote: (id: string, input: { path: string; updateLinks?: boolean }) =>
     request<{ id: string | null; path: string; updatedLinks: number }>(`/knowledge/notes/${id}/move`, {
+      method: "POST",
+      body: input,
+    }),
+  /** Note composer: gabung catatan ke catatan lain / baru */
+  mergeNote: (id: string, input: KnowledgeMergeInput) =>
+    request<{ id: string | null; path: string; updatedLinks: number; updatedCanvases: number; trash: string }>(
+      `/knowledge/notes/${id}/merge`,
+      { method: "POST", body: input },
+    ),
+  /** Note composer: ekstrak pilihan teks ke catatan lain / baru */
+  extractNote: (id: string, input: KnowledgeExtractInput) =>
+    request<{ id: string | null; path: string; updatedLinks: number }>(`/knowledge/notes/${id}/extract`, {
       method: "POST",
       body: input,
     }),

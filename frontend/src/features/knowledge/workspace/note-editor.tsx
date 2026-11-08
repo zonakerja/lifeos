@@ -324,6 +324,10 @@ export default function NoteEditor({ initial, noteId, title, notes, onChange, on
         if (snippet) insertSnippet(view, snippet, from, to);
       },
       insertTemplate: (templateId: string) => insertTemplate(view, templateId, titleRef.current),
+      selection: () => {
+        const { from, to, empty } = view.state.selection.main;
+        return empty ? null : { from, to, text: view.state.sliceDoc(from, to) };
+      },
     };
     useWorkspaceStore.setState({ editor: bridge });
     return () => {

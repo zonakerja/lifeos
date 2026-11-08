@@ -145,3 +145,24 @@ export function canvasIndexText(path: string, data: CanvasData): string {
   if (relations.length) parts.push(`## Hubungan\n${relations.join("\n")}`);
   return parts.join("\n\n");
 }
+
+/**
+ * Perbarui rujukan node `file` (catatan diganti nama / dipindah / digabung / bagiannya diekstrak). `map` mengembalikan rujukan
+ * baru, null = biarkan. Canvas tidak ada di `knowledge_notes`, jadi tidak ikut pembaruan tautan catatan.
+ */
+export function retargetCanvasNodes(
+  data: CanvasData,
+  map: (file: string, subpath?: string) => { file: string; subpath?: string } | null,
+) {
+  let changed = 0;
+  const nodes = data.nodes.map((node) => {
+    if (node?.type !== "file" || typeof node.file !== "string") return node;
+    const next = map(node.file, typeof node.subpath === "string" ? node.subpath : undefined);
+    if (!next || (next.file === node.file && next.subpath === node.subpath)) return node;
+    changed++;
+    const { subpath: _old, ...rest } = node;
+    void _old;
+    return { ...rest, file: next.file, ...(next.subpath ? { subpath: next.subpath } : {}) };
+  });
+  return { data: { ...data, nodes } as CanvasData, changed };
+}

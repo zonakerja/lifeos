@@ -31,6 +31,7 @@ import { useSearchParam } from "@/hooks/use-search-param";
 import { errorMessage } from "@/lib/api/client";
 import { knowledgeApi } from "@/lib/api/endpoints";
 import type { KnowledgeNoteListItem } from "@/types/api";
+import { ComposeDialogHost } from "./compose-dialog";
 import { CommandPalette } from "./command-palette";
 import { VersionHistoryDialog } from "./version-history-dialog";
 import { folderOf, noteName, templateNotes } from "./knowledge-logic";
@@ -91,6 +92,7 @@ export function WorkspaceDialogs() {
       <QuickSwitcher />
       <CommandPalette />
       <VersionHistoryDialog />
+      <ComposeDialogHost />
     </>
   );
 }

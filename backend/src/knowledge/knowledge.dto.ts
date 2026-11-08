@@ -194,6 +194,75 @@ export class ExportSettingsDto {
   kinds?: ExportKindsDto;
 }
 
+const COMPOSE_POSITIONS = ["end", "start"] as const;
+
+class ComposeTargetDto {
+  @ApiPropertyOptional({ description: "Catatan tujuan (kosong = catatan baru dari newTitle)" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  targetId?: string;
+
+  @ApiPropertyOptional({ description: "Hash isi catatan tujuan saat dipilih" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  targetHash?: string;
+
+  @ApiPropertyOptional({ description: "Judul catatan baru" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  newTitle?: string;
+
+  @ApiPropertyOptional({ description: "Folder catatan baru (bawaan folder catatan asal)" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(400)
+  folder?: string;
+
+  @ApiPropertyOptional({ enum: COMPOSE_POSITIONS })
+  @IsOptional()
+  @IsIn(COMPOSE_POSITIONS)
+  position?: (typeof COMPOSE_POSITIONS)[number];
+
+  @ApiProperty({ description: "Hash isi catatan asal" })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  baseHash: string;
+}
+
+export class MergeNoteDto extends ComposeTargetDto {
+  @ApiPropertyOptional({ description: "Awali isi sumber dengan judul catatan sumber (bawaan ya)" })
+  @IsOptional()
+  @IsBoolean()
+  heading?: boolean;
+}
+
+export class ExtractNoteDto extends ComposeTargetDto {
+  @ApiProperty({ description: "Awal pilihan (posisi karakter, baris baru LF)" })
+  @IsInt()
+  @Min(0)
+  from: number;
+
+  @ApiProperty({ description: "Akhir pilihan" })
+  @IsInt()
+  @Min(1)
+  to: number;
+
+  @ApiProperty({ description: "Teks terpilih (dicocokkan dengan berkas)" })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2_000_000)
+  text: string;
+
+  @ApiPropertyOptional({ enum: ["link", "embed", "none"], description: "Yang tertinggal di catatan asal" })
+  @IsOptional()
+  @IsIn(["link", "embed", "none"])
+  after?: "link" | "embed" | "none";
+}
+
 export class DailyNoteDto {
   @ApiProperty({ description: "Tanggal lokal user (YYYY-MM-DD)" })
   @IsString()

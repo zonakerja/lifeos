@@ -2,6 +2,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   Copy,
+  Combine,
   FilePen,
   FilePlus2,
   FileText,
@@ -362,6 +363,15 @@ function NoteRow({ note, depth, active }: { note: KnowledgeNoteListItem; depth: 
               <ContextMenuItem onSelect={() => openWorkspaceDialog({ kind: "move-note", note, mode: "move" })}>
                 <FolderInput /> Pindahkan
               </ContextMenuItem>
+              {note.kind === "note" && (
+                <ContextMenuItem
+                  onSelect={() =>
+                    openWorkspaceDialog({ kind: "compose", mode: "merge", source: { id: note.id, path: note.path } })
+                  }
+                >
+                  <Combine /> Gabungkan ke…
+                </ContextMenuItem>
+              )}
             </>
           )}
           <ContextMenuItem

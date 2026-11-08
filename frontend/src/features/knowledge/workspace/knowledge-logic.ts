@@ -36,6 +36,19 @@ const collator = new Intl.Collator("id", { numeric: true, sensitivity: "base" })
 
 /** Nama catatan seperti di `[[…]]`: nama berkas tanpa folder & `.md`. */
 export const noteName = (path: string) => path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+/** Judul bawaan catatan hasil ekstrak: baris pertama yang berisi, tanpa penanda Markdown & karakter terlarang di nama berkas. */
+export function extractTitle(text: string) {
+  const line = text.split("\n").find((l) => l.trim()) ?? "";
+  const clean = line
+    .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[.\]\s+)?|\d+[.)]\s+)/, "")
+    .replace(/\s+\^[A-Za-z0-9-]+\s*$/, "")
+    .replace(/[\\/:*?"<>|#^[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Titik/spasi di akhir nama berkas dilarang Windows
+  return (clean.length > 60 ? clean.slice(0, 60) : clean).replace(/[. ]+$/, "");
+}
+
 export const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 /** Pohon folder (folder dulu, lalu catatan; urut alami) dengan jumlah catatan di dalamnya. */

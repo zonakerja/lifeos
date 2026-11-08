@@ -4,6 +4,7 @@ import {
   buildTree,
   calloutTone,
   createResolver,
+  extractTitle,
   inboxNotes,
   linkHeading,
   localGraph,
@@ -32,6 +33,17 @@ const note = (path: string, over: Partial<KnowledgeNoteListItem> = {}): Knowledg
   links: 0,
   backlinks: 0,
   ...over,
+});
+
+describe("extractTitle", () => {
+  it("baris pertama tanpa penanda & karakter terlarang", () => {
+    expect(extractTitle("\n## Rapat: hasil/keputusan ^abc\nisi")).toBe("Rapat hasil keputusan");
+    expect(extractTitle("- [ ] Kirim surat")).toBe("Kirim surat");
+    expect(extractTitle("1. Pertama")).toBe("Pertama");
+    expect(extractTitle("Kalimat berakhir titik.")).toBe("Kalimat berakhir titik");
+    expect(extractTitle("x".repeat(80))).toHaveLength(60);
+    expect(extractTitle("  ")).toBe("");
+  });
 });
 
 describe("pohon vault", () => {

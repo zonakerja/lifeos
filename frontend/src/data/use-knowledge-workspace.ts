@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { knowledgeApi } from "@/lib/api/endpoints";
-import type { KnowledgePrefs, KnowledgeTasks } from "@/types/api";
+import type { KnowledgePrefs, KnowledgeTasks, KnowledgeExtractInput, KnowledgeMergeInput } from "@/types/api";
 
 /** Kunci cache menu Knowledge (semua di bawah prefiks `knowledge` agar satu invalidasi menyegarkan semuanya). */
 export const knowledgeKeys = {
@@ -243,6 +243,14 @@ export function useKnowledgeActions() {
       onSuccess,
     }),
     deleteNote: useMutation({ mutationFn: knowledgeApi.deleteNote, onSuccess }),
+    mergeNote: useMutation({
+      mutationFn: ({ id, ...input }: KnowledgeMergeInput & { id: string }) => knowledgeApi.mergeNote(id, input),
+      onSuccess,
+    }),
+    extractNote: useMutation({
+      mutationFn: ({ id, ...input }: KnowledgeExtractInput & { id: string }) => knowledgeApi.extractNote(id, input),
+      onSuccess,
+    }),
     linkMention: useMutation({
       mutationFn: (input: { id: string; sourceId: string }) => knowledgeApi.linkMention(input.id, input.sourceId),
       onSuccess,

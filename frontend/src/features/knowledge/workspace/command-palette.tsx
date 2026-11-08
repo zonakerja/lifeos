@@ -1,6 +1,8 @@
 import {
   BookOpen,
   CalendarDays,
+  Combine,
+  Scissors,
   Copy,
   Dices,
   ExternalLink,
@@ -153,6 +155,22 @@ export function CommandPalette() {
           keywords: "move",
           run: () => openWorkspaceDialog({ kind: "move-note", note: item, mode: "move" }),
         },
+        ...(item.kind === "note"
+          ? [
+              {
+                id: "merge",
+                label: "Gabungkan catatan ini ke catatan lain…",
+                icon: Combine,
+                keywords: "merge note composer gabung",
+                run: () =>
+                  openWorkspaceDialog({
+                    kind: "compose",
+                    mode: "merge",
+                    source: { id: item.id, path: item.path },
+                  }),
+              },
+            ]
+          : []),
         {
           id: "delete",
           label: "Pindahkan catatan ke sampah",
@@ -168,6 +186,29 @@ export function CommandPalette() {
     groups.push({
       heading: "Sisipkan di editor",
       commands: [
+        ...(active && !active.mirror
+          ? [
+              {
+                id: "extract",
+                label: "Ekstrak teks terpilih ke catatan…",
+                icon: Scissors,
+                keywords: "extract note composer pindah pilihan selection",
+                run: () => {
+                  const selection = editor.selection();
+                  if (!selection?.text.trim()) {
+                    toast.info("Pilih dulu teks yang akan diekstrak di editor.");
+                    return;
+                  }
+                  openWorkspaceDialog({
+                    kind: "compose",
+                    mode: "extract",
+                    source: { id: active.id, path: active.path },
+                    ...selection,
+                  });
+                },
+              },
+            ]
+          : []),
         ...SNIPPETS.map((s) => ({
           id: `snippet-${s.id}`,
           label: `Sisipkan ${s.label.toLowerCase()}`,

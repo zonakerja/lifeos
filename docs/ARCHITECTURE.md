@@ -340,6 +340,7 @@ tetap Asset LifeOS di object storage.
 > Tambahan 2026-11-07: Canvas `GET|POST /knowledge/canvases`, `GET|PUT|DELETE /knowledge/canvases/file` (`vault-canvas.ts`, JSON
 > Canvas 1.0; tampilan & sunting di frontend `canvas-tab.tsx`) — detail CLAUDE.md §8 & §8b. Isi canvas diindeks RAG sebagai sumber
 > `obsidian_canvas` (sourceId = path) lewat `AiIndexService.registerSourceLoader`; catatan berkala `POST /knowledge/daily { period }`.
+> Tambahan 2026-11-09: Note composer `POST /knowledge/notes/:id/merge|extract` (`vault-compose.ts`) — detail CLAUDE.md §8.
 
 Rencana & keputusan: [AI-AGENT.md](AI-AGENT.md) §9–§17 (tahap 1 "fondasi pengetahuan" & tahap 2 "konektor Obsidian").
 

@@ -1710,7 +1710,7 @@ Usulan (urut manfaat untuk pekerjaan user; nomor = usulan, bukan keputusan):
 | K6 ✅ | **Sematan catatan & blok** | `![[catatan]]`, `![[catatan#Judul]]`, `[[catatan#^id]]` dirender (sekarang hanya gambar); pelengkap `^id` di editor | Sedang | Sedang |
 | K7 ✅ | **File recovery** | Riwayat versi per catatan untuk tulisan dari LifeOS (snapshot sebelum menimpa, maks. n) + bandingkan & pulihkan | Sedang (pengaman) | Sedang |
 | K8 ✅ | **Canvas** (JSON Canvas, format terbuka) | Tahap 1 penampil `.canvas` (kartu catatan, teks, tautan, panah); tahap 2 sunting | Sedang | Besar |
-| K9 | **Note composer** | Ekstrak pilihan teks ke catatan baru (diganti tautan) & gabung dua catatan | Rendah–sedang | Kecil |
+| K9 ✅ | **Note composer** (§25.7) | Ekstrak pilihan teks ke catatan baru (diganti tautan) & gabung dua catatan | Rendah–sedang | Sedang |
 | K10 | Mermaid, catatan kaki, jumlah kata, catatan acak, ganti nama tag se-vault | Pelengkap pembaca & penjelajah | Rendah | Kecil masing-masing |
 | K11 | Tab/belah tampilan beberapa catatan | Membuka 2 catatan berdampingan (≥ 1280 px) | Rendah | Sedang |
 
@@ -1762,3 +1762,58 @@ dihapus). Daftar K1–K8 selesai; sisa usulan K9 note composer, K10 pelengkap ke
 dari templat `90-Templat/Mingguan.md` / `Bulanan.md` + tautan harian/mingguan + agenda & task periode itu; **isi canvas ikut indeks RAG**
 (dijawab chatbot dengan sitasi yang membuka tab Canvas); **sematan `![[x.canvas]]`** = papan mini baca-saja. Kanban (usulan awal K2)
 sengaja tidak dibuat karena Bases Obsidian tidak punya Kanban. Diuji: unit backend +5 & frontend +1, smoke +7, UI.
+
+### 25.7 K9: Note composer (riset & dibangun 2026-11-09)
+
+**Perilaku Obsidian** (dokumentasi resmi [Note composer](https://obsidian.md/help/plugins/note-composer)):
+
+| Aspek | Perilaku |
+|---|---|
+| Gabung | Catatan sumber ditambahkan ke tujuan, lalu sumber dihapus; semua tautan diarahkan ke catatan hasil gabungan; konfirmasi menyala bawaan |
+| Ekstrak | Teks terpilih di editor dipindah ke tujuan; di tempat asal diganti tautan (bawaan), sematan, atau tidak ada |
+| Posisi | Akhir tujuan, awal tujuan, atau catatan baru |
+| Templat | `{{content}}` (tanpa penanda = di bawah templat), `{{fromTitle}}`, `{{newTitle}}`, `{{date:FORMAT}}` |
+| Pemulihan | Lewat File recovery (di LifeOS: K7 + `.trash`) |
+
+Dokumentasi **tidak menyebut** penanganan frontmatter, pemilihan heading tujuan, dan pembaruan tautan saat ekstrak, jadi bagian itu
+keputusan kita, bukan tiruan Obsidian. Pengguna Obsidian meminta target heading karena belum ada dan melaporkan `[[Apple]]` menjadi
+`[[Fruit]]`, bukan `[[Fruit#Apple]]` ([forum](https://forum.obsidian.md/t/extract-to-specified-heading-with-note-composer/67901)).
+Plugin [Note Refactor](https://github.com/lynchjames/note-refactor-obsidian) menambah baris pertama sebagai judul, pecah di kursor, dan
+pecah per heading.
+
+**Temuan saat merancang** (lebih dari perkiraan awal "Kecil", realistis **Sedang**):
+
+1. **Frontmatter sumber** tidak boleh ditempel apa adanya: blok `---` akan menjadi isi catatan. Posisi "awal" harus sesudah frontmatter tujuan.
+2. **Tautan**: `renameWikilinks` + `knowledgeLink.toId` dari `moveNote` bisa dipakai ulang, termasuk mempertahankan `#judul`, `^blok`, dan alias.
+3. **Celah yang sudah ada: canvas tidak ikut.** `moveNote` hanya memperbarui catatan perujuk, jadi node `file` di `.canvas` putus saat catatan
+   diganti nama, dipindah, atau digabung (canvas tidak ada di `knowledge_notes`). Perlu pembantu bersama untuk ketiganya.
+4. **`^id` ganda**: dua catatan bisa memakai id blok yang sama; setelah digabung, id itu dua kali muncul. Id sumber yang bentrok diberi id baru
+   dan tautan perujuknya ikut diperbarui.
+5. **Editor menyimpan otomatis ber-hash**: ekstrak harus menulis tujuan **dulu**, baru mengganti pilihan di editor (lewat simpan otomatis biasa).
+   Gagal di tengah = teks ganda, tidak pernah hilang. Gabung juga: tulis tujuan → perbarui perujuk → sumber ke `.trash` paling akhir.
+6. **Penanda** (`prefs.bookmarks`) sumber dialihkan ke tujuan tanpa ganda. Sumber & tujuan wajib `baseHash` (409 bila berubah di Obsidian), tulisan
+   lewat `writeNoteFile` dengan alasan baru `before_merge`. `80-LifeOS` ditolak lewat `findEditable`. Sumber dan tujuan tidak boleh sama.
+7. **Ekstrak memutus perujuk ke bagian yang dipindah**: `[[Asal#Judul]]` / `[[Asal#^id]]` dan `[[#…]]` di dalam teks terpilih. Tautan masuk ikut
+   diarahkan ke tujuan; tautan `[[#…]]` di teks terpilih ditulis lengkap ke catatan asal.
+
+**Yang dibangun (tahap 1)**
+
+- Backend (logika murni + test `vault-compose.ts`): `POST /knowledge/notes/:id/merge { targetId | newTitle+folder, position, heading, baseHash, targetHash }`
+  dan `POST /knowledge/notes/:id/extract { from, to, text, after, baseHash, targetId | newTitle+folder, position, targetHash }`. Hanya untuk user, **tidak** menjadi alat MCP agen
+  (agen tetap hanya menulis `00-Inbox`).
+- Frontend: dialog `compose-dialog.tsx` (pilih tujuan + posisi + jumlah catatan perujuk); gabung dari palet Ctrl+P, menu ⋯ catatan, dan klik kanan penjelajah;
+  ekstrak dari palet (mode sunting, ada teks terpilih) dengan judul bawaan = baris pertama pilihan. Sisa teks (tautan / sematan / kosong) diingat per browser.
+- Templat opsional `90-Templat/Note Composer.md` dengan empat penanda Obsidian di atas.
+
+**Tahap 2 (nanti, bila terasa perlu):** target heading tertentu, pecah di kursor, pecah per heading.
+
+**Diuji:** unit backend +13 & frontend +1, smoke +15 (termasuk 409, isolasi akun, canvas), UI ekstrak & gabung lewat palet (data uji dihapus). Menu ⋯ dan klik kanan
+memakai dialog yang sama, belum diklik satu per satu.
+
+**Keputusan user** ("Ya, bangun K9", semua sesuai rekomendasi):
+
+- **K9-A Frontmatter saat gabung:** digabung; nilai tujuan menang, `tags` & `aliases` disatukan, nama sumber masuk `aliases` tujuan agar pencarian nama lama
+  tetap ketemu. Alternatif: buang frontmatter sumber.
+- **K9-B Heading:** isi sumber diawali `## <judul sumber>` dan perujuk menjadi `[[Tujuan#Judul sumber]]` (lebih presisi daripada Obsidian). Alternatif: seperti
+  Obsidian, tanpa heading dan perujuk ke `[[Tujuan]]`. Bisa dimatikan per penggabungan.
+- **K9-C Canvas:** perbaiki sekaligus, termasuk celah ganti nama/pindah yang sudah ada. Alternatif: terpisah.

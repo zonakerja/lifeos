@@ -24,12 +24,14 @@ import {
   CreateNoteDto,
   CreateVaultDto,
   DailyNoteDto,
+  ExtractNoteDto,
   ExportSettingsDto,
   FolderDto,
   InboxNoteDto,
   KnowledgeNotesQueryDto,
   KnowledgeSearchQueryDto,
   LinkMentionDto,
+  MergeNoteDto,
   MoveFolderDto,
   MoveNoteDto,
   NotePropertiesDto,
@@ -187,6 +189,22 @@ export class KnowledgeController {
   @Patch("notes/:id/properties")
   properties(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: NotePropertiesDto) {
     return this.vault.setProperties(user.id, id, dto);
+  }
+
+  /** Gabung catatan ini ke catatan lain / baru (Note composer). */
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @HttpCode(200)
+  @Post("notes/:id/merge")
+  merge(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: MergeNoteDto) {
+    return this.vault.mergeNote(user.id, id, dto);
+  }
+
+  /** Ekstrak pilihan teks catatan ini ke catatan lain / baru (Note composer). */
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @HttpCode(200)
+  @Post("notes/:id/extract")
+  extract(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: ExtractNoteDto) {
+    return this.vault.extractNote(user.id, id, dto);
   }
 
   @Throttle({ default: { ttl: 60_000, limit: 60 } })

@@ -162,6 +162,25 @@ export interface AgentActivity {
 
 // ---------------------------------------------------------------- Chatbot LifeOS & basis pengetahuan
 
+/** Note composer: tujuan = catatan yang ada (`targetId` + hash) atau catatan baru (`newTitle`). */
+export interface KnowledgeComposeInput {
+  baseHash: string;
+  position?: "end" | "start";
+  targetId?: string;
+  targetHash?: string;
+  newTitle?: string;
+  folder?: string;
+}
+export interface KnowledgeMergeInput extends KnowledgeComposeInput {
+  heading?: boolean;
+}
+export interface KnowledgeExtractInput extends KnowledgeComposeInput {
+  from: number;
+  to: number;
+  text: string;
+  after?: "link" | "embed" | "none";
+}
+
 /** Catatan berkala di menu Knowledge: harian, mingguan (minggu ISO), bulanan */
 export type KnowledgePeriod = "day" | "week" | "month";
 
@@ -1229,7 +1248,7 @@ export interface KnowledgeNoteVersion {
   id: string;
   hash: string;
   size: number;
-  /** observed | before_save | before_properties | before_task | before_link | before_move | before_restore */
+  /** observed | before_save | before_properties | before_task | before_link | before_move | before_restore | before_merge | before_extract */
   reason: string;
   createdAt: string;
   /** Sama dengan isi berkas sekarang */

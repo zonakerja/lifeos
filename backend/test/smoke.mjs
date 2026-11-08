@@ -1627,6 +1627,109 @@ try {
     r = await j("DELETE", `/knowledge/canvases/file?path=${encodeURIComponent(canvasPath)}`, null, at);
     ok("knowledge canvas to trash", r.s === 200 && r.d.trash.startsWith(".trash/"), r);
     ok("knowledge canvas unindexed after delete", await canvasHits(false));
+    // Note composer (K9): gabung & ekstrak; perujuk + canvas ikut, sumber ke .trash, hash basi → 409
+    const stamp = Date.now();
+    const srcName = `Komposer Sumber ${stamp}`;
+    const dstName = `Komposer Tujuan ${stamp}`;
+    const refName = `Komposer Rujukan ${stamp}`;
+    const mk = async (title, content) => (await j("POST", "/knowledge/notes", { title, content }, at)).d;
+    const srcNote = await mk(srcName, `---\njenis: topik\ntags:\n  - sumber\n---\n# ${srcName}\n\nIsi sumber ^b1\n`);
+    const dstNote = await mk(dstName, "---\nstatus: berlaku\n---\nIsi tujuan ^b1\n");
+    const refNote = await mk(refName, `Lihat [[${srcName}]] dan [[${srcName}#^b1|blok]].\n`);
+    r = await j("POST", "/knowledge/canvases", { name: `Komposer ${stamp}` }, at);
+    const composeCanvas = r.d?.path;
+    await j(
+      "PUT",
+      "/knowledge/canvases/file",
+      {
+        path: composeCanvas,
+        baseHash: r.d?.hash,
+        data: {
+          nodes: [{ id: "n", type: "file", file: srcNote.path, x: 0, y: 0, width: 200, height: 100 }],
+          edges: [],
+        },
+      },
+      at,
+    );
+    const hashOf = async (id, token = at) => (await j("GET", `/knowledge/notes/${id}/source`, null, token)).d;
+    let srcSource = await hashOf(srcNote.id);
+    let dstSource = await hashOf(dstNote.id);
+    const mergeBody = { targetId: dstNote.id, targetHash: dstSource.hash, baseHash: srcSource.hash };
+    r = await j("POST", `/knowledge/notes/${srcNote.id}/merge`, { ...mergeBody, baseHash: "basi" }, at);
+    ok("knowledge merge stale hash 409", r.s === 409, r);
+    r = await j("POST", `/knowledge/notes/${srcNote.id}/merge`, { ...mergeBody, targetId: srcNote.id }, at);
+    ok("knowledge merge into itself 400", r.s === 400, r);
+    r = await j("POST", `/knowledge/notes/${srcNote.id}/merge`, mergeBody, pt);
+    ok("knowledge merge isolated", r.s !== 200, r);
+    r = await j("POST", `/knowledge/notes/${srcNote.id}/merge`, mergeBody, at);
+    ok("knowledge merge ok", r.s === 200 && r.d.path === dstNote.path && r.d.trash?.startsWith(".trash/"), r);
+    ok("knowledge merge counts", r.d?.updatedLinks === 2 && r.d?.updatedCanvases === 1, r.d);
+    const mergedId = r.d?.id;
+    dstSource = await hashOf(mergedId);
+    ok(
+      "knowledge merge content",
+      dstSource.raw.includes(`## ${srcName}`) &&
+        dstSource.raw.includes("Isi sumber ^b1-2") &&
+        dstSource.raw.includes("jenis: topik") &&
+        dstSource.raw.includes("status: berlaku") &&
+        dstSource.raw.includes(srcName),
+      dstSource.raw,
+    );
+    r = await hashOf(refNote.id);
+    ok(
+      "knowledge merge referrers",
+      r.raw.includes(`[[${dstName}#${srcName}|${srcName}]]`) && r.raw.includes(`[[${dstName}#^b1-2|blok]]`),
+      r.raw,
+    );
+    r = await j("GET", `/knowledge/canvases/file?path=${encodeURIComponent(composeCanvas)}`, null, at);
+    ok(
+      "knowledge merge canvas retargeted",
+      r.d?.data?.nodes?.[0]?.file === dstNote.path && r.d?.data?.nodes?.[0]?.subpath === `#${srcName}`,
+      r.d,
+    );
+    r = await j("GET", `/knowledge/notes/${srcNote.id}`, null, at);
+    ok("knowledge merge source gone", r.s === 404, r);
+    // Ekstrak: posisi + teks dicocokkan, sisa di asal = tautan
+    const selected = "Isi tujuan ^b1";
+    const from = dstSource.raw.indexOf(selected);
+    const extractBody = { from, to: from + selected.length, text: selected, baseHash: dstSource.hash };
+    r = await j(
+      "POST",
+      `/knowledge/notes/${mergedId}/extract`,
+      { ...extractBody, newTitle: `Komposer Hasil ${stamp}`, text: "bukan" },
+      at,
+    );
+    ok("knowledge extract stale selection 409", r.s === 409, r);
+    r = await j(
+      "POST",
+      `/knowledge/notes/${mergedId}/extract`,
+      { ...extractBody, newTitle: `Komposer Hasil ${stamp}` },
+      at,
+    );
+    ok("knowledge extract ok", r.s === 200 && r.d.path === `Komposer Hasil ${stamp}.md`, r);
+    const extractedId = r.d?.id;
+    dstSource = await hashOf(mergedId);
+    srcSource = await hashOf(extractedId);
+    ok(
+      "knowledge extract both sides",
+      dstSource.raw.includes(`[[Komposer Hasil ${stamp}]]`) &&
+        !dstSource.raw.includes(selected) &&
+        srcSource.raw.includes(selected),
+      dstSource.raw,
+    );
+    r = await j("GET", `/knowledge/notes/${mergedId}/versions`, null, at);
+    ok(
+      "knowledge compose versions recorded",
+      (r.d ?? []).some((v) => v.reason === "before_extract"),
+      r.d,
+    );
+    // Ganti nama catatan: canvas ikut (celah lama)
+    r = await j("POST", `/knowledge/notes/${mergedId}/move`, { path: `Komposer Pindah ${stamp}.md` }, at);
+    const movedComposeId = r.d?.id;
+    r = await j("GET", `/knowledge/canvases/file?path=${encodeURIComponent(composeCanvas)}`, null, at);
+    ok("knowledge rename updates canvas", r.d?.data?.nodes?.[0]?.file === `Komposer Pindah ${stamp}.md`, r.d);
+    for (const id of [movedComposeId, refNote.id, extractedId]) await j("DELETE", `/knowledge/notes/${id}`, null, at);
+    await j("DELETE", `/knowledge/canvases/file?path=${encodeURIComponent(composeCanvas)}`, null, at);
     // Bases (K2): berkas .base dibaca/ditulis sebagai YAML, berubah di disk → 409
     r = await j("POST", "/knowledge/bases", { name: "Smoke base" }, at);
     const basePath = r.d?.path;

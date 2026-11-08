@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -22,6 +23,18 @@ import { PrismaService } from "../prisma/prisma.service";
 import { UploadsService } from "../uploads/uploads.service";
 import { KNOWLEDGE_VAULT_CONTEXT } from "./knowledge-constants";
 import {
+  type AfterExtract,
+  applyComposerTemplate,
+  ComposeConflict,
+  type ComposePosition,
+  COMPOSER_TEMPLATE,
+  composeMerge,
+  mergedProperties,
+  planExtract,
+  rewriteExtractedLinks,
+  rewriteMergedLinks,
+} from "./vault-compose";
+import {
   BASE_EXT,
   DEFAULT_BASE,
   isBasePath,
@@ -31,6 +44,7 @@ import {
   validateBase,
 } from "./vault-bases";
 import {
+  retargetCanvasNodes,
   canvasIndexText,
   CANVAS_EXT,
   type CanvasData,
@@ -61,6 +75,7 @@ import {
   sha256,
   TEMPLATE_DIR,
   VAULT_FILE_TYPES,
+  splitFrontmatter,
   vaultEntryKind,
 } from "./vault-parser";
 import {
@@ -107,6 +122,7 @@ const IMAGE_TYPES: Record<string, string> = {
 /** Templat vault awal (struktur folder §10.3 docs/AI-AGENT.md), ikut image backend. */
 /** Batas tugas lintas vault per permintaan (vault sangat besar dipotong). */
 const MAX_TASKS = 3000;
+const dirnameOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 const VAULT_TEMPLATE_DIR = resolve(__dirname, "..", "..", "templates", "knowledge-vault");
 
 interface ScanStatus {
@@ -1121,6 +1137,10 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
         }
       }
     }
+    if (input.updateLinks !== false)
+      await this.updateCanvasRefs(userId, base, (file, subpath) =>
+        file === note.path ? { file: path, subpath } : null,
+      );
     await this.updatePrefs(userId, (prefs) => ({
       ...prefs,
       bookmarks: moveBookmarks(prefs.bookmarks, note.path, path),
@@ -1142,9 +1162,277 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
     await mkdir(dirname(target), { recursive: true });
     await rename(source, target);
     await this.moveVersions(userId, from, to, true);
+    await this.updateCanvasRefs(userId, base, (file, subpath) =>
+      file.startsWith(`${from}/`) ? { file: `${to}${file.slice(from.length)}`, subpath } : null,
+    );
     await this.updatePrefs(userId, (prefs) => ({ ...prefs, bookmarks: moveBookmarks(prefs.bookmarks, from, to) }));
     await this.afterWrite(userId, null);
     return { path: to };
+  }
+
+  /** Rujukan node `file` di semua canvas (bukan cermin 80-LifeOS); canvas rusak dilewati, tidak pernah ditimpa. */
+  private async updateCanvasRefs(
+    userId: string,
+    base: string,
+    map: (file: string, subpath?: string) => { file: string; subpath?: string } | null,
+  ) {
+    let updated = 0;
+    for (const { path } of await this.listVaultFiles(userId, CANVAS_EXT).catch(() => [])) {
+      if (isExportPath(path)) continue;
+      const absolute = this.inVault(base, path);
+      const raw = await readFile(absolute, "utf8").catch(() => null);
+      if (raw === null) continue;
+      const { data, error } = parseCanvas(raw);
+      if (error) continue;
+      const result = retargetCanvasNodes(data, map);
+      if (!result.changed) continue;
+      await this.writeAtomic(absolute, serializeCanvas(result.data));
+      await this.indexQueue.enqueueSource(userId, CANVAS_SOURCE, path);
+      updated++;
+    }
+    return updated;
+  }
+
+  /** Tulis ulang `[[tautan]]` di catatan perujuk (catatan terindeks; cermin 80-LifeOS & `skip` dilewati). */
+  private async rewriteReferrers(
+    userId: string,
+    base: string,
+    noteId: string,
+    skip: string[],
+    rewrite: (raw: string) => { text: string; count: number },
+    reason: VersionReason,
+  ) {
+    const links = await this.prisma.knowledgeLink.findMany({
+      where: { userId, toId: noteId },
+      select: { from: { select: { path: true, kind: true } } },
+    });
+    const paths = new Set(links.filter((l) => l.from.kind === "note").map((l) => l.from.path));
+    let updated = 0;
+    for (const path of paths) {
+      if (skip.includes(path) || isExportPath(path)) continue;
+      const absolute = this.inVault(base, path);
+      const raw = await readFile(absolute, "utf8").catch(() => null);
+      if (raw === null) continue;
+      const result = rewrite(raw);
+      if (!result.count) continue;
+      await this.writeNoteFile(userId, path, absolute, raw, result.text, reason);
+      updated += result.count;
+    }
+    return updated;
+  }
+
+  /** Path catatan baru yang masih kosong di folder (nama sama → diberi nomor). */
+  private async freeNotePath(base: string, folderInput: string | undefined, title: string) {
+    const folder = folderInput?.trim() ? this.validPath(folderInput, "folder") : "";
+    const name = safeFileName(title);
+    if (!name) throw new BadRequestException("Judul catatan wajib diisi.");
+    for (let i = 1; i < 100; i++) {
+      const path = this.validPath(joinVaultPath(folder, i === 1 ? name : `${name} ${i}`), "note");
+      if (!(await stat(this.inVault(base, path)).catch(() => null))) return path;
+    }
+    throw new ConflictException("Terlalu banyak catatan bernama sama di folder ini.");
+  }
+
+  /**
+   * Gabung catatan (K9, pola Note composer Obsidian): isi & properti sumber masuk tujuan, perujuk & canvas diarahkan ke tujuan,
+   * sumber ke `.trash` **paling akhir** — gagal di tengah = isi ganda, tidak pernah hilang.
+   */
+  async mergeNote(
+    userId: string,
+    id: string,
+    input: {
+      targetId?: string;
+      newTitle?: string;
+      folder?: string;
+      position?: ComposePosition;
+      heading?: boolean;
+      baseHash: string;
+      targetHash?: string;
+    },
+  ) {
+    await this.scanNow(userId); // tautan perujuk terkini
+    const source = await this.findEditable(userId, id);
+    if (source.kind !== "note") throw new BadRequestException("Hanya catatan Markdown yang bisa digabung.");
+    if (input.targetId === id) throw new BadRequestException("Catatan tidak bisa digabung dengan dirinya sendiri.");
+    const base = await this.vaultBase(userId);
+    const sourceAbs = this.inVault(base, source.path);
+    const sourceRaw = await this.readChecked(sourceAbs, input.baseHash);
+    const sourceName = noteName(source.path);
+    const now = new Date();
+
+    let targetPath: string;
+    let targetText: string;
+    let renames = new Map<string, string>();
+    let heading: string | null = null;
+    try {
+      if (input.targetId) {
+        const target = await this.findEditable(userId, input.targetId);
+        if (target.kind !== "note") throw new BadRequestException("Tujuan harus catatan Markdown.");
+        if (!input.targetHash) throw new BadRequestException("targetHash wajib diisi.");
+        targetPath = target.path;
+        const targetRaw = await this.readChecked(this.inVault(base, target.path), input.targetHash);
+        const plan = composeMerge({
+          targetRaw,
+          sourceRaw,
+          sourceName,
+          position: input.position ?? "end",
+          heading: input.heading !== false,
+        });
+        targetText = plan.text;
+        renames = plan.renames;
+        heading = plan.heading;
+      } else {
+        if (!input.newTitle?.trim()) throw new BadRequestException("Pilih catatan tujuan atau isi judul catatan baru.");
+        targetPath = await this.freeNotePath(base, input.folder ?? dirnameOf(source.path), input.newTitle);
+        const { frontmatter, body } = splitFrontmatter(sourceRaw);
+        const template = await this.readOptional(userId, COMPOSER_TEMPLATE);
+        const content = template
+          ? applyComposerTemplate(template, {
+              content: body,
+              fromTitle: sourceName,
+              newTitle: noteName(targetPath),
+              now,
+            })
+          : body;
+        targetText = updateFrontmatter(content, mergedProperties(null, frontmatter, sourceName));
+      }
+    } catch (error) {
+      if (error instanceof Error && !(error instanceof HttpException)) throw new BadRequestException(error.message);
+      throw error;
+    }
+    const options = { heading, renames };
+    // Tautan di isi hasil gabung sendiri (sumber menaut dirinya / tujuan menaut sumber) ikut diarahkan
+    targetText = rewriteMergedLinks(targetText, source.path, targetPath, options).text;
+
+    const targetAbs = this.inVault(base, targetPath);
+    if (input.targetId)
+      await this.writeNoteFile(
+        userId,
+        targetPath,
+        targetAbs,
+        await readFile(targetAbs, "utf8"),
+        targetText,
+        "before_merge",
+      );
+    else {
+      await mkdir(dirname(targetAbs), { recursive: true });
+      await writeFile(targetAbs, targetText, { flag: "wx" });
+    }
+    const updatedLinks = await this.rewriteReferrers(
+      userId,
+      base,
+      source.id,
+      [source.path, targetPath],
+      (raw) => rewriteMergedLinks(raw, source.path, targetPath, options),
+      "before_merge",
+    );
+    const updatedCanvases = await this.updateCanvasRefs(userId, base, (file, subpath) =>
+      file === source.path ? { file: targetPath, subpath: subpath ?? (heading ? `#${heading}` : undefined) } : null,
+    );
+    await this.recordVersion(userId, source.path, sourceRaw, "before_merge");
+    const trash = await this.toTrash(base, source.path);
+    await this.updatePrefs(userId, (prefs) => ({
+      ...prefs,
+      bookmarks: moveBookmarks(prefs.bookmarks, source.path, targetPath),
+    }));
+    const merged = await this.afterWrite(userId, targetPath);
+    return { id: merged?.id ?? null, path: targetPath, updatedLinks, updatedCanvases, trash };
+  }
+
+  /**
+   * Ekstrak pilihan teks (K9) ke catatan lain / baru. Pilihan dikirim sebagai posisi + teks dan dicocokkan dengan berkas (beda → 409).
+   * Tujuan ditulis dulu, perujuk & canvas, lalu catatan asal paling akhir.
+   */
+  async extractNote(
+    userId: string,
+    id: string,
+    input: {
+      from: number;
+      to: number;
+      text: string;
+      baseHash: string;
+      targetId?: string;
+      targetHash?: string;
+      newTitle?: string;
+      folder?: string;
+      position?: ComposePosition;
+      after?: AfterExtract;
+    },
+  ) {
+    await this.scanNow(userId);
+    const source = await this.findEditable(userId, id);
+    if (source.kind !== "note") throw new BadRequestException("Hanya catatan Markdown yang bisa diekstrak.");
+    if (input.targetId === id) throw new BadRequestException("Tujuan ekstrak harus catatan lain.");
+    const base = await this.vaultBase(userId);
+    const sourceAbs = this.inVault(base, source.path);
+    const sourceRaw = await this.readChecked(sourceAbs, input.baseHash);
+
+    let targetPath: string;
+    let targetRaw: string | null = null;
+    if (input.targetId) {
+      const target = await this.findEditable(userId, input.targetId);
+      if (target.kind !== "note") throw new BadRequestException("Tujuan harus catatan Markdown.");
+      if (!input.targetHash) throw new BadRequestException("targetHash wajib diisi.");
+      targetPath = target.path;
+      targetRaw = await this.readChecked(this.inVault(base, target.path), input.targetHash);
+    } else {
+      if (!input.newTitle?.trim()) throw new BadRequestException("Pilih catatan tujuan atau isi judul catatan baru.");
+      targetPath = await this.freeNotePath(base, input.folder ?? dirnameOf(source.path), input.newTitle);
+    }
+    let plan: ReturnType<typeof planExtract>;
+    try {
+      plan = planExtract({
+        sourceRaw,
+        from: input.from,
+        to: input.to,
+        text: input.text,
+        sourcePath: source.path,
+        targetPath,
+        targetRaw,
+        position: input.position ?? "end",
+        after: input.after ?? "link",
+        template: targetRaw === null ? await this.readOptional(userId, COMPOSER_TEMPLATE) : null,
+        now: new Date(),
+      });
+    } catch (error) {
+      if (error instanceof ComposeConflict) throw new ConflictException(error.message);
+      if (error instanceof Error) throw new BadRequestException(error.message);
+      throw error;
+    }
+    const targetAbs = this.inVault(base, targetPath);
+    if (targetRaw !== null)
+      await this.writeNoteFile(userId, targetPath, targetAbs, targetRaw, plan.targetText, "before_extract");
+    else {
+      await mkdir(dirname(targetAbs), { recursive: true });
+      await writeFile(targetAbs, plan.targetText, { flag: "wx" });
+    }
+    const updatedLinks = await this.rewriteReferrers(
+      userId,
+      base,
+      source.id,
+      [source.path, targetPath],
+      (raw) => rewriteExtractedLinks(raw, source.path, targetPath, plan.moved, plan.renames),
+      "before_extract",
+    );
+    await this.updateCanvasRefs(userId, base, (file, subpath) => {
+      if (file !== source.path || !subpath) return null;
+      const block = /^#\^(.+)$/.exec(subpath);
+      if (block)
+        return plan.moved.blocks.has(block[1])
+          ? { file: targetPath, subpath: `#^${plan.renames.get(block[1]) ?? block[1]}` }
+          : null;
+      return plan.moved.headings.has(
+        subpath
+          .slice(subpath.lastIndexOf("#") + 1)
+          .trim()
+          .toLowerCase(),
+      )
+        ? { file: targetPath, subpath }
+        : null;
+    });
+    await this.writeNoteFile(userId, source.path, sourceAbs, sourceRaw, plan.sourceText, "before_extract");
+    const created = await this.afterWrite(userId, targetPath);
+    return { id: created?.id ?? null, path: targetPath, updatedLinks };
   }
 
   /** Pindahkan ke `.trash` vault (bisa dipulihkan dari Obsidian / disk), bukan hapus permanen. */

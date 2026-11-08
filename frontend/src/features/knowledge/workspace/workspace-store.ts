@@ -15,7 +15,19 @@ type DialogState =
   | { kind: "curate"; note: KnowledgeNoteListItem }
   | { kind: "quick-switcher" }
   | { kind: "command-palette" }
-  | { kind: "versions"; id: string; title: string };
+  | { kind: "versions"; id: string; title: string }
+  | ComposeDialog;
+
+/** Note composer: gabung seluruh catatan, atau ekstrak pilihan teks editor (posisi karakter + teks). */
+export type ComposeDialog =
+  | { kind: "compose"; mode: "merge"; source: { id: string; path: string } }
+  | { kind: "compose"; mode: "extract"; source: { id: string; path: string }; from: number; to: number; text: string };
+
+/** Kendali editor sumber yang terbuka: kirim perubahan tertunda, muat ulang isi berkas. */
+export interface EditorControl {
+  flush: () => Promise<boolean>;
+  reload: () => Promise<void>;
+}
 
 /** Aksi catatan terbuka yang dipakai palet perintah (fungsi dari NoteView). */
 export interface ActiveNote {
@@ -27,6 +39,7 @@ export interface ActiveNote {
   mirror: boolean;
   mode: "read" | "edit";
   setMode: (mode: "read" | "edit") => void;
+  control: { readonly current: EditorControl | null };
   bookmarked: boolean;
   toggleBookmark: () => void;
 }
@@ -35,6 +48,8 @@ export interface ActiveNote {
 export interface EditorBridge {
   insertSnippet: (id: string) => void;
   insertTemplate: (templateId: string) => Promise<void>;
+  /** Pilihan teks di editor (posisi karakter dokumen), null bila tidak ada. */
+  selection: () => { from: number; to: number; text: string } | null;
 }
 
 interface WorkspaceStore {
