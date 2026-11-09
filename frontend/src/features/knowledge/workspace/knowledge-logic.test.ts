@@ -10,6 +10,7 @@ import {
   linkHeading,
   localGraph,
   matchesNodeQuery,
+  openNoteSearch,
   outline,
   parseCallout,
   parseNodeQuery,
@@ -167,5 +168,22 @@ describe("kueri graf & tabel", () => {
     expect(propertyKind("diperbarui", "2026-11-06")).toBe("date");
     expect(propertyKind("jenis", "faq")).toBe("text");
     expect(inboxNotes([note("00-Inbox/a.md"), note("10/b.md")]).map((n) => n.path)).toEqual(["00-Inbox/a.md"]);
+  });
+
+  it("openNoteSearch: panel aktif, buka berdampingan, catatan yang sama menutup belah", () => {
+    expect(openNoteSearch("?note=a", "b", undefined, "primary", false)).toEqual({ search: "note=b", pane: "primary" });
+    expect(openNoteSearch("?note=a", "b", "x", "primary", true)).toEqual({
+      search: "note=a&with=b&h2=x",
+      pane: "secondary",
+    });
+    expect(openNoteSearch("", "b", undefined, "primary", true)).toEqual({ search: "note=b", pane: "primary" });
+    expect(openNoteSearch("?note=a&with=b", "c", undefined, "secondary", false).search).toBe("note=a&with=c");
+    expect(openNoteSearch("?note=a&with=b", "c", "j", "primary", false).search).toBe("note=c&with=b&h=j");
+    expect(openNoteSearch("?note=a&with=b", "a", undefined, "secondary", false)).toEqual({
+      search: "note=a",
+      pane: "primary",
+    });
+    expect(openNoteSearch("?note=a&with=b", "b", undefined, "primary", false).search).toBe("note=b");
+    expect(openNoteSearch("?note=a&with=b", "a", undefined, "primary", true).search).toBe("note=a");
   });
 });

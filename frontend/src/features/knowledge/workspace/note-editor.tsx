@@ -27,7 +27,7 @@ import {
 } from "./editor-snippets";
 import { createResolver, noteName, outline, templateNotes } from "./knowledge-logic";
 import { addBlockId, blockCandidates, newBlockId } from "./note-blocks";
-import { useWorkspaceStore } from "./workspace-store";
+import { useNotePane, useWorkspaceStore, type EditorBridge } from "./workspace-store";
 
 const nowDate = () => new Date();
 
@@ -242,6 +242,8 @@ export default function NoteEditor({ initial, noteId, title, notes, onChange, on
   const handleChange = useEffectEvent(onChange);
   const handleSave = useEffectEvent(onSave);
   const handleStats = useEffectEvent((doc: string, selection: string) => onStats?.(doc, selection));
+  const { focused } = useNotePane();
+  const bridgeRef = useRef<EditorBridge | null>(null);
 
   useEffect(() => {
     const wikiCompletion = (context: CompletionContext) => {
@@ -324,7 +326,7 @@ export default function NoteEditor({ initial, noteId, title, notes, onChange, on
     });
     view.focus();
     // Jembatan untuk grup "Sisipkan" di palet perintah (Ctrl+P)
-    const bridge = {
+    bridgeRef.current = {
       insertSnippet: (snippetId: string) => {
         const snippet = SNIPPETS.find((s) => s.id === snippetId);
         const { from, to } = view.state.selection.main;
@@ -335,15 +337,29 @@ export default function NoteEditor({ initial, noteId, title, notes, onChange, on
         const { from, to, empty } = view.state.selection.main;
         return empty ? null : { from, to, text: view.state.sliceDoc(from, to) };
       },
+      tail: () => {
+        const from = view.state.selection.main.head;
+        const to = view.state.doc.length;
+        return from < to ? { from, to, text: view.state.sliceDoc(from, to) } : null;
+      },
     };
-    useWorkspaceStore.setState({ editor: bridge });
     return () => {
-      if (useWorkspaceStore.getState().editor === bridge) useWorkspaceStore.setState({ editor: null });
+      bridgeRef.current = null;
       view.destroy();
     };
     // Isi awal hanya dipakai saat dibuat; komponen di-key per catatan/versi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Hanya editor di panel aktif yang menjadi sasaran palet perintah (dua catatan berdampingan)
+  useEffect(() => {
+    const bridge = bridgeRef.current;
+    if (!focused || !bridge) return;
+    useWorkspaceStore.setState({ editor: bridge });
+    return () => {
+      if (useWorkspaceStore.getState().editor === bridge) useWorkspaceStore.setState({ editor: null });
+    };
+  }, [focused]);
 
   return <div ref={host} className="h-full min-h-0 overflow-hidden" />;
 }

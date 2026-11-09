@@ -30,6 +30,9 @@ import {
   type ComposePosition,
   COMPOSER_TEMPLATE,
   composeMerge,
+  MAX_SPLIT_SECTIONS,
+  planSplit,
+  splitSections,
   mergedProperties,
   planExtract,
   rewriteExtractedLinks,
@@ -1223,13 +1226,18 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Path catatan baru yang masih kosong di folder (nama sama → diberi nomor). */
-  private async freeNotePath(base: string, folderInput: string | undefined, title: string) {
+  private async freeNotePath(
+    base: string,
+    folderInput: string | undefined,
+    title: string,
+    reserved: ReadonlySet<string> = new Set(),
+  ) {
     const folder = folderInput?.trim() ? this.validPath(folderInput, "folder") : "";
     const name = safeFileName(title);
     if (!name) throw new BadRequestException("Judul catatan wajib diisi.");
     for (let i = 1; i < 100; i++) {
       const path = this.validPath(joinVaultPath(folder, i === 1 ? name : `${name} ${i}`), "note");
-      if (!(await stat(this.inVault(base, path)).catch(() => null))) return path;
+      if (!reserved.has(path.toLowerCase()) && !(await stat(this.inVault(base, path)).catch(() => null))) return path;
     }
     throw new ConflictException("Terlalu banyak catatan bernama sama di folder ini.");
   }
@@ -1246,6 +1254,7 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
       newTitle?: string;
       folder?: string;
       position?: ComposePosition;
+      targetHeading?: string;
       heading?: boolean;
       baseHash: string;
       targetHash?: string;
@@ -1277,6 +1286,7 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
           sourceRaw,
           sourceName,
           position: input.position ?? "end",
+          targetHeading: input.targetHeading,
           heading: input.heading !== false,
         });
         targetText = plan.text;
@@ -1344,6 +1354,97 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
    * Ekstrak pilihan teks (K9) ke catatan lain / baru. Pilihan dikirim sebagai posisi + teks dan dicocokkan dengan berkas (beda → 409).
    * Tujuan ditulis dulu, perujuk & canvas, lalu catatan asal paling akhir.
    */
+  /** Pecah catatan per judul (K9 tahap 2). `dryRun` = daftar catatan baru tanpa menulis; urutan tulis sama dengan ekstrak. */
+  async splitNote(
+    userId: string,
+    id: string,
+    input: { level: number; folder?: string; after?: AfterExtract; dryRun?: boolean; baseHash: string },
+  ) {
+    await this.scanNow(userId);
+    const source = await this.findEditable(userId, id);
+    if (source.kind !== "note") throw new BadRequestException("Hanya catatan Markdown yang bisa dipecah.");
+    const base = await this.vaultBase(userId);
+    const sourceAbs = this.inVault(base, source.path);
+    const sourceRaw = await this.readChecked(sourceAbs, input.baseHash);
+    const sections = splitSections(sourceRaw, input.level);
+    if (!sections.length) throw new BadRequestException("Tidak ada judul di tingkat itu.");
+    if (sections.length > MAX_SPLIT_SECTIONS)
+      throw new BadRequestException(
+        `Terlalu banyak bagian (${sections.length}; maks. ${MAX_SPLIT_SECTIONS}). Pilih tingkat judul yang lebih tinggi.`,
+      );
+
+    const reserved = new Set<string>();
+    const targetPaths: string[] = [];
+    for (const [index, section] of sections.entries()) {
+      const path = await this.freeNotePath(
+        base,
+        input.folder ?? dirnameOf(source.path),
+        section.title || `${noteName(source.path)} bagian ${index + 1}`,
+        reserved,
+      );
+      reserved.add(path.toLowerCase());
+      targetPaths.push(path);
+    }
+    if (input.dryRun)
+      return { sections: sections.map((s, i) => ({ title: s.title, path: targetPaths[i], chars: s.to - s.from })) };
+
+    let plan: ReturnType<typeof planSplit>;
+    try {
+      plan = planSplit({
+        sourceRaw,
+        sourcePath: source.path,
+        level: input.level,
+        targetPaths,
+        after: input.after ?? "link",
+        template: await this.readOptional(userId, COMPOSER_TEMPLATE),
+        now: new Date(),
+      });
+    } catch (error) {
+      if (error instanceof ComposeConflict) throw new ConflictException(error.message);
+      if (error instanceof Error) throw new BadRequestException(error.message);
+      throw error;
+    }
+    for (const target of plan.targets) {
+      const absolute = this.inVault(base, target.path);
+      await mkdir(dirname(absolute), { recursive: true });
+      await writeFile(absolute, target.text, { flag: "wx" });
+    }
+    const updatedLinks = await this.rewriteReferrers(
+      userId,
+      base,
+      source.id,
+      [source.path, ...targetPaths],
+      (raw) => {
+        let text = raw;
+        let count = 0;
+        for (const target of plan.targets) {
+          const result = rewriteExtractedLinks(text, source.path, target.path, target.moved, new Map());
+          text = result.text;
+          count += result.count;
+        }
+        return { text, count };
+      },
+      "before_extract",
+    );
+    await this.updateCanvasRefs(userId, base, (file, subpath) => {
+      if (file !== source.path || !subpath) return null;
+      const block = /^#\^(.+)$/.exec(subpath);
+      const heading = subpath
+        .slice(subpath.lastIndexOf("#") + 1)
+        .trim()
+        .toLowerCase();
+      const target = plan.targets.find((t) => (block ? t.moved.blocks.has(block[1]) : t.moved.headings.has(heading)));
+      return target ? { file: target.path, subpath } : null;
+    });
+    await this.writeNoteFile(userId, source.path, sourceAbs, sourceRaw, plan.sourceText, "before_extract");
+    await this.scanNow(userId);
+    const created = await this.prisma.knowledgeNote.findMany({
+      where: { userId, path: { in: targetPaths } },
+      select: { id: true, path: true },
+    });
+    return { created, updatedLinks };
+  }
+
   async extractNote(
     userId: string,
     id: string,
@@ -1357,6 +1458,7 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
       newTitle?: string;
       folder?: string;
       position?: ComposePosition;
+      targetHeading?: string;
       after?: AfterExtract;
     },
   ) {
@@ -1391,6 +1493,7 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
         targetPath,
         targetRaw,
         position: input.position ?? "end",
+        targetHeading: input.targetHeading,
         after: input.after ?? "link",
         template: targetRaw === null ? await this.readOptional(userId, COMPOSER_TEMPLATE) : null,
         now: new Date(),

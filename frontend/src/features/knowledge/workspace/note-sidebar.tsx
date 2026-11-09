@@ -39,7 +39,7 @@ import { ApiError, errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { KnowledgeNoteListItem } from "@/types/api";
 import { isMirrorNote, localGraph, outline, propertyKind, propertyText } from "./knowledge-logic";
-import { openWorkspaceDialog, useOpenNote } from "./workspace-store";
+import { openWorkspaceDialog, useOpenNote, useNotePane } from "./workspace-store";
 import { statusColorVar } from "./graph-colors";
 
 const GraphCanvas = lazy(() => import("./graph-canvas"));
@@ -79,7 +79,8 @@ function Section({
 export function NoteSidebar({ id, notes }: { id: string; notes: KnowledgeNoteListItem[] }) {
   const { data: note } = useKnowledgeNote(id);
   const openNote = useOpenNote();
-  const [, setHeading] = useSearchParam("h");
+  const { headingParam } = useNotePane();
+  const [, setHeading] = useSearchParam(headingParam);
   if (!note) return null;
   const items = note.kind === "note" ? outline(note.content ?? "") : [];
   const backlinks = [...new Map(note.backlinks.map((b) => [b.note.id, b])).values()];

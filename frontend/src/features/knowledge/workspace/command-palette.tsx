@@ -1,7 +1,11 @@
 import {
   BookOpen,
   CalendarDays,
+  ArrowLeftRight,
+  Columns2,
   Combine,
+  PanelRightClose,
+  Split,
   Scissors,
   Copy,
   Dices,
@@ -40,9 +44,11 @@ import { useKnowledgeTree } from "@/data/use-knowledge-workspace";
 import { errorMessage } from "@/lib/api/client";
 import { addDays, formatLocalYMD } from "@/lib/dates";
 import { useDailyNote } from "../daily-note-button";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { useSearchParam, useSetSearchParams } from "@/hooks/use-search-param";
 import { SNIPPETS } from "./editor-snippets";
 import { noteName, obsidianUri, templateNotes } from "./knowledge-logic";
-import { openWorkspaceDialog, useOpenNote, useWorkspaceStore } from "./workspace-store";
+import { openWorkspaceDialog, SPLIT_MEDIA_QUERY, useOpenNote, useWorkspaceStore } from "./workspace-store";
 
 interface PaletteCommand {
   id: string;
@@ -75,6 +81,10 @@ export function CommandPalette() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const notes = tree?.notes ?? [];
+  const [noteParam] = useSearchParam("note");
+  const [sideParam] = useSearchParam("with");
+  const setParams = useSetSearchParams();
+  const splitFits = useMediaQuery(SPLIT_MEDIA_QUERY);
 
   const groups: { heading: string; commands: PaletteCommand[] }[] = [];
 
@@ -169,6 +179,18 @@ export function CommandPalette() {
                     source: { id: item.id, path: item.path },
                   }),
               },
+              {
+                id: "split-headings",
+                label: "Pecah catatan ini per judul…",
+                icon: Split,
+                keywords: "split refactor pecah bab pasal heading note composer",
+                run: () =>
+                  openWorkspaceDialog({
+                    kind: "compose",
+                    mode: "split",
+                    source: { id: item.id, path: item.path },
+                  }),
+              },
             ]
           : []),
         {
@@ -177,6 +199,31 @@ export function CommandPalette() {
           icon: Trash2,
           keywords: "delete hapus trash",
           run: () => openWorkspaceDialog({ kind: "delete-note", note: item }),
+        },
+      );
+    if (splitFits)
+      commands.push({
+        id: "side-open",
+        label: "Buka catatan lain berdampingan…",
+        icon: Columns2,
+        keywords: "split side tab belah dua panel berdampingan",
+        run: () => openWorkspaceDialog({ kind: "quick-switcher", side: true }),
+      });
+    if (splitFits && sideParam && noteParam)
+      commands.push(
+        {
+          id: "side-swap",
+          label: "Tukar posisi dua panel",
+          icon: ArrowLeftRight,
+          keywords: "split swap tukar panel",
+          run: () => setParams({ note: sideParam, with: noteParam, h: null, h2: null }),
+        },
+        {
+          id: "side-close",
+          label: "Tutup panel kanan",
+          icon: PanelRightClose,
+          keywords: "split close tutup panel belah",
+          run: () => setParams({ with: null, h2: null }),
         },
       );
     groups.push({ heading: `Catatan ini — ${active.title}`, commands });
@@ -204,6 +251,26 @@ export function CommandPalette() {
                     mode: "extract",
                     source: { id: active.id, path: active.path },
                     ...selection,
+                  });
+                },
+              },
+              {
+                id: "split-cursor",
+                label: "Pecah catatan di posisi kursor…",
+                icon: Split,
+                keywords: "split cursor pecah kursor note composer",
+                run: () => {
+                  const tail = editor.tail();
+                  if (!tail?.text.trim()) {
+                    toast.info("Letakkan kursor sebelum teks yang akan dipindah ke catatan lain.");
+                    return;
+                  }
+                  openWorkspaceDialog({
+                    kind: "compose",
+                    mode: "extract",
+                    source: { id: active.id, path: active.path },
+                    ...tail,
+                    cursor: true,
                   });
                 },
               },

@@ -383,3 +383,26 @@ export const isImagePath = (path: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test
 /** `obsidian://open` untuk membuka catatan yang sama di aplikasi Obsidian (nama vault = folder vault). */
 export const obsidianUri = (vault: string, path: string) =>
   `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(path.replace(/\.md$/i, ""))}`;
+
+export type NotePane = "primary" | "secondary";
+
+/**
+ * Query tab Catatan setelah membuka catatan (K11). `side` = buka di panel kanan; selama dua panel terbuka, catatan menggantikan
+ * panel yang sedang aktif. Catatan yang sudah terbuka di panel sebelah = kembali ke satu panel (satu catatan tidak disunting dua kali).
+ */
+export function openNoteSearch(search: string, id: string, heading: string | undefined, pane: NotePane, side: boolean) {
+  const current = new URLSearchParams(search);
+  const note = current.get("note");
+  const other = current.get("with");
+  const next = new URLSearchParams();
+  if (note && note !== id && (side || (other && pane === "secondary"))) {
+    next.set("note", note);
+    next.set("with", id);
+    if (heading) next.set("h2", heading);
+    return { search: next.toString(), pane: "secondary" as NotePane };
+  }
+  next.set("note", id);
+  if (other && other !== id && !side && note !== id) next.set("with", other);
+  if (heading) next.set("h", heading);
+  return { search: next.toString(), pane: "primary" as NotePane };
+}

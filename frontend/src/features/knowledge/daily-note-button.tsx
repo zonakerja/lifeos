@@ -46,7 +46,7 @@ export function DailyNoteButton() {
     <div className="flex">
       <Button
         size="sm"
-        variant="outline"
+        variant="secondary"
         className="rounded-r-none"
         disabled={pending}
         onClick={() => open(todayYMD())}
@@ -58,8 +58,8 @@ export function DailyNoteButton() {
         <PopoverTrigger asChild>
           <Button
             size="icon-sm"
-            variant="outline"
-            className="rounded-l-none border-l-0"
+            variant="secondary"
+            className="rounded-l-none border-l border-border"
             aria-label="Catatan harian tanggal lain"
           >
             <ChevronDown />

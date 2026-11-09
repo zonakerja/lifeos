@@ -25,6 +25,7 @@ import {
   CreateVaultDto,
   DailyNoteDto,
   ExtractNoteDto,
+  SplitNoteDto,
   ExportSettingsDto,
   FolderDto,
   InboxNoteDto,
@@ -214,6 +215,13 @@ export class KnowledgeController {
   @Post("notes/:id/extract")
   extract(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: ExtractNoteDto) {
     return this.vault.extractNote(user.id, id, dto);
+  }
+
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @HttpCode(200)
+  @Post("notes/:id/split")
+  split(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: SplitNoteDto) {
+    return this.vault.splitNote(user.id, id, dto);
   }
 
   @Throttle({ default: { ttl: 60_000, limit: 60 } })

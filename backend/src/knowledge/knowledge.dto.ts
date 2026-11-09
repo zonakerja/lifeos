@@ -226,6 +226,12 @@ class ComposeTargetDto {
   @IsIn(COMPOSE_POSITIONS)
   position?: (typeof COMPOSE_POSITIONS)[number];
 
+  @ApiPropertyOptional({ description: "Sisipkan di akhir bagian judul ini pada catatan tujuan (mengalahkan position)" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(400)
+  targetHeading?: string;
+
   @ApiProperty({ description: "Hash isi catatan asal" })
   @IsString()
   @MinLength(1)
@@ -238,6 +244,36 @@ export class MergeNoteDto extends ComposeTargetDto {
   @IsOptional()
   @IsBoolean()
   heading?: boolean;
+}
+
+export class SplitNoteDto {
+  @ApiProperty({ description: "Tingkat judul yang dipecah (1–6)" })
+  @IsInt()
+  @Min(1)
+  @Max(6)
+  level: number;
+
+  @ApiPropertyOptional({ description: "Folder catatan baru (bawaan: folder catatan asal)" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(400)
+  folder?: string;
+
+  @ApiPropertyOptional({ enum: ["link", "embed", "none"], description: "Yang tertinggal di catatan asal" })
+  @IsOptional()
+  @IsIn(["link", "embed", "none"])
+  after?: "link" | "embed" | "none";
+
+  @ApiPropertyOptional({ description: "true = hanya pratinjau daftar catatan baru, tanpa menulis" })
+  @IsOptional()
+  @IsBoolean()
+  dryRun?: boolean;
+
+  @ApiProperty({ description: "Hash isi catatan asal" })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  baseHash: string;
 }
 
 export class ExtractNoteDto extends ComposeTargetDto {

@@ -374,7 +374,9 @@ export function NoteMarkdown({ content, className, depth = 0, noteId }: NoteMark
                   <button
                     type="button"
                     className="font-medium text-module underline decoration-module/40 underline-offset-2 hover:decoration-module"
-                    onClick={() => ctx.open(note.id, targetAnchor(target))}
+                    onClick={(e) =>
+                      ctx.open(note.id, targetAnchor(target), e.ctrlKey || e.metaKey ? { side: true } : undefined)
+                    }
                   >
                     {children}
                   </button>
@@ -451,7 +453,8 @@ interface NoteLinkContext {
   resolve: (target: string) => KnowledgeNoteListItem | null;
   /** Catatan menurut id (tautan ke catatan sendiri) */
   byId?: (id: string) => KnowledgeNoteListItem | null;
-  open: (id: string, heading?: string) => void;
+  /** `side` = Ctrl+klik: buka berdampingan (hanya berlaku di tab Catatan) */
+  open: (id: string, heading?: string, options?: { side?: boolean }) => void;
 }
 
 const LinkContext = createContext<NoteLinkContext>({ resolve: () => null, open: () => undefined });

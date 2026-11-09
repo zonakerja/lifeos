@@ -7,10 +7,13 @@ import {
   composeMerge,
   mergedProperties,
   placeContent,
+  placeUnderHeading,
   planExtract,
+  planSplit,
   rewriteExtractedLinks,
   rewriteMergedLinks,
   scanAnchors,
+  splitSections,
 } from "./vault-compose";
 import { splitFrontmatter } from "./vault-parser";
 
@@ -177,5 +180,85 @@ describe("vault-compose", () => {
     expect(result.data.nodes[0]).toMatchObject({ file: "C.md", subpath: "#Judul" });
     expect(result.data.nodes[1]).toMatchObject({ file: "B.md", subpath: "#X" });
     expect(result.data.kunciLain).toBe(1);
+  });
+
+  it("placeUnderHeading: akhir bagian, berhenti di judul setingkat, judul hilang = konflik", () => {
+    const raw = "---\na: 1\n---\n# Satu\nisi\n## Dalam\nx\n# Dua\ny\n";
+    expect(placeUnderHeading(raw, "BARU", "Satu")).toBe(
+      "---\na: 1\n---\n# Satu\nisi\n## Dalam\nx\n\nBARU\n\n# Dua\ny\n",
+    );
+    expect(placeUnderHeading(raw, "BARU", "dalam")).toBe(
+      "---\na: 1\n---\n# Satu\nisi\n## Dalam\nx\n\nBARU\n\n# Dua\ny\n",
+    );
+    expect(placeUnderHeading(raw, "BARU", "Dua")).toBe("---\na: 1\n---\n# Satu\nisi\n## Dalam\nx\n# Dua\ny\n\nBARU\n");
+    expect(() => placeUnderHeading(raw, "BARU", "Tiga")).toThrow(ComposeConflict);
+    expect(() => placeUnderHeading("```\n# Kode\n```\n", "BARU", "Kode")).toThrow(ComposeConflict);
+  });
+
+  it("composeMerge & planExtract: di bawah judul tujuan, judul sumber satu tingkat lebih dalam", () => {
+    const merged = composeMerge({
+      targetRaw: "# A\nisi\n# B\n",
+      sourceRaw: "teks",
+      sourceName: "Src",
+      position: "end",
+      heading: true,
+      targetHeading: "A",
+    });
+    expect(splitFrontmatter(merged.text).body).toBe("# A\nisi\n\n## Src\n\nteks\n\n# B\n");
+    const plan = planExtract({
+      sourceRaw: "pilih ini",
+      from: 0,
+      to: 9,
+      text: "pilih ini",
+      sourcePath: "S.md",
+      targetPath: "T.md",
+      targetRaw: "# A\n# B\n",
+      position: "end",
+      targetHeading: "A",
+      after: "link",
+      template: null,
+      now: NOW,
+    });
+    expect(plan.targetText).toBe("# A\n\npilih ini\n\n# B\n");
+  });
+
+  it("splitSections: tingkat tertentu, kode diabaikan, judul lebih tinggi menutup bagian", () => {
+    const raw =
+      "---\nt: 1\n---\n# Judul\nintro\n## A **tebal**\na\n```\n## bukan\n```\n### Dalam\nd\n## B\nb\n# Lain\nl\n";
+    const sections = splitSections(raw, 2);
+    expect(sections.map((s) => s.title)).toEqual(["A tebal", "B"]);
+    expect(raw.slice(sections[0].from, sections[0].to)).toContain("### Dalam");
+    expect(raw.slice(sections[1].from, sections[1].to)).toBe("## B\nb\n");
+    expect(splitSections(raw, 5)).toEqual([]);
+  });
+
+  it("planSplit: bagian → catatan, tautan antarbagian tetap benar, sisa tertaut", () => {
+    const raw = "---\nt: 1\n---\nintro [[#B]]\n\n## A\nke [[#B]] dan ^tak\n\n## B\nke [[#A]] ^b1\n";
+    const plan = planSplit({
+      sourceRaw: raw,
+      sourcePath: "Asal.md",
+      level: 2,
+      targetPaths: ["A.md", "B.md"],
+      after: "link",
+      template: null,
+      now: NOW,
+    });
+    expect(plan.targets.map((t) => t.path)).toEqual(["A.md", "B.md"]);
+    expect(plan.targets[0].text).toContain("ke [[B#B]]");
+    expect(plan.targets[1].text).toContain("ke [[A#A]]");
+    expect(plan.targets[1].text.startsWith("## B\n")).toBe(true);
+    expect(plan.targets[1].moved.blocks.has("b1")).toBe(true);
+    expect(plan.sourceText).toBe("---\nt: 1\n---\nintro [[B#B]]\n\n[[A]]\n\n[[B]]\n");
+    expect(() =>
+      planSplit({
+        sourceRaw: raw,
+        sourcePath: "Asal.md",
+        level: 2,
+        targetPaths: ["A.md"],
+        after: "link",
+        template: null,
+        now: NOW,
+      }),
+    ).toThrow(ComposeConflict);
   });
 });

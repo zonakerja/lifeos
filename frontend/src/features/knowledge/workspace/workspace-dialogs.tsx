@@ -444,6 +444,7 @@ function QuickSwitcher() {
   const openNote = useOpenNote();
   const [query, setQuery] = useState("");
   const isOpen = dialog?.kind === "quick-switcher";
+  const side = isOpen && !!dialog.side;
   return (
     <CommandDialog
       open={isOpen}
@@ -451,7 +452,7 @@ function QuickSwitcher() {
         if (!value) close();
         setQuery("");
       }}
-      title="Pembuka cepat"
+      title={side ? "Buka berdampingan" : "Pembuka cepat"}
       description="Cari catatan menurut judul atau path"
     >
       <Command>
@@ -465,7 +466,7 @@ function QuickSwitcher() {
                 value={`${note.title} ${note.path}`}
                 onSelect={() => {
                   close();
-                  openNote(note.id);
+                  openNote(note.id, undefined, side ? { side: true } : undefined);
                 }}
               >
                 {note.kind === "note" ? <FileText /> : <Paperclip />}

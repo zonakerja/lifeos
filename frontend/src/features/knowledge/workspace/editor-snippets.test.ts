@@ -66,4 +66,9 @@ describe("templateInsertText", () => {
       templateInsertText(raw, { title: "R", now, atDocStart: true, docHasFrontmatter: true }).startsWith("# R"),
     ).toBe(true);
   });
+
+  it("id perintah sisip unik", () => {
+    const ids = SNIPPETS.map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 });

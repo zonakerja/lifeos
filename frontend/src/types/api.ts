@@ -166,6 +166,8 @@ export interface AgentActivity {
 export interface KnowledgeComposeInput {
   baseHash: string;
   position?: "end" | "start";
+  /** Sisipkan di akhir bagian judul ini pada catatan tujuan */
+  targetHeading?: string;
   targetId?: string;
   targetHash?: string;
   newTitle?: string;
@@ -173,6 +175,19 @@ export interface KnowledgeComposeInput {
 }
 export interface KnowledgeMergeInput extends KnowledgeComposeInput {
   heading?: boolean;
+}
+export interface KnowledgeSplitInput {
+  level: number;
+  folder?: string;
+  after?: "link" | "embed" | "none";
+  baseHash: string;
+}
+export interface KnowledgeSplitPreview {
+  sections: { title: string; path: string; chars: number }[];
+}
+export interface KnowledgeSplitResult {
+  created: { id: string; path: string }[];
+  updatedLinks: number;
 }
 export interface KnowledgeExtractInput extends KnowledgeComposeInput {
   from: number;
@@ -312,6 +327,22 @@ export interface AiGenerateResult {
     message: string;
   } | null;
 }
+
+export interface AiTranscript {
+  text: string;
+  truncated: boolean;
+  passes: number;
+  /** Kelengkapan yang perlu diperiksa user (bagian gagal / terpotong). */
+  warning: string | null;
+  provider: AiProviderId;
+  model: string;
+}
+
+/** Pekerjaan transkrip di latar belakang server. */
+export type AiTranscribeJob =
+  | { status: "running" }
+  | { status: "done"; result: AiTranscript }
+  | { status: "failed"; httpStatus: number; message: string };
 
 /** Respons login/refresh. Refresh token dikirim sebagai cookie httpOnly, bukan di body. */
 export interface AuthSession {

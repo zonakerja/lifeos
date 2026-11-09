@@ -2,6 +2,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   Copy,
+  Columns2,
   Combine,
   FilePen,
   FilePlus2,
@@ -34,12 +35,13 @@ import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useKnowledgeMutations } from "@/data/use-knowledge";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useKnowledgeActions, useKnowledgePrefs, useKnowledgeSearch } from "@/data/use-knowledge-workspace";
 import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { KnowledgeNoteListItem, KnowledgeTree } from "@/types/api";
 import { buildTree, folderOf, isMirrorNote, noteName, tagCounts, type TreeItem } from "./knowledge-logic";
-import { openWorkspaceDialog, useOpenNote, useWorkspaceStore } from "./workspace-store";
+import { openWorkspaceDialog, useOpenNote, useWorkspaceStore, SPLIT_MEDIA_QUERY } from "./workspace-store";
 
 /** Titik status di penjelajah (catatan berlaku tidak diberi titik). */
 const STATUS_DOT: Record<string, string> = {
@@ -325,6 +327,7 @@ function FolderRow({
 
 function NoteRow({ note, depth, active }: { note: KnowledgeNoteListItem; depth: number; active: boolean }) {
   const openNote = useOpenNote();
+  const splitFits = useMediaQuery(SPLIT_MEDIA_QUERY);
   const { prefs, save } = useKnowledgePrefs();
   const bookmarked = prefs.bookmarks.includes(note.path);
   const mirror = isMirrorNote(note);
@@ -336,7 +339,7 @@ function NoteRow({ note, depth, active }: { note: KnowledgeNoteListItem; depth: 
             type="button"
             draggable
             onDragStart={(e) => e.dataTransfer.setData("text/x-knowledge-note", note.id)}
-            onClick={() => openNote(note.id)}
+            onClick={(e) => openNote(note.id, undefined, e.ctrlKey || e.metaKey ? { side: true } : undefined)}
             className={cn(
               "flex w-full items-center gap-1.5 rounded-md py-1 pr-1.5 text-left text-xs hover:bg-muted",
               active && "bg-module-soft font-semibold text-module",
@@ -356,6 +359,11 @@ function NoteRow({ note, depth, active }: { note: KnowledgeNoteListItem; depth: 
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          {splitFits && (
+            <ContextMenuItem onSelect={() => openNote(note.id, undefined, { side: true })}>
+              <Columns2 /> Buka berdampingan
+            </ContextMenuItem>
+          )}
           {!mirror && (
             <>
               <ContextMenuItem onSelect={() => openWorkspaceDialog({ kind: "move-note", note, mode: "rename" })}>

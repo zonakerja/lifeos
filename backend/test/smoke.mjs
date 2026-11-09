@@ -390,6 +390,10 @@ try {
   r = await j("POST", "/uploads", fd, at);
   ok("upload", r.s === 201 && r.d.id && r.d.originalName === "catatan é.txt", r);
   const assetId = r.d.id;
+  r = await j("POST", "/ai/transcribe", { uploadId: assetId }, at);
+  ok("transcribe rejects non-audio", r.s === 400, r);
+  r = await j("GET", `/ai/transcribe/${assetId}`, null, at);
+  ok("transcribe status without job = 404", r.s === 404, r);
   await new Promise((res) => setTimeout(res, 2500));
   r = await j("GET", `/uploads/${assetId}/metadata`, null, at);
   ok(
@@ -1761,6 +1765,90 @@ try {
       r.d,
     );
     await j("DELETE", `/knowledge/notes/${tagNoteId}`, null, at);
+    // Note composer tahap 2: sisip di bawah judul & pecah per judul
+    {
+      const split = await j(
+        "POST",
+        "/knowledge/notes",
+        {
+          title: "Smoke Pecah",
+          content: "pengantar\n\n## Bagian Satu\nisi [[#Bagian Dua]]\n\n## Bagian Dua\nisi dua\n",
+        },
+        at,
+      );
+      const before = await j("GET", `/knowledge/notes/${split.d.id}/source`, null, at);
+      const preview = await j(
+        "POST",
+        `/knowledge/notes/${split.d.id}/split`,
+        { level: 2, dryRun: true, baseHash: before.d.hash },
+        at,
+      );
+      ok(
+        "split preview tanpa menulis",
+        preview.s === 200 && preview.d.sections?.length === 2 && !preview.d.created,
+        preview.d,
+      );
+      const stale = await j("POST", `/knowledge/notes/${split.d.id}/split`, { level: 2, baseHash: "basi" }, at);
+      ok("split hash basi 409", stale.s === 409, stale.s);
+      const none = await j("POST", `/knowledge/notes/${split.d.id}/split`, { level: 4, baseHash: before.d.hash }, at);
+      ok("split tingkat kosong 400", none.s === 400, none.s);
+      const done = await j("POST", `/knowledge/notes/${split.d.id}/split`, { level: 2, baseHash: before.d.hash }, at);
+      ok("split membuat 2 catatan", done.s === 200 && done.d.created?.length === 2, done.d);
+      const after = await j("GET", `/knowledge/notes/${split.d.id}/source`, null, at);
+      ok(
+        "split sisa tertaut",
+        after.d.raw?.includes("[[Bagian Satu]]") && !after.d.raw?.includes("isi dua"),
+        after.d.raw,
+      );
+      const under = await j(
+        "POST",
+        "/knowledge/notes",
+        { title: "Smoke Tujuan Judul", content: "# X\nx\n# Y\ny\n" },
+        at,
+      );
+      const src = await j("POST", "/knowledge/notes", { title: "Smoke Sisip", content: "teks sisip" }, at);
+      const srcHash = await j("GET", `/knowledge/notes/${src.d.id}/source`, null, at);
+      const underHash = await j("GET", `/knowledge/notes/${under.d.id}/source`, null, at);
+      const missing = await j(
+        "POST",
+        `/knowledge/notes/${src.d.id}/extract`,
+        {
+          from: 0,
+          to: 10,
+          text: "teks sisip",
+          baseHash: srcHash.d.hash,
+          targetId: under.d.id,
+          targetHash: underHash.d.hash,
+          targetHeading: "Tidak Ada",
+        },
+        at,
+      );
+      ok("ekstrak judul hilang 409", missing.s === 409, missing.s);
+      const placed = await j(
+        "POST",
+        `/knowledge/notes/${src.d.id}/extract`,
+        {
+          from: 0,
+          to: 10,
+          text: "teks sisip",
+          baseHash: srcHash.d.hash,
+          targetId: under.d.id,
+          targetHash: underHash.d.hash,
+          targetHeading: "X",
+          after: "none",
+        },
+        at,
+      );
+      const placedText = await j("GET", `/knowledge/notes/${under.d.id}/source`, null, at);
+      ok(
+        "ekstrak di bawah judul",
+        placed.s === 200 && placedText.d.raw?.includes("x\n\nteks sisip\n\n# Y"),
+        placedText.d.raw,
+      );
+      for (const n of [...(done.d.created ?? []), split.d, under.d, src.d])
+        if (n.id) await j("DELETE", `/knowledge/notes/${n.id}`, null, at);
+    }
+
     // Bases (K2): berkas .base dibaca/ditulis sebagai YAML, berubah di disk → 409
     r = await j("POST", "/knowledge/bases", { name: "Smoke base" }, at);
     const basePath = r.d?.path;

@@ -136,7 +136,6 @@ export const SNIPPETS: Snippet[] = [
   },
   { id: "weblink", label: "Tautan web", group: "Tautan", keywords: "url web link", text: `[${CURSOR}](https://)` },
   { id: "tag", label: "Tag", group: "Tautan", keywords: "tag label", text: `#${CURSOR}` },
-  { id: "footnote", label: "Catatan kaki", group: "Tautan", keywords: "footnote kaki", text: `[^1]${CURSOR}` },
   {
     id: "today",
     label: "Tanggal hari ini",

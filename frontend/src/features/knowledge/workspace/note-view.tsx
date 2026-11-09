@@ -11,7 +11,9 @@ import {
   History,
   FolderSync,
   Loader2,
+  Columns2,
   Combine,
+  Split,
   MoreHorizontal,
   Paperclip,
   Pencil,
@@ -37,6 +39,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useKnowledgeNote, useKnowledgeStatus } from "@/data/use-knowledge";
 import { useKnowledgeActions, useKnowledgePrefs, useKnowledgeSource } from "@/data/use-knowledge-workspace";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useSearchParam } from "@/hooks/use-search-param";
 import { ApiError, errorMessage } from "@/lib/api/client";
 import { STATUS_LABEL, STATUS_TONE } from "@/features/knowledge/knowledge-utils";
@@ -44,7 +47,14 @@ import { cn } from "@/lib/utils";
 import type { KnowledgeNoteListItem } from "@/types/api";
 import { folderOf, isMirrorNote, mirrorAppPath, noteName, noteStats, obsidianUri } from "./knowledge-logic";
 import { NoteMarkdown } from "./note-markdown";
-import { openWorkspaceDialog, useWorkspaceStore, type EditorControl } from "./workspace-store";
+import {
+  openWorkspaceDialog,
+  useWorkspaceStore,
+  type EditorControl,
+  registerNoteEditor,
+  SPLIT_MEDIA_QUERY,
+  useNotePane,
+} from "./workspace-store";
 
 const NoteEditor = lazy(() => import("./note-editor"));
 
@@ -67,12 +77,14 @@ export function NoteView({
   notes: KnowledgeNoteListItem[];
 }) {
   const navigate = useNavigate();
+  const splitFits = useMediaQuery(SPLIT_MEDIA_QUERY);
   const { data: note, isLoading, error } = useKnowledgeNote(id);
   const readStats = useMemo(() => noteStats(note?.content ?? ""), [note?.content]);
   const { data: status } = useKnowledgeStatus();
   const { prefs, save: savePrefs } = useKnowledgePrefs();
   const [mode, setMode] = useState<"read" | "edit">("read");
-  const [heading, setHeading] = useSearchParam("h");
+  const { focused, headingParam } = useNotePane();
+  const [heading, setHeading] = useSearchParam(headingParam);
   const scroller = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorControl | null>(null);
 
@@ -85,9 +97,11 @@ export function NoteView({
     [mode],
   );
 
+  useEffect(() => registerNoteEditor(id, editorRef), [id]);
+
   // Catatan terbuka → palet perintah (Ctrl+P) bisa menjalankan aksi catatan ini
   useEffect(() => {
-    if (!note) return;
+    if (!note || !focused) return;
     const mirror = isMirrorNote({ path: note.path, properties: note.frontmatter });
     const bookmarked = prefs.bookmarks.includes(note.path);
     useWorkspaceStore.setState({
@@ -109,7 +123,7 @@ export function NoteView({
           }),
       },
     });
-  }, [id, note, item, mode, prefs, savePrefs, switchMode]);
+  }, [id, note, item, mode, prefs, savePrefs, switchMode, focused]);
   useEffect(
     () => () => {
       if (useWorkspaceStore.getState().active?.id === id) useWorkspaceStore.setState({ active: null });
@@ -238,6 +252,20 @@ export function NoteView({
                 }
               >
                 <Combine /> Gabungkan ke catatan lain…
+              </DropdownMenuItem>
+            )}
+            {!mirror && note.kind === "note" && (
+              <DropdownMenuItem
+                onSelect={() =>
+                  openWorkspaceDialog({ kind: "compose", mode: "split", source: { id: note.id, path: note.path } })
+                }
+              >
+                <Split /> Pecah per judul…
+              </DropdownMenuItem>
+            )}
+            {splitFits && (
+              <DropdownMenuItem onSelect={() => openWorkspaceDialog({ kind: "quick-switcher", side: true })}>
+                <Columns2 /> Buka catatan lain berdampingan…
               </DropdownMenuItem>
             )}
             {!mirror && (

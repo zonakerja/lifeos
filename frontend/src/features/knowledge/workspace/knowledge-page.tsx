@@ -1,17 +1,21 @@
 import {
+  ArrowLeftRight,
   BrainCircuit,
   Command as CommandIcon,
   FilePlus2,
   FileText,
+  FolderOpen,
   Info,
   Link2,
   Loader2,
+  PanelLeftClose,
+  PanelRightClose,
   Search,
   Settings2,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ModulePage } from "@/components/layout/module-page";
+import { HeroStat, ModulePage } from "@/components/layout/module-page";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Kbd } from "@/components/ui/kbd";
@@ -19,14 +23,14 @@ import { Spinner } from "@/components/ui/spinner";
 import { useKnowledgeStatus } from "@/data/use-knowledge";
 import { useKnowledgeTree } from "@/data/use-knowledge-workspace";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { useSearchParam } from "@/hooks/use-search-param";
+import { useSearchParam, useSetSearchParams } from "@/hooks/use-search-param";
 import { formatDateTime } from "@/lib/dates";
 import { cn } from "@/lib/utils";
-import type { KnowledgeTree } from "@/types/api";
+import type { KnowledgeNoteListItem, KnowledgeTree } from "@/types/api";
 import { DailyNoteButton } from "../daily-note-button";
 import { GraphTab } from "./graph-tab";
 import { HealthTab, InboxTab } from "./inbox-health-tabs";
-import { createResolver, folderOf } from "./knowledge-logic";
+import { createResolver, folderOf, type NotePane } from "./knowledge-logic";
 import { LeftPanel } from "./left-panel";
 import { NoteLinkProvider } from "./note-markdown";
 import { NoteSidebar } from "./note-sidebar";
@@ -39,7 +43,7 @@ import { WorkspaceDialogs } from "./workspace-dialogs";
 const BasesTab = lazy(() => import("./bases-tab").then((m) => ({ default: m.BasesTab })));
 /** Tab Canvas dimuat malas (papan kartu + penyunting). */
 const CanvasTab = lazy(() => import("./canvas-tab").then((m) => ({ default: m.CanvasTab })));
-import { openWorkspaceDialog, useOpenNote } from "./workspace-store";
+import { NotePaneContext, openWorkspaceDialog, useOpenNote, useWorkspaceStore } from "./workspace-store";
 
 /**
  * Menu Knowledge: antarmuka vault Obsidian di LifeOS (docs/AI-AGENT.md §25.2). Berkas vault tetap sumber kebenaran —
@@ -64,7 +68,30 @@ export function Component() {
   }, []);
 
   return (
-    <ModulePage module="knowledge" hideHero>
+    <ModulePage
+      module="knowledge"
+      meta={
+        ready && (
+          <>
+            <HeroStat>
+              <FolderOpen className="size-3.5" /> <span className="font-mono">{status.folder}</span>
+            </HeroStat>
+            <HeroStat>
+              <FileText className="size-3.5" /> {status.notes} catatan
+            </HeroStat>
+            <HeroStat>
+              <Link2 className="size-3.5" /> {status.links} tautan
+            </HeroStat>
+            {status.scanning && (
+              <HeroStat>
+                <Loader2 className="size-3.5 animate-spin" /> memindai
+              </HeroStat>
+            )}
+          </>
+        )
+      }
+      actions={ready && <HeroActions />}
+    >
       {(tab) =>
         isLoading ? (
           <Spinner className="m-6" />
@@ -72,30 +99,27 @@ export function Component() {
           <NoVault configured={!!status?.configured} />
         ) : (
           <>
-            <HeaderBar notes={status.notes} links={status.links} scanning={status.scanning} folder={status.folder!} />
-            <div className="mt-3">
-              {tab === "graph" ? (
-                <GraphTab />
-              ) : tab === "table" ? (
-                <TableTab />
-              ) : tab === "canvas" ? (
-                <Suspense fallback={<Spinner className="m-6" />}>
-                  <CanvasTab />
-                </Suspense>
-              ) : tab === "bases" ? (
-                <Suspense fallback={<Spinner className="m-6" />}>
-                  <BasesTab />
-                </Suspense>
-              ) : tab === "tasks" ? (
-                <TasksTab />
-              ) : tab === "inbox" ? (
-                <InboxTab />
-              ) : tab === "health" ? (
-                <HealthTab />
-              ) : (
-                <NotesTab />
-              )}
-            </div>
+            {tab === "graph" ? (
+              <GraphTab />
+            ) : tab === "table" ? (
+              <TableTab />
+            ) : tab === "canvas" ? (
+              <Suspense fallback={<Spinner className="m-6" />}>
+                <CanvasTab />
+              </Suspense>
+            ) : tab === "bases" ? (
+              <Suspense fallback={<Spinner className="m-6" />}>
+                <BasesTab />
+              </Suspense>
+            ) : tab === "tasks" ? (
+              <TasksTab />
+            ) : tab === "inbox" ? (
+              <InboxTab />
+            ) : tab === "health" ? (
+              <HealthTab />
+            ) : (
+              <NotesTab />
+            )}
             <WorkspaceDialogs />
           </>
         )
@@ -104,56 +128,31 @@ export function Component() {
   );
 }
 
-function HeaderBar({
-  notes,
-  links,
-  scanning,
-  folder,
-}: {
-  notes: number;
-  links: number;
-  scanning: boolean;
-  folder: string;
-}) {
+/** Tombol di banner; varian `secondary` seperti aksi banner menu lain karena latar banner berwarna modul. */
+function HeroActions() {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-2xl border bg-card px-3 py-2">
-      <span className="flex size-8 items-center justify-center rounded-xl bg-module-gradient text-white">
-        <BrainCircuit className="size-4" />
-      </span>
-      <div className="min-w-0">
-        <p className="text-sm font-bold">Knowledge</p>
-        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          Vault <b className="font-mono">{folder}</b> · {notes} catatan · {links} tautan
-          {scanning && (
-            <>
-              · <Loader2 className="size-3 animate-spin" /> memindai
-            </>
-          )}
-        </p>
-      </div>
-      <div className="ml-auto flex flex-wrap items-center gap-1.5">
-        <DailyNoteButton />
-        <Button size="sm" variant="outline" onClick={() => openWorkspaceDialog({ kind: "quick-switcher" })}>
-          <Search /> Buka cepat <Kbd className="hidden sm:inline-flex">Ctrl O</Kbd>
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => openWorkspaceDialog({ kind: "command-palette" })}
-          title="Palet perintah: semua aksi Knowledge (sunting, pindah, sisip tabel/callout/templat, catatan harian, …)"
-        >
-          <CommandIcon /> Perintah <Kbd className="hidden sm:inline-flex">Ctrl P</Kbd>
-        </Button>
-        <Button size="sm" onClick={() => openWorkspaceDialog({ kind: "new-note" })}>
-          <FilePlus2 /> Catatan baru
-        </Button>
-        <Button size="icon-sm" variant="ghost" asChild aria-label="Pengaturan vault">
-          <Link to="/tools/knowledge" title="Pengaturan vault (Tools → Basis Pengetahuan)">
-            <Settings2 />
-          </Link>
-        </Button>
-      </div>
-    </div>
+    <>
+      <DailyNoteButton />
+      <Button size="sm" variant="secondary" onClick={() => openWorkspaceDialog({ kind: "quick-switcher" })}>
+        <Search /> Buka cepat <Kbd className="hidden xl:inline-flex">Ctrl O</Kbd>
+      </Button>
+      <Button
+        size="sm"
+        variant="secondary"
+        onClick={() => openWorkspaceDialog({ kind: "command-palette" })}
+        title="Palet perintah: semua aksi Knowledge (sunting, pindah, sisip tabel/callout/templat, catatan harian, …)"
+      >
+        <CommandIcon /> Perintah <Kbd className="hidden xl:inline-flex">Ctrl P</Kbd>
+      </Button>
+      <Button size="sm" variant="secondary" onClick={() => openWorkspaceDialog({ kind: "new-note" })}>
+        <FilePlus2 /> Catatan baru
+      </Button>
+      <Button size="icon-sm" variant="secondary" asChild aria-label="Pengaturan vault">
+        <Link to="/tools/knowledge" title="Pengaturan vault (Tools → Basis Pengetahuan)">
+          <Settings2 />
+        </Link>
+      </Button>
+    </>
   );
 }
 
@@ -218,6 +217,91 @@ function PaneSwitch({ value, onChange, panes }: { value: Pane; onChange: (p: Pan
  * Tab Catatan: ≥ 1280 px tiga kolom (penjelajah | catatan | info); 1024–1279 px penjelajah + Catatan/Info; di bawahnya
  * satu panel per tab. Hanya satu tata letak yang dirender.
  */
+const PRIMARY_PANE = { focused: true, headingParam: "h" } as const;
+const SECONDARY_PANE = { focused: true, headingParam: "h2" } as const;
+
+/** Satu panel dari dua catatan berdampingan: pointer/fokus di dalamnya menjadikannya panel aktif sebelum klik diproses. */
+function SplitPane({
+  pane,
+  id,
+  focused,
+  item,
+  notes,
+}: {
+  pane: NotePane;
+  id: string;
+  focused: boolean;
+  item: KnowledgeNoteListItem | null;
+  notes: KnowledgeNoteListItem[];
+}) {
+  const value = useMemo(
+    () => ({ focused, headingParam: pane === "primary" ? ("h" as const) : ("h2" as const) }),
+    [focused, pane],
+  );
+  const activate = () => {
+    if (useWorkspaceStore.getState().focusedPane !== pane) useWorkspaceStore.setState({ focusedPane: pane });
+  };
+  return (
+    <div
+      onPointerDownCapture={activate}
+      onFocusCapture={activate}
+      data-pane={pane}
+      className={cn("min-h-0 min-w-0 border-t-2", focused ? "border-module" : "border-transparent")}
+    >
+      <NotePaneContext.Provider value={value}>
+        <NoteView key={id} id={id} item={item} notes={notes} />
+      </NotePaneContext.Provider>
+    </div>
+  );
+}
+
+/** Dua catatan berdampingan (K11): panel info mengikuti panel aktif dan disembunyikan bawaan agar kedua catatan cukup lebar. */
+function SplitView({
+  left,
+  right,
+  focused,
+  notes,
+  itemOf,
+  info,
+  onToggleInfo,
+}: {
+  left: string;
+  right: string;
+  focused: NotePane;
+  notes: KnowledgeNoteListItem[];
+  itemOf: (id: string) => KnowledgeNoteListItem | null;
+  info: boolean;
+  onToggleInfo: () => void;
+}) {
+  const setParams = useSetSearchParams();
+  const closeSide = (pane: NotePane) => {
+    useWorkspaceStore.setState({ focusedPane: "primary" });
+    setParams(pane === "primary" ? { note: right, with: null, h: null, h2: null } : { with: null, h2: null });
+  };
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
+        <Button size="xs" variant="ghost" onClick={() => closeSide("primary")}>
+          <PanelLeftClose /> Tutup kiri
+        </Button>
+        <Button size="xs" variant="ghost" onClick={() => setParams({ note: right, with: left, h: null, h2: null })}>
+          <ArrowLeftRight /> Tukar
+        </Button>
+        <Button size="xs" variant="ghost" onClick={() => closeSide("secondary")}>
+          <PanelRightClose /> Tutup kanan
+        </Button>
+        <Button size="xs" variant={info ? "secondary" : "ghost"} className="ml-auto" onClick={onToggleInfo}>
+          <Info /> Info
+        </Button>
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-2 divide-x">
+        <SplitPane pane="primary" id={left} focused={focused === "primary"} item={itemOf(left)} notes={notes} />
+        <SplitPane pane="secondary" id={right} focused={focused === "secondary"} item={itemOf(right)} notes={notes} />
+      </div>
+    </div>
+  );
+}
+
 function NotesTab() {
   const { data: tree, isLoading } = useKnowledgeTree();
   const [noteId] = useSearchParam("note");
@@ -231,6 +315,13 @@ function NotesTab() {
     if (noteId) setPane("note");
   }
   const openNote = useOpenNote();
+  const [sideParam] = useSearchParam("with");
+  const storedPane = useWorkspaceStore((s) => s.focusedPane);
+  const [sideInfo, setSideInfo] = useState(false);
+  // Dua panel hanya di tata letak tiga kolom; catatan yang sama tidak dibuka dua kali
+  const sideId = three && noteId && sideParam && sideParam !== noteId ? sideParam : null;
+  const focusedPane = sideId ? storedPane : "primary";
+  const focusedId = focusedPane === "secondary" ? sideId : noteId;
   const resolve = useMemo(() => createResolver(tree?.notes ?? []), [tree]);
   const byId = useMemo(() => {
     const map = new Map((tree?.notes ?? []).map((n) => [n.id, n]));
@@ -238,15 +329,33 @@ function NotesTab() {
   }, [tree]);
 
   if (isLoading || !tree) return <Spinner className="m-6" />;
-  const item = tree.notes.find((n) => n.id === noteId) ?? null;
-  const center = noteId ? (
-    <NoteView key={noteId} id={noteId} item={item} notes={tree.notes} />
-  ) : (
-    <Welcome tree={tree} />
-  );
+  const itemOf = (id: string) => tree.notes.find((n) => n.id === id) ?? null;
+  const item = noteId ? itemOf(noteId) : null;
+  const center =
+    sideId && noteId ? (
+      <SplitView
+        left={noteId}
+        right={sideId}
+        focused={focusedPane}
+        notes={tree.notes}
+        itemOf={itemOf}
+        info={sideInfo}
+        onToggleInfo={() => setSideInfo((v) => !v)}
+      />
+    ) : noteId ? (
+      <NoteView key={noteId} id={noteId} item={item} notes={tree.notes} />
+    ) : (
+      <Welcome tree={tree} />
+    );
   const info = (
     <div className="h-full overflow-y-auto">
-      {noteId ? <NoteSidebar key={noteId} id={noteId} notes={tree.notes} /> : <SidebarHint />}
+      {focusedId ? (
+        <NotePaneContext.Provider value={focusedPane === "secondary" ? SECONDARY_PANE : PRIMARY_PANE}>
+          <NoteSidebar key={focusedId} id={focusedId} notes={tree.notes} />
+        </NotePaneContext.Provider>
+      ) : (
+        <SidebarHint />
+      )}
     </div>
   );
   const frame = "h-[calc(100svh-12.5rem)] min-h-[460px] overflow-hidden rounded-2xl border bg-card";
@@ -255,13 +364,19 @@ function NotesTab() {
   if (three) {
     layout = (
       <div
-        className={cn(frame, "grid grid-cols-[16rem_minmax(0,1fr)_19rem] 2xl:grid-cols-[17rem_minmax(0,1fr)_21rem]")}
+        className={cn(
+          frame,
+          "grid",
+          sideId && !sideInfo
+            ? "grid-cols-[16rem_minmax(0,1fr)] 2xl:grid-cols-[17rem_minmax(0,1fr)]"
+            : "grid-cols-[16rem_minmax(0,1fr)_19rem] 2xl:grid-cols-[17rem_minmax(0,1fr)_21rem]",
+        )}
       >
         <div className="min-h-0 border-r">
-          <LeftPanel tree={tree} activeId={noteId} />
+          <LeftPanel tree={tree} activeId={focusedId} />
         </div>
         <div className="min-h-0 min-w-0">{center}</div>
-        <div className="min-h-0 border-l">{info}</div>
+        {(!sideId || sideInfo) && <div className="min-h-0 border-l">{info}</div>}
       </div>
     );
   } else if (two) {
@@ -291,7 +406,7 @@ function NotesTab() {
   }
 
   return (
-    <NoteLinkProvider value={{ resolve, byId, open: (id, heading) => openNote(id, heading) }}>
+    <NoteLinkProvider value={{ resolve, byId, open: (id, heading, options) => openNote(id, heading, options) }}>
       {layout}
     </NoteLinkProvider>
   );

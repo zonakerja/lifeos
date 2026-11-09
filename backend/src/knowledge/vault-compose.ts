@@ -77,6 +77,46 @@ export function applyBlockRenames(text: string, renames: Map<string, string>) {
   return lines.join("\n");
 }
 
+const sameHeading = (a: string, b: string) => key(plainHeading(a)) === key(plainHeading(b));
+
+/** Judul di luar blok kode beserta posisi karakternya. */
+function headingLines(text: string) {
+  const items: { level: number; title: string; from: number; lineEnd: number }[] = [];
+  let fenced = false;
+  let offset = 0;
+  for (const line of text.split("\n")) {
+    const lineEnd = offset + line.length;
+    if (FENCE.test(line)) fenced = !fenced;
+    else if (!fenced) {
+      const match = HEADING.exec(line);
+      if (match) items.push({ level: /^#+/.exec(line)![0].length, title: match[1], from: offset, lineEnd });
+    }
+    offset = lineEnd + 1;
+  }
+  return items;
+}
+
+/** Tingkat judul penanda (mis. `##` → 2); null = tidak ada, sehingga tujuan berubah sejak dipilih → 409. */
+function headingLevel(raw: string, heading: string) {
+  const { body } = splitFrontmatter(normalize(raw));
+  return headingLines(body).find((h) => sameHeading(h.title, heading))?.level ?? null;
+}
+
+/** Sisipkan isi di akhir bagian sebuah judul: tepat sebelum judul berikutnya yang setingkat atau lebih tinggi. */
+export function placeUnderHeading(raw: string, content: string, heading: string) {
+  const text = normalize(raw);
+  const { body } = splitFrontmatter(text);
+  const offset = text.length - body.length;
+  const items = headingLines(body);
+  const index = items.findIndex((h) => sameHeading(h.title, heading));
+  if (index < 0) throw new ComposeConflict(`Judul "${heading}" tidak ada lagi di catatan tujuan. Pilih judul lain.`);
+  const next = items.slice(index + 1).find((h) => h.level <= items[index].level);
+  const end = offset + (next?.from ?? body.length);
+  const block = content.replace(/^\n+|\s+$/g, "");
+  const after = text.slice(end);
+  return `${text.slice(0, end).trimEnd()}\n\n${block}\n${after ? `\n${after}` : ""}`;
+}
+
 /** Sisipkan isi di akhir catatan, atau di awal **sesudah** properti (frontmatter tidak boleh terdorong ke bawah). */
 export function placeContent(raw: string, content: string, position: ComposePosition) {
   const text = normalize(raw);
@@ -145,6 +185,8 @@ export function composeMerge(input: {
   sourceName: string;
   position: ComposePosition;
   heading: boolean;
+  /** Sisipkan di akhir bagian judul ini (mengalahkan `position`). */
+  targetHeading?: string | null;
 }) {
   assertYamlValid(input.sourceRaw, "catatan sumber");
   assertYamlValid(input.targetRaw, "catatan tujuan");
@@ -152,8 +194,15 @@ export function composeMerge(input: {
   const target = splitFrontmatter(input.targetRaw);
   const renames = blockRenames(scanAnchors(source.body).blocks, scanAnchors(target.body).blocks);
   const body = applyBlockRenames(source.body, renames);
-  const content = input.heading ? `## ${input.sourceName}\n\n${dropLeadingTitle(body, input.sourceName)}` : body;
-  const placed = content.trim() ? placeContent(input.targetRaw, content, input.position) : normalize(input.targetRaw);
+  // Di bawah judul tujuan, judul sumber satu tingkat lebih dalam agar struktur bagian tujuan tetap utuh
+  const parentLevel = input.targetHeading ? headingLevel(input.targetRaw, input.targetHeading) : null;
+  const marks = "#".repeat(parentLevel ? Math.min(parentLevel + 1, 6) : 2);
+  const content = input.heading ? `${marks} ${input.sourceName}\n\n${dropLeadingTitle(body, input.sourceName)}` : body;
+  const placed = !content.trim()
+    ? normalize(input.targetRaw)
+    : input.targetHeading
+      ? placeUnderHeading(input.targetRaw, content, input.targetHeading)
+      : placeContent(input.targetRaw, content, input.position);
   const set = mergedProperties(target.frontmatter, source.frontmatter, input.sourceName);
   return {
     text: Object.keys(set).length ? updateFrontmatter(placed, set) : placed,
@@ -281,6 +330,8 @@ export function planExtract(input: {
   /** null = catatan baru */
   targetRaw: string | null;
   position: ComposePosition;
+  /** Sisipkan di akhir bagian judul ini (mengalahkan `position`). */
+  targetHeading?: string | null;
   after: AfterExtract;
   template: string | null;
   now: Date;
@@ -308,7 +359,9 @@ export function planExtract(input: {
   const content = rebased.replace(/^\n+|\s+$/g, "");
   const targetText =
     input.targetRaw !== null
-      ? placeContent(input.targetRaw, content, input.position)
+      ? input.targetHeading
+        ? placeUnderHeading(input.targetRaw, content, input.targetHeading)
+        : placeContent(input.targetRaw, content, input.position)
       : input.template
         ? applyComposerTemplate(input.template, {
             content,
@@ -327,4 +380,89 @@ export function planExtract(input: {
   );
   const sourceText = rewriteExtractedLinks(relative, input.sourcePath, input.targetPath, moved, renames).text;
   return { targetText, sourceText, moved, renames };
+}
+
+/** Batas catatan baru sekali pecah: lebih dari ini hampir pasti salah pilih tingkat judul. */
+export const MAX_SPLIT_SECTIONS = 100;
+
+export interface SplitSection {
+  title: string;
+  from: number;
+  to: number;
+}
+
+/** Judul Markdown → judul catatan: format dibuang, tautan `[[a|b]]` menjadi teksnya. */
+function plainHeading(title: string) {
+  return title
+    .replace(/\[\[([^\]|]+\|)?([^\]]+)\]\]/g, "$2")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`~]/g, "")
+    .replace(/\s+\^[A-Za-z0-9-]+\s*$/, "")
+    .trim();
+}
+
+/**
+ * Bagian yang dipecah = setiap judul setingkat `level`, sampai judul berikutnya yang setingkat atau lebih tinggi. Teks sebelum
+ * judul pertama & bagian di bawah judul yang lebih tinggi tetap di catatan asal.
+ */
+export function splitSections(raw: string, level: number): SplitSection[] {
+  const text = normalize(raw);
+  const { body } = splitFrontmatter(text);
+  const offset = text.length - body.length;
+  const items = headingLines(body);
+  return items.flatMap((heading, index) => {
+    if (heading.level !== level) return [];
+    const next = items.slice(index + 1).find((h) => h.level <= level);
+    return [
+      {
+        title: plainHeading(heading.title),
+        from: offset + heading.from,
+        to: offset + (next?.from ?? body.length),
+      },
+    ];
+  });
+}
+
+/**
+ * Pecah satu catatan per judul (pola Note Refactor Obsidian). Judul tetap ada di catatan baru agar `[[Asal#Judul]]` tetap tepat.
+ * Dikerjakan dari bagian pertama (bagian sisa selalu berada di indeks 0): teks pengganti tidak berjudul, dan posisi dihitung ulang tiap
+ * langkah karena tautan relatif `[[#x]]` di bagian lain ikut berubah. Dari belakang keliru: bagian sebelumnya akan menelan tautan penggantinya.
+ */
+export function planSplit(input: {
+  sourceRaw: string;
+  sourcePath: string;
+  level: number;
+  /** Path catatan baru per bagian (urutan `splitSections`) */
+  targetPaths: string[];
+  after: AfterExtract;
+  template: string | null;
+  now: Date;
+}) {
+  let source = normalize(input.sourceRaw);
+  const count = splitSections(source, input.level).length;
+  if (count !== input.targetPaths.length) throw new ComposeConflict("Isi catatan berubah. Muat ulang lalu ulangi.");
+  const targets: { path: string; text: string; moved: Anchors }[] = [];
+  for (let index = 0; index < count; index++) {
+    const section = splitSections(source, input.level)[0];
+    const targetPath = input.targetPaths[index];
+    const plan = planExtract({
+      sourceRaw: source,
+      from: section.from,
+      to: section.to,
+      text: source.slice(section.from, section.to),
+      sourcePath: input.sourcePath,
+      targetPath,
+      targetRaw: null,
+      position: "end",
+      after: input.after,
+      template: input.template,
+      now: input.now,
+    });
+    source = plan.sourceText;
+    // Bagian yang sudah dipecah dan menaut ke bagian ini: `[[Asal#x]]` diarahkan ke catatan barunya
+    for (const target of targets)
+      target.text = rewriteExtractedLinks(target.text, input.sourcePath, targetPath, plan.moved, plan.renames).text;
+    targets.push({ path: targetPath, text: plan.targetText, moved: plan.moved });
+  }
+  return { sourceText: source, targets };
 }

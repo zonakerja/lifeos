@@ -86,6 +86,7 @@ import type {
   AiProviderInput,
   AiRouting,
   AiSettings,
+  AiTranscribeJob,
   ApiRecord,
   AppSettings,
   AppSettingsInput,
@@ -102,6 +103,9 @@ import type {
   UserStats,
   UserSummary,
   KnowledgeExtractInput,
+  KnowledgeSplitInput,
+  KnowledgeSplitPreview,
+  KnowledgeSplitResult,
   KnowledgeMergeInput,
   KnowledgePeriod,
 } from "@/types/api";
@@ -309,6 +313,10 @@ export const aiApi = {
   rebuildIndex: () => request<{ queued: boolean }>("/ai/index/rebuild", { method: "POST" }),
   searchIndex: (q: string, limit = 8) => request<AiSearchHit[]>("/ai/index/search", { query: { q, limit } }),
   test: (provider: AiProviderId) => request<AiGenerateResult>(`/ai/settings/${provider}/test`, { method: "POST" }),
+  /** Mulai transkrip berkas audio tersimpan (pekerjaan latar belakang; berkas yang sama tidak dikerjakan dua kali). */
+  startTranscribe: (uploadId: string) =>
+    request<AiTranscribeJob>("/ai/transcribe", { method: "POST", body: { uploadId } }),
+  transcribeStatus: (uploadId: string) => request<AiTranscribeJob>(`/ai/transcribe/${uploadId}`),
   /** Prompt + lampiran (PDF/gambar/audio/teks) diproses di backend dengan provider aktif user. */
   generate: (prompt: string, files: Blob[] = []) => {
     const form = new FormData();
@@ -394,6 +402,13 @@ export const knowledgeApi = {
       { method: "POST", body: input },
     ),
   /** Note composer: ekstrak pilihan teks ke catatan lain / baru */
+  splitPreview: (id: string, input: KnowledgeSplitInput) =>
+    request<KnowledgeSplitPreview>(`/knowledge/notes/${id}/split`, {
+      method: "POST",
+      body: { ...input, dryRun: true },
+    }),
+  splitNote: (id: string, input: KnowledgeSplitInput) =>
+    request<KnowledgeSplitResult>(`/knowledge/notes/${id}/split`, { method: "POST", body: input }),
   extractNote: (id: string, input: KnowledgeExtractInput) =>
     request<{ id: string | null; path: string; updatedLinks: number }>(`/knowledge/notes/${id}/extract`, {
       method: "POST",
