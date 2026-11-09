@@ -93,10 +93,53 @@ export const isFreeNoteEmpty = (note: Pick<FreeNote, "title" | "content" | "kind
 export const fileOf = (note: AiNote): NoteFileAttachment | null =>
   note.fileAttachment && "name" in note.fileAttachment ? (note.fileAttachment as NoteFileAttachment) : null;
 
+export const MAX_NOTE_DOCUMENTS = 10;
+
+/** Durasi rekaman: "12:34", atau "1:02:34" mulai satu jam. */
+export const formatDuration = (totalSeconds: number) => {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return hours ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`;
+};
+
+export const documentKey = (doc: NoteFileAttachment) => doc.id ?? doc.uploadId ?? doc.name;
+
+/** Semua dokumen tambahan sebuah Notes AI, termasuk catatan lama yang menyimpan satu dokumen. */
+export const documentsOf = (note: AiNote): NoteFileAttachment[] => {
+  if (note.fileAttachments?.length) return note.fileAttachments;
+  const legacy = fileOf(note);
+  return legacy ? [legacy] : [];
+};
+
+/** Teks tiap dokumen untuk ringkasan. */
+export const documentSources = (note: AiNote) =>
+  documentsOf(note)
+    .map((doc) => ({
+      name: doc.name,
+      text: note.fileAttachments?.length ? (note.documentTexts?.[documentKey(doc)] ?? "") : (note.fileContext ?? ""),
+    }))
+    .filter((doc) => doc.text.trim());
+
+/** Bentuk yang dipakai editor: catatan lama satu dokumen diubah ke daftar (tersimpan saat catatan disimpan berikutnya). */
+export const withDocumentList = (note: AiNote): AiNote => {
+  const legacy = note.fileAttachments?.length ? null : fileOf(note);
+  if (!legacy) return note;
+  const id = documentKey(legacy);
+  return {
+    ...note,
+    fileAttachments: [{ ...legacy, id }],
+    documentTexts: note.fileContext ? { [id]: note.fileContext } : {},
+    fileAttachment: null,
+    fileContext: "",
+  };
+};
+
 /** ID berkas (object storage) yang dirujuk sebuah Notes AI. */
 export const uploadIdsOf = (note: AiNote | null | undefined): string[] => {
   if (!note) return [];
-  return [note.audioUploadId, fileOf(note)?.uploadId].filter((id): id is string => !!id);
+  return [note.audioUploadId, ...documentsOf(note).map((doc) => doc.uploadId)].filter((id): id is string => !!id);
 };
 
 /**
@@ -150,11 +193,11 @@ export interface SummaryInput {
   agendaLabel?: string;
   content?: string;
   audioTranscript?: string;
-  fileContext?: string;
+  documents?: { name: string; text: string }[];
 }
 
-export const hasSummarySource = (n: Pick<AiNote, "content" | "audioTranscript" | "fileContext">) =>
-  !!(n.content?.trim() || n.audioTranscript?.trim() || n.fileContext?.trim());
+export const hasSummarySource = (n: AiNote) =>
+  !!(n.content?.trim() || n.audioTranscript?.trim() || documentSources(n).length > 0);
 
 /** Prompt ringkasan Notes AI dari semua sumber yang tersedia. */
 export function buildSummaryPrompt(input: SummaryInput): string {
@@ -169,10 +212,17 @@ export function buildSummaryPrompt(input: SummaryInput): string {
     input.agendaLabel && `Agenda terkait: ${input.agendaLabel}`,
   ].filter(Boolean);
 
+  const documents = input.documents?.filter((doc) => doc.text.trim()) ?? [];
+  // Batas total dibagi rata agar satu dokumen besar tidak menghabiskan jatah dokumen lain
+  const perDocument = Math.floor(MAX_FILE_CONTEXT_CHARS / Math.max(documents.length, 1));
+  const hasAudio = !!input.audioTranscript?.trim();
   const sources = [
-    input.audioTranscript?.trim() && `<transkrip_audio>\n${input.audioTranscript.trim()}\n</transkrip_audio>`,
+    hasAudio && `<transkrip_audio>\n${input.audioTranscript!.trim()}\n</transkrip_audio>`,
     input.content?.trim() && `<catatan_kasar>\n${input.content.trim()}\n</catatan_kasar>`,
-    input.fileContext?.trim() && `<dokumen_referensi>\n${clampContext(input.fileContext.trim())}\n</dokumen_referensi>`,
+    ...documents.map(
+      (doc) =>
+        `<dokumen_referensi nama="${doc.name.replace(/"/g, "'")}">\n${clampContext(doc.text.trim().slice(0, perDocument))}\n</dokumen_referensi>`,
+    ),
   ].filter(Boolean);
 
   return [
@@ -181,7 +231,9 @@ export function buildSummaryPrompt(input: SummaryInput): string {
     `\nGaya ringkasan: ${styleText}`,
     "\nAturan:",
     "1. Gunakan HANYA informasi dari materi; jangan menambah fakta, nama, angka, atau tanggal yang tidak ada.",
-    "2. Transkrip audio adalah sumber utama, catatan kasar melengkapi, dokumen referensi sebagai rujukan. Bila sumber saling bertentangan, sebutkan perbedaannya.",
+    hasAudio
+      ? "2. Transkrip audio adalah SUMBER UTAMA: struktur dan isi ringkasan mengikuti pembahasan di audio. Catatan kasar melengkapi. Dokumen referensi hanya untuk memperjelas istilah, angka, dan rujukan yang dibahas di audio; jangan merangkum bagian dokumen yang tidak dibahas. Bila sumber saling bertentangan, sebutkan perbedaannya dan nama dokumennya."
+      : "2. Catatan kasar adalah sumber utama bila ada, dokumen referensi sebagai rujukan; sebutkan nama dokumen saat merujuknya. Bila sumber saling bertentangan, sebutkan perbedaannya.",
     "3. Tulis dalam Bahasa Indonesia, kecuali materi seluruhnya berbahasa lain atau instruksi gaya meminta bahasa lain.",
     "4. Format Markdown: '#' untuk judul utama, '##' untuk sub-judul, '-' untuk daftar, '**teks**' untuk poin penting, tabel bila membantu.",
     "5. Rumus matematika: '$...$' untuk inline dan '$$...$$' di baris tersendiri untuk blok.",
@@ -191,14 +243,6 @@ export function buildSummaryPrompt(input: SummaryInput): string {
     .filter(Boolean)
     .join("\n");
 }
-
-export const TRANSCRIBE_PROMPT = [
-  "Transkripkan audio ini secara lengkap dan apa adanya (verbatim) dalam bahasa aslinya.",
-  "- Bila ada lebih dari satu pembicara, awali setiap giliran bicara dengan label 'Pembicara 1:', 'Pembicara 2:', dst.",
-  "- Beri tanda baca dan paragraf agar mudah dibaca; jangan meringkas atau menerjemahkan.",
-  "- Bagian yang tidak terdengar jelas ditandai [tidak jelas].",
-  "- Keluarkan HANYA teks transkrip tanpa komentar lain.",
-].join("\n");
 
 export const HANDWRITING_PROMPT = [
   "Gambar berikut berisi tulisan tangan (satu gambar per halaman, berurutan). Salin semua tulisannya menjadi teks.",

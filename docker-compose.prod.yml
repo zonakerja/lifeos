@@ -82,7 +82,7 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Set S3_SECRET_ACCESS_KEY di .env}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
       ASSET_BUCKET: ${ASSET_BUCKET:-lifeos-assets}
-      UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-100}
+      UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-300}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
       # Editor ONLYOFFICE (kosong = nonaktif). URL publik = https://<APP_DOMAIN>/office (Caddy, satu domain)

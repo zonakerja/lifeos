@@ -15,9 +15,9 @@
 	}
 
 	handle /api/* {
-		# Batas body sedikit di atas UPLOAD_MAX_MB backend (default 100 MB)
+		# Batas body sedikit di atas UPLOAD_MAX_MB backend (default 300 MiB ≈ 315 MB)
 		request_body {
-			max_size 110MB
+			max_size 330MB
 		}
 		reverse_proxy backend:4000
 	}

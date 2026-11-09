@@ -10,8 +10,8 @@ import type { RecordType } from "./record-schema";
 export const LIGHT_FIELDS: Partial<Record<RecordType, readonly string[]>> = {
   // doc = JSON editor, ink = goresan tulis tangan (bisa beberapa MB)
   free_note: ["doc", "ink"],
-  // Teks dokumen terlampir (sampai 200 rb karakter) — transkrip & ringkasan tetap dikirim (dipakai pencarian)
-  ai_note: ["fileContext"],
+  // Teks dokumen terlampir (bisa ratusan rb karakter) — transkrip & ringkasan tetap dikirim (dipakai pencarian)
+  ai_note: ["fileContext", "documentTexts"],
 };
 
 /** Tinggi pratinjau tulis tangan di kartu (koordinat logis, sama dengan frontend). */

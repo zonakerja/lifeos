@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
+import { toast } from "sonner";
 import { authApi, type ProfileInput } from "@/lib/api/endpoints";
+import { isRecordingActive } from "@/lib/recording-guard";
 import { flushPendingWrites } from "@/data/use-collection";
 import { queryKeys } from "@/data/query-keys";
 import { useAuthStore } from "@/stores/auth-store";
@@ -21,6 +23,11 @@ export function useLogout() {
   const client = useQueryClient();
   const navigate = useNavigate();
   return async () => {
+    // Logout membongkar seluruh halaman: rekaman yang masih di memori tab akan hilang tanpa peringatan
+    if (isRecordingActive()) {
+      toast.error("Rekaman masih berjalan", { description: "Hentikan dan simpan rekaman dulu sebelum keluar." });
+      return;
+    }
     await flushPendingWrites();
     await authApi.logout().catch(() => undefined);
     useAuthStore.getState().clear();

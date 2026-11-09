@@ -33,7 +33,7 @@ import { formatShortDate, parseLocalYMD, todayYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { AiNote, Schedule } from "@/types/entities";
 import { agendaLabel } from "../lib/agenda-options";
-import { fileOf, filterAiNotes, sortAiNotes, uploadIdsOf } from "../lib/notes-logic";
+import { documentsOf, filterAiNotes, sortAiNotes, uploadIdsOf } from "../lib/notes-logic";
 import { removeUploads } from "../lib/remove-uploads";
 import { useOrphanUploadsJanitor } from "../lib/use-orphan-uploads";
 import { AiNoteEditor } from "./ai-note-editor";
@@ -209,9 +209,9 @@ export function AiNotesTab() {
                       <Mic /> Audio
                     </Badge>
                   )}
-                  {fileOf(n) && (
+                  {documentsOf(n).length > 0 && (
                     <Badge variant="outline" className="border-mod-notes/40 text-mod-notes">
-                      <Paperclip /> Dokumen
+                      <Paperclip /> {documentsOf(n).length > 1 ? `${documentsOf(n).length} Dokumen` : "Dokumen"}
                     </Badge>
                   )}
                   {n.content && (

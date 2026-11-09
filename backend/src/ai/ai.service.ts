@@ -40,6 +40,8 @@ import { AiIndexQueueService } from "./index/ai-index-queue.service";
 import { type AiAttachment, type AiClient, AiProviderError } from "./providers/ai-client";
 import { anthropicClient } from "./providers/anthropic.client";
 import { geminiClient } from "./providers/gemini.client";
+import { transcribeWithGemini } from "./providers/gemini-transcribe";
+import type { SegmentResult } from "./transcribe/transcript-logic";
 import { openaiClient } from "./providers/openai.client";
 import { openaiCompatibleClient } from "./providers/openai-compatible.client";
 
@@ -470,6 +472,44 @@ export class AiService {
       }
     }
     throw new UnprocessableEntityException("AI tidak memberikan jawaban.");
+  }
+
+  /**
+   * Transkrip berkas audio di disk. Audio besar hanya bisa lewat Files API Gemini dengan key langsung (bukan router),
+   * jadi provider aktif & cadangan tidak berlaku di sini.
+   */
+  async transcribeFile(
+    userId: string,
+    filePath: string,
+    mimeType: string,
+    sizeBytes: number,
+    segments?: Map<number, SegmentResult>,
+  ) {
+    const credential = await this.prisma.aiCredential.findFirst({ where: { userId, provider: AiProvider.gemini } });
+    if (!credential || endpointOf(credential)) {
+      throw new BadRequestException(
+        "Transkrip audio membutuhkan API key Google Gemini langsung (bukan lewat router). Simpan di Pengaturan → Model AI.",
+      );
+    }
+    const model = credential.model || AI_PROVIDERS.gemini.defaultModel;
+    const started = Date.now();
+    try {
+      let apiKey: string;
+      try {
+        apiKey = this.crypto.decrypt(credential.encryptedKey);
+      } catch {
+        throw new AiProviderError("credential", "kunci enkripsi server berubah");
+      }
+      const result = await transcribeWithGemini({ apiKey, model, filePath, mimeType, sizeBytes, segments });
+      return { ...result, provider: credential.provider, model };
+    } catch (error) {
+      if (error instanceof AiProviderError) {
+        this.logger.warn(
+          `Transkrip gemini/${model} gagal (${error.kind}, ${Date.now() - started} ms): ${error.providerMessage}`,
+        );
+      }
+      throw this.toHttpError(error, credential);
+    }
   }
 
   private toAttachments(files: AiFile[]): AiAttachment[] {

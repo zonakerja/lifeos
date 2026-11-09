@@ -5,12 +5,14 @@ import {
   ExternalLink,
   Eye,
   FileText,
+  Download,
   Mic,
   Paperclip,
   PencilLine,
   Sparkles,
   Square,
   Trash2,
+  TriangleAlert,
   Upload,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -46,15 +48,21 @@ import { links } from "@/lib/deep-links";
 import { formatFullDate, parseLocalYMD } from "@/lib/dates";
 import { trackPendingUpload, untrackPendingUpload } from "@/lib/pending-uploads";
 import { cn } from "@/lib/utils";
-import type { AiNote } from "@/types/entities";
+import type { AiNote, NoteFileAttachment } from "@/types/entities";
+import { generateId } from "@/lib/ids";
+import { markRecordingActive } from "@/lib/recording-guard";
 import { agendaLabel, agendaOptions } from "../lib/agenda-options";
 import {
   buildSummaryPrompt,
   clampContext,
-  fileOf,
+  documentKey,
+  formatDuration,
+  documentSources,
+  documentsOf,
+  MAX_NOTE_DOCUMENTS,
+  withDocumentList,
   hasSummarySource,
   type SummaryStyle,
-  TRANSCRIBE_PROMPT,
   unreferencedUploads,
   uploadIdsOf,
 } from "../lib/notes-logic";
@@ -67,10 +75,12 @@ import { ShareButton } from "@/features/sharing/share-dialog";
 import { SharedBadge } from "@/features/sharing/shared-badge";
 
 type ProcessStatus = "idle" | "processing" | "done" | "error";
+type DocumentState = { status: ProcessStatus; step: string };
 
 const NO_SCHEDULE = "__none__";
 /** Batas lampiran `POST /ai/generate`. */
-const MAX_AI_FILE_BYTES = 20 * 1024 * 1024;
+/** Cukup jelas untuk suara: rekaman 2 jam ± 45 MB (bawaan browser ± 128 kbps = ± 110 MB). */
+const RECORDING_BITS_PER_SECOND = 48_000;
 /** Kuota/limit provider AI habis (backend mengembalikan 429). */
 const isQuotaError = (error: unknown) => error instanceof ApiError && error.status === 429;
 
@@ -109,17 +119,20 @@ export function AiNoteEditor({
   const { items: schedules } = useSchedules();
   // Notes AI milik user lain (berbagi, izin edit): berkas baru disimpan atas nama pemiliknya
   const { uploadOwnerId } = usePermissions();
-  const [draft, setDraft] = useState<AiNote>(note);
+  const [draft, setDraft] = useState<AiNote>(() => withDocumentList(note));
   const [dirty, setDirty] = useState(false);
   const [audioStatus, setAudioStatus] = useState<ProcessStatus>(note.audioTranscript ? "done" : "idle");
-  const [fileStatus, setFileStatus] = useState<ProcessStatus>(note.fileContext ? "done" : "idle");
-  const [fileStep, setFileStep] = useState("");
+  const [docStates, setDocStates] = useState<Record<string, DocumentState>>({});
   const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [styleOpen, setStyleOpen] = useState(false);
   const [backRequested, setBackRequested] = useState(false);
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [localAudioUrl, setLocalAudioUrl] = useState<string | null>(null);
+  const [audioStep, setAudioStep] = useState("");
+  // Rekaman yang belum sampai ke server: hanya ada di tab ini, bisa diunggah ulang atau diunduh
+  const [unsavedAudio, setUnsavedAudio] = useState<{ blob: Blob; fileName: string } | null>(null);
   // Jumlah upload yang masih berjalan; Simpan dinonaktifkan agar uploadId tidak hilang
   const [pendingUploads, setPendingUploads] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -127,7 +140,8 @@ export function AiNoteEditor({
   const chunksRef = useRef<Blob[]>([]);
   // Token proses: hasil proses lama (berkas sudah diganti/dihapus) diabaikan
   const audioTokenRef = useRef(0);
-  const fileTokenRef = useRef(0);
+  /** Dokumen yang sudah dilepas: hasil unggah/baca yang masih berjalan diabaikan. */
+  const removedDocsRef = useRef(new Set<string>());
   /** Semua berkas yang diunggah selama editor terbuka (dibersihkan saat simpan/buang bila tidak dipakai). */
   const sessionUploadsRef = useRef(new Set<string>());
   const unmountedRef = useRef(false);
@@ -136,9 +150,9 @@ export function AiNoteEditor({
 
   const remoteAudioUrl = useAssetUrl(localAudioUrl ? null : draft.audioUploadId);
   const audioUrl = localAudioUrl ?? remoteAudioUrl;
-  const attachedFile = fileOf(draft);
+  const documents = documentsOf(draft);
   const linkedSchedule = schedules.find((s) => s.id === draft.linkedScheduleId);
-  const processing = audioStatus === "processing" || fileStatus === "processing";
+  const processing = audioStatus === "processing" || Object.values(docStates).some((s) => s.status === "processing");
   const guardActive = !readOnly && (dirty || recording || pendingUploads > 0 || processing);
 
   // ---------------------------------------------------------------- Cegah perubahan hilang
@@ -151,10 +165,34 @@ export function AiNoteEditor({
 
   useEffect(() => {
     if (!guardActive) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+    // Tampilan dialognya milik browser (teks tidak bisa diatur); preventDefault + returnValue = semua browser
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [guardActive]);
+
+  // Pewaktu rekaman + judul tab: tetap terlihat saat user pindah tab, agar tidak ditutup tanpa sengaja
+  useEffect(() => {
+    if (!recording) return;
+    const releaseRecording = markRecordingActive();
+    const started = Date.now();
+    const originalTitle = document.title;
+    const tick = () => {
+      const seconds = Math.floor((Date.now() - started) / 1000);
+      setRecordingSeconds(seconds);
+      document.title = `🔴 Merekam ${formatDuration(seconds)} · ${originalTitle}`;
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => {
+      releaseRecording();
+      clearInterval(timer);
+      document.title = originalTitle;
+    };
+  }, [recording]);
 
   // Matikan mikrofon saat editor ditutup. Flag di-set ulang saat mount karena StrictMode (dev) menjalankan
   // cleanup sekali setelah mount pertama.
@@ -205,37 +243,54 @@ export function AiNoteEditor({
   };
 
   // ---------------------------------------------------------------- Audio
-  const processAudio = async (blob: Blob, fileName: string) => {
-    const token = ++audioTokenRef.current;
-    setLocalAudioUrl(URL.createObjectURL(blob));
-    patch({ hasAudio: true, audioTranscript: "", audioUploadId: undefined });
-    // Simpan audio ke object storage agar tetap ada setelah reload
-    trackUpload(new File([blob], fileName, { type: blob.type || "audio/webm" }), "ai_note_audio")
-      .then((asset) => audioTokenRef.current === token && patch({ audioUploadId: asset.id }))
-      .catch((error: unknown) => toast.error("Audio gagal diunggah", { description: errorMessage(error) }));
-
-    if (blob.size > MAX_AI_FILE_BYTES) {
-      setAudioStatus("error");
-      toast.error("Audio terlalu besar untuk ditranskrip", {
-        description: "Maksimal 20 MB. Audio tetap terlampir; potong rekaman agar bisa ditranskrip.",
-      });
-      return;
-    }
+  const transcribeUpload = async (uploadId: string, token: number) => {
     if (!requireAi()) {
       setAudioStatus("error");
       return;
     }
     setAudioStatus("processing");
+    setAudioStep("Mentranskrip... rekaman panjang bisa beberapa menit");
     try {
-      const transcript = await ai.generate(TRANSCRIBE_PROMPT, [blob]);
-      if (audioTokenRef.current !== token) return;
-      patch({ audioTranscript: transcript });
+      const result = await ai.transcribe(uploadId, () => audioTokenRef.current === token && !unmountedRef.current);
+      if (!result || audioTokenRef.current !== token) return;
+      patch({ audioTranscript: result.text });
       setAudioStatus("done");
+      if (result.warning) toast.warning("Transkrip belum lengkap", { description: result.warning });
     } catch (error) {
       if (audioTokenRef.current !== token) return;
       setAudioStatus("error");
-      reportAiError("Gagal transkrip audio", error, "Audio tetap terlampir; hapus dan unggah ulang nanti.");
+      reportAiError("Gagal transkrip audio", error, "Audio tetap tersimpan; coba Transkrip ulang nanti.");
     }
+  };
+
+  /** Audio masuk object storage dulu (aman walau transkrip gagal), baru ditranskrip dari sana. */
+  const uploadAndTranscribe = async (blob: Blob, fileName: string, token: number) => {
+    setAudioStatus("processing");
+    setAudioStep("Mengunggah audio...");
+    setUnsavedAudio({ blob, fileName });
+    let uploadId: string;
+    try {
+      const asset = await trackUpload(new File([blob], fileName, { type: blob.type || "audio/webm" }), "ai_note_audio");
+      uploadId = asset.id;
+    } catch (error) {
+      if (audioTokenRef.current !== token) return;
+      setAudioStatus("error");
+      toast.error("Audio gagal diunggah", {
+        description: `${errorMessage(error)} Rekaman masih ada di tab ini: unggah ulang atau unduh, jangan tutup tab.`,
+      });
+      return;
+    }
+    if (audioTokenRef.current !== token || unmountedRef.current) return;
+    setUnsavedAudio(null);
+    patch({ audioUploadId: uploadId });
+    await transcribeUpload(uploadId, token);
+  };
+
+  const processAudio = async (blob: Blob, fileName: string) => {
+    const token = ++audioTokenRef.current;
+    setLocalAudioUrl(URL.createObjectURL(blob));
+    patch({ hasAudio: true, audioTranscript: "", audioUploadId: undefined });
+    await uploadAndTranscribe(blob, fileName, token);
   };
 
   const toggleRecording = async () => {
@@ -246,7 +301,7 @@ export function AiNoteEditor({
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const recorder = new MediaRecorder(stream, { audioBitsPerSecond: RECORDING_BITS_PER_SECOND });
       streamRef.current = stream;
       recorderRef.current = recorder;
       chunksRef.current = [];
@@ -268,22 +323,26 @@ export function AiNoteEditor({
     audioTokenRef.current++;
     patch({ hasAudio: false, audioTranscript: "", audioUploadId: undefined });
     setLocalAudioUrl(null);
+    setUnsavedAudio(null);
     setAudioStatus("idle");
   };
 
   // ---------------------------------------------------------------- Dokumen
-  const handleFile = async (file?: File) => {
-    if (!file) return;
-    const token = ++fileTokenRef.current;
-    const isCurrent = () => fileTokenRef.current === token && !unmountedRef.current;
-    patch({ fileAttachment: { name: file.name, mimeType: file.type }, fileContext: "" });
-    setFileStatus("processing");
-    setFileStep("Mengunggah...");
+  const patchDocuments = (update: (docs: NoteFileAttachment[]) => NoteFileAttachment[]) => {
+    setDraft((prev) => ({ ...prev, fileAttachments: update(prev.fileAttachments ?? []) }));
+    setDirty(true);
+  };
+  const setDocState = (id: string, state: DocumentState) => setDocStates((prev) => ({ ...prev, [id]: state }));
+
+  const processDocument = async (id: string, file: File) => {
+    const isCurrent = () => !removedDocsRef.current.has(id) && !unmountedRef.current;
+    if (!isCurrent()) return;
+    setDocState(id, { status: "processing", step: "Mengunggah..." });
     try {
       const asset = await trackUpload(file, "ai_note_file");
       if (!isCurrent()) return;
-      patch({ fileAttachment: { name: file.name, mimeType: file.type, uploadId: asset.id } });
-      setFileStep("Membaca isi...");
+      patchDocuments((docs) => docs.map((doc) => (doc.id === id ? { ...doc, uploadId: asset.id } : doc)));
+      setDocState(id, { status: "processing", step: "Membaca isi..." });
       const { text } = await readFileText({
         assetId: asset.id,
         file,
@@ -292,19 +351,47 @@ export function AiNoteEditor({
         isCancelled: () => !isCurrent(),
       });
       if (!isCurrent()) return;
-      patch({ fileContext: clampContext(text) });
-      setFileStatus("done");
+      setDraft((prev) => ({ ...prev, documentTexts: { ...prev.documentTexts, [id]: clampContext(text) } }));
+      setDocState(id, { status: "done", step: "" });
     } catch (error) {
       if (error instanceof CancelledError || !isCurrent()) return;
-      setFileStatus("error");
-      reportAiError("Isi berkas tidak terbaca", error, "Berkas tetap terlampir; hapus dan unggah ulang nanti.");
+      setDocState(id, { status: "error", step: "" });
+      reportAiError(`"${file.name}" tidak terbaca`, error, "Berkas tetap terlampir; hapus dan unggah ulang nanti.");
     }
   };
 
-  const removeFile = () => {
-    fileTokenRef.current++;
-    patch({ fileAttachment: null, fileContext: "" });
-    setFileStatus("idle");
+  const handleFiles = async (selected: File[]) => {
+    const room = Math.max(MAX_NOTE_DOCUMENTS - documents.length, 0);
+    const accepted = selected.slice(0, room).map((file) => ({ file, id: generateId("doc") }));
+    if (accepted.length < selected.length) {
+      toast.error(`Maksimal ${MAX_NOTE_DOCUMENTS} dokumen per catatan`, {
+        description: `${selected.length - accepted.length} berkas tidak ditambahkan.`,
+      });
+    }
+    if (!accepted.length) return;
+    patchDocuments((docs) => [
+      ...docs,
+      ...accepted.map(({ file, id }) => ({ id, name: file.name, mimeType: file.type })),
+    ]);
+    setDocStates((prev) => ({
+      ...prev,
+      ...Object.fromEntries(accepted.map(({ id }) => [id, { status: "processing" as const, step: "Menunggu..." }])),
+    }));
+    // Satu per satu: OCR dokumen scan memakai kuota AI
+    for (const { file, id } of accepted) await processDocument(id, file);
+  };
+
+  const removeDocument = (id: string) => {
+    removedDocsRef.current.add(id);
+    patchDocuments((docs) => docs.filter((doc) => documentKey(doc) !== id));
+    setDraft((prev) => {
+      const { [id]: _removed, ...rest } = prev.documentTexts ?? {};
+      return { ...prev, documentTexts: rest };
+    });
+    setDocStates((prev) => {
+      const { [id]: _removed, ...rest } = prev;
+      return rest;
+    });
   };
 
   // ---------------------------------------------------------------- Ringkasan
@@ -336,7 +423,7 @@ export function AiNoteEditor({
       agendaLabel: linkedSchedule ? agendaLabel(linkedSchedule) : undefined,
       content: draft.content,
       audioTranscript: draft.audioTranscript,
-      fileContext: draft.fileContext,
+      documents: documentSources(draft),
     });
     try {
       const summary = await ai.generate(prompt);
@@ -370,16 +457,24 @@ export function AiNoteEditor({
       toast.error("Rekaman masih berjalan", { description: "Hentikan rekaman dulu agar audionya ikut tersimpan." });
       return false;
     }
+    if (unsavedAudio) {
+      toast.error("Audio belum tersimpan di server", {
+        description: "Unggah ulang atau hapus audionya dulu. Bila disimpan sekarang, rekaman akan hilang.",
+      });
+      return false;
+    }
     if (!draft.title.trim()) {
       toast.error("Judul notes wajib diisi.");
       return false;
     }
-    onPersist(draft);
+    // Dokumen yang gagal diunggah tidak punya berkas untuk disimpan
+    const toSave = { ...draft, fileAttachments: draft.fileAttachments?.filter((doc) => doc.uploadId) };
+    onPersist(toSave);
     const unused = unreferencedUploads([...uploadIdsOf(note), ...sessionUploadsRef.current], draft);
     if (!note.share) removeUploads(unused);
     else if (unused.length) {
       // Notes AI bersama: berkas milik pemilik tidak boleh dihapus kolaborator → dicatat untuk dibersihkan pemilik
-      const saved = draft;
+      const saved = toSave;
       void removeUploadsCollectForbidden(unused).then(
         (forbidden) =>
           forbidden.length &&
@@ -516,7 +611,7 @@ export function AiNoteEditor({
                 <span className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase">
                   <Mic className="size-3.5" /> Audio Sumber
                 </span>
-                <StatusBadge status={audioStatus} processingLabel="Mentranskrip..." />
+                <StatusBadge status={audioStatus} processingLabel={audioStep || "Memproses..."} />
               </div>
               <div className="flex items-center gap-3">
                 <Button
@@ -553,7 +648,11 @@ export function AiNoteEditor({
                     />
                   </label>
                 </Button>
-                {recording && <span className="text-xs font-medium text-destructive">Merekam...</span>}
+                {recording && (
+                  <span className="text-xs font-medium text-destructive tabular-nums">
+                    Merekam {formatDuration(recordingSeconds)}
+                  </span>
+                )}
                 {draft.hasAudio && !recording && (
                   <div className="flex min-w-0 flex-1 items-center gap-2">
                     {audioUrl ? (
@@ -576,6 +675,70 @@ export function AiNoteEditor({
                   </div>
                 )}
               </div>
+              {recording && (
+                <p
+                  role="alert"
+                  className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-2.5 text-xs text-destructive"
+                >
+                  <TriangleAlert className="mt-px size-4 shrink-0" />
+                  <span>
+                    <strong>Jangan tutup tab atau browser.</strong> Rekaman hanya ada di tab ini sampai dihentikan dan
+                    tersimpan. Bila tab tertutup, rekaman hilang.
+                  </span>
+                </p>
+              )}
+              {!readOnly && !recording && audioStatus !== "processing" && unsavedAudio && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-destructive">
+                  <span className="min-w-0 flex-1">Rekaman belum tersimpan di server dan hanya ada di tab ini.</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      void uploadAndTranscribe(unsavedAudio.blob, unsavedAudio.fileName, ++audioTokenRef.current)
+                    }
+                  >
+                    <Upload /> Unggah ulang
+                  </Button>
+                  {localAudioUrl && (
+                    <Button asChild variant="outline" size="sm">
+                      <a href={localAudioUrl} download={unsavedAudio.fileName}>
+                        <Download /> Unduh rekaman
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              )}
+              {!readOnly &&
+                !recording &&
+                audioStatus !== "processing" &&
+                draft.audioUploadId &&
+                !draft.audioTranscript && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="self-start"
+                    onClick={() => void transcribeUpload(draft.audioUploadId!, ++audioTokenRef.current)}
+                  >
+                    <Mic /> {audioStatus === "error" ? "Transkrip ulang" : "Buat transkrip"}
+                  </Button>
+                )}
+              {!readOnly &&
+                !recording &&
+                audioStatus !== "processing" &&
+                draft.audioUploadId &&
+                draft.audioTranscript?.includes(": gagal ditranskrip]") && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="self-start"
+                    onClick={() => void transcribeUpload(draft.audioUploadId!, ++audioTokenRef.current)}
+                  >
+                    <Mic /> Transkrip bagian yang gagal
+                  </Button>
+                )}
               {draft.audioTranscript && (
                 <div className="max-h-28 overflow-y-auto rounded-lg bg-background/70 p-3 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
                   <span className="mb-1 block font-bold text-foreground">Transkrip:</span>
@@ -590,63 +753,78 @@ export function AiNoteEditor({
                 <span className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase">
                   <Paperclip className="size-3.5" /> Dokumen Tambahan
                 </span>
-                <StatusBadge status={fileStatus} processingLabel={fileStep || "Memproses..."} />
+                {documents.length > 0 && (
+                  <span className="text-[11px] text-muted-foreground">
+                    {documents.length}/{MAX_NOTE_DOCUMENTS}
+                  </span>
+                )}
               </div>
+              <p className="text-[11px] text-muted-foreground">
+                Pelengkap ringkasan; bila ada audio, isi ringkasan tetap mengikuti rekaman.
+              </p>
               <label
                 className={cn(
                   "flex h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed bg-background/60 px-3 text-center text-xs text-muted-foreground transition-colors hover:border-module hover:text-module",
-                  readOnly && "pointer-events-none opacity-60",
+                  (readOnly || documents.length >= MAX_NOTE_DOCUMENTS) && "pointer-events-none opacity-60",
                 )}
               >
                 <Upload className="size-5" />
-                {attachedFile ? "Ganti dokumen" : "Klik untuk unggah dokumen (PDF, DOCX, XLSX, teks, atau gambar)"}
+                Klik untuk unggah satu atau beberapa dokumen (PDF, DOCX, XLSX, teks, atau gambar)
                 <input
                   type="file"
                   accept={DOCUMENT_ACCEPT}
+                  multiple
                   className="hidden"
                   aria-label="Unggah dokumen"
                   onChange={(e) => {
-                    void handleFile(e.target.files?.[0]);
+                    const selected = [...(e.target.files ?? [])];
                     e.target.value = "";
+                    if (selected.length) void handleFiles(selected);
                   }}
                 />
               </label>
-              {attachedFile && (
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-module/25 bg-module-soft px-3 py-2">
-                  <span className="flex min-w-0 items-center gap-2 text-xs">
-                    <FileText className="size-4 shrink-0 text-module" />
-                    <span className="truncate">{attachedFile.name}</span>
-                  </span>
-                  <div className="flex items-center gap-1">
-                    {attachedFile.uploadId && (
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => void openAttachment({ uploadId: attachedFile.uploadId })}
-                      >
-                        <Eye /> Buka
-                      </Button>
-                    )}
-                    {!readOnly && (
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        title="Hapus dokumen"
-                        aria-label="Hapus dokumen"
-                        className="hover:text-destructive"
-                        onClick={removeFile}
-                      >
-                        <Trash2 />
-                      </Button>
-                    )}
+              {documents.map((doc) => {
+                const id = documentKey(doc);
+                const state = docStates[id];
+                return (
+                  <div
+                    key={id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-module/25 bg-module-soft px-3 py-2"
+                  >
+                    <span className="flex min-w-0 items-center gap-2 text-xs">
+                      <FileText className="size-4 shrink-0 text-module" />
+                      <span className="truncate">{doc.name}</span>
+                    </span>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <StatusBadge
+                        status={state?.status ?? (draft.documentTexts?.[id]?.trim() ? "done" : "idle")}
+                        processingLabel={state?.step || "Memproses..."}
+                      />
+                      {doc.uploadId && (
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => void openAttachment({ uploadId: doc.uploadId, name: doc.name })}
+                        >
+                          <Eye /> Buka
+                        </Button>
+                      )}
+                      {!readOnly && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          title={`Hapus ${doc.name}`}
+                          aria-label={`Hapus ${doc.name}`}
+                          className="hover:text-destructive"
+                          onClick={() => removeDocument(id)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-              {fileStatus === "done" && draft.fileContext && (
-                <p className="text-[11px] text-muted-foreground">
-                  {draft.fileContext.length.toLocaleString("id-ID")} karakter teks siap dipakai untuk ringkasan.
-                </p>
-              )}
+                );
+              })}
             </section>
 
             <Field className="flex-1">
@@ -739,19 +917,19 @@ export function AiNoteEditor({
       <AlertDialog open={leaveDialogOpen} onOpenChange={(open) => !open && cancelLeave()}>
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Simpan perubahan?</AlertDialogTitle>
+            <AlertDialogTitle>{recording ? "Rekaman masih berjalan" : "Simpan perubahan?"}</AlertDialogTitle>
             <AlertDialogDescription>
-              {busy
-                ? "Berkas masih diunggah atau diproses. Bila keluar sekarang, perubahan pada catatan ini tidak disimpan."
-                : recording
-                  ? "Rekaman masih berjalan dan perubahan belum disimpan. Bila keluar tanpa menyimpan, rekaman dan perubahan dibuang."
+              {recording
+                ? `Sudah merekam ${formatDuration(recordingSeconds)}. Bila keluar sekarang, rekaman ini hilang dan tidak bisa dikembalikan. Untuk menyimpannya, lanjutkan lalu tekan tombol stop.`
+                : busy
+                  ? "Berkas masih diunggah atau diproses. Bila keluar sekarang, perubahan pada catatan ini tidak disimpan."
                   : "Ada perubahan yang belum disimpan. Bila keluar tanpa menyimpan, perubahan dan berkas yang baru diunggah dibuang."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogCancel>{recording ? "Lanjut merekam" : "Batal"}</AlertDialogCancel>
             <Button variant="destructive" onClick={discard}>
-              Buang
+              {recording ? "Buang rekaman" : "Buang"}
             </Button>
             {!busy && !recording && (
               <Button

@@ -3,6 +3,10 @@ import type { AiNote, FreeList, FreeNote } from "@/types/entities";
 import {
   buildSummaryPrompt,
   clampContext,
+  documentSources,
+  documentsOf,
+  formatDuration,
+  withDocumentList,
   docHasMedia,
   docUploadIds,
   plainTextToDoc,
@@ -24,6 +28,15 @@ import {
 
 const free = (id: number, extra: Partial<FreeNote> = {}): FreeNote => ({ id, title: `N${id}`, ...extra });
 const aiNote = (id: number, extra: Partial<AiNote> = {}): AiNote => ({ id, title: `A${id}`, ...extra });
+
+describe("formatDuration", () => {
+  it("menit:detik, jam hanya bila perlu", () => {
+    expect(formatDuration(0)).toBe("00:00");
+    expect(formatDuration(65)).toBe("01:05");
+    expect(formatDuration(3599)).toBe("59:59");
+    expect(formatDuration(6846)).toBe("1:54:06");
+  });
+});
 
 describe("pencarian", () => {
   it("tidak membedakan huruf besar/kecil dan kata kunci kosong cocok semua", () => {
@@ -127,6 +140,30 @@ describe("dokumen editor", () => {
 describe("berkas Notes AI", () => {
   const saved = aiNote(1, { audioUploadId: "audio-1", fileAttachment: { name: "a.pdf", uploadId: "file-1" } });
 
+  it("banyak dokumen: semua berkas terbaca dan catatan lama diubah tanpa kehilangan teks", () => {
+    const many = aiNote(3, {
+      audioUploadId: "audio-1",
+      fileAttachments: [
+        { id: "d1", name: "a.pdf", uploadId: "file-1" },
+        { id: "d2", name: "b.docx", uploadId: "file-2" },
+      ],
+      documentTexts: { d1: "isi a", d2: " " },
+    });
+    expect(uploadIdsOf(many)).toEqual(["audio-1", "file-1", "file-2"]);
+    expect(documentSources(many)).toEqual([{ name: "a.pdf", text: "isi a" }]);
+    expect(unreferencedUploads(["file-1", "file-9"], many)).toEqual(["file-9"]);
+
+    const old = aiNote(4, { fileAttachment: { name: "c.pdf", uploadId: "file-3" }, fileContext: "isi c" });
+    expect(documentsOf(old)).toHaveLength(1);
+    expect(documentSources(old)).toEqual([{ name: "c.pdf", text: "isi c" }]);
+    const converted = withDocumentList(old);
+    expect(converted.fileAttachment).toBeNull();
+    expect(converted.fileContext).toBe("");
+    expect(documentSources(converted)).toEqual([{ name: "c.pdf", text: "isi c" }]);
+    expect(uploadIdsOf(converted)).toEqual(["file-3"]);
+    expect(withDocumentList(many)).toBe(many);
+  });
+
   it("membaca ID audio & dokumen; lampiran kosong diabaikan", () => {
     expect(uploadIdsOf(saved)).toEqual(["audio-1", "file-1"]);
     expect(uploadIdsOf(aiNote(2, { fileAttachment: {} }))).toEqual([]);
@@ -170,6 +207,26 @@ describe("prompt ringkasan", () => {
     expect(prompt).not.toContain("<dokumen_referensi>");
   });
 
+  it("audio menjadi sumber utama; banyak dokumen diberi nama dan berbagi batas", () => {
+    const big = "x".repeat(MAX_FILE_CONTEXT_CHARS);
+    const prompt = buildSummaryPrompt({
+      style: "default",
+      audioTranscript: "isi rapat",
+      documents: [
+        { name: 'Nota "A".pdf', text: big },
+        { name: "B.docx", text: "isi B" },
+        { name: "kosong.txt", text: " " },
+      ],
+    });
+    expect(prompt).toContain("SUMBER UTAMA");
+    expect(prompt.indexOf("<transkrip_audio>")).toBeLessThan(prompt.indexOf("<dokumen_referensi"));
+    expect(prompt).toContain(`<dokumen_referensi nama="Nota 'A'.pdf">`);
+    expect(prompt).toContain('<dokumen_referensi nama="B.docx">\nisi B');
+    expect(prompt).not.toContain("kosong.txt");
+    expect(prompt.length).toBeLessThan(MAX_FILE_CONTEXT_CHARS);
+    expect(buildSummaryPrompt({ style: "default", content: "x" })).not.toContain("SUMBER UTAMA");
+  });
+
   it("gaya kustom memakai instruksi user, kosong → gaya standar", () => {
     expect(buildSummaryPrompt({ style: "custom", customInstruction: "Buat 5 soal kuis", content: "x" })).toContain(
       "Gaya ringkasan: Buat 5 soal kuis",
@@ -180,8 +237,8 @@ describe("prompt ringkasan", () => {
   });
 
   it("butuh minimal satu sumber", () => {
-    expect(hasSummarySource({ content: " ", audioTranscript: "", fileContext: undefined })).toBe(false);
-    expect(hasSummarySource({ fileContext: "isi" })).toBe(true);
+    expect(hasSummarySource(aiNote(5, { content: " ", audioTranscript: "", fileContext: undefined }))).toBe(false);
+    expect(hasSummarySource(aiNote(6, { fileAttachment: { name: "a.pdf" }, fileContext: "isi" }))).toBe(true);
   });
 });
 

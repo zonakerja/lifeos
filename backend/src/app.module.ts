@@ -4,6 +4,7 @@ import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { LoggerModule } from "nestjs-pino";
 import { AiModule } from "./ai/ai.module";
+import { TranscribeModule } from "./ai/transcribe/transcribe.module";
 import { AuthModule } from "./auth/auth.module";
 import { validateEnv } from "./config/env.validation";
 import { loggerConfig } from "./config/logger.config";
@@ -45,6 +46,7 @@ import { UsersModule } from "./users/users.module";
     ExtractionModule,
     UploadsModule,
     AiModule,
+    TranscribeModule,
     KnowledgeModule,
     IntegrationsModule,
     RequestsModule,

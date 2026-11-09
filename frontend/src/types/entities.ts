@@ -588,6 +588,8 @@ export interface FreeNote extends Owned {
 
 /** Lampiran file AI Note (berkas tersimpan di object storage). */
 export interface NoteFileAttachment {
+  /** Kunci dokumen di dalam catatan (`documentTexts`). */
+  id?: string;
   name: string;
   uploadId?: string;
   mimeType?: string;
@@ -610,6 +612,10 @@ export interface AiNote extends Owned {
   audioUploadId?: string;
   /** Bisa berupa objek kosong bila lampiran tidak tersedia */
   fileAttachment?: NoteFileAttachment | Record<string, never> | null;
+  /** Dokumen tambahan (bisa banyak); `fileAttachment` & `fileContext` = bentuk lama satu dokumen, tetap terbaca. */
+  fileAttachments?: NoteFileAttachment[];
+  /** Teks hasil baca per dokumen (kunci = `NoteFileAttachment.id`). */
+  documentTexts?: Record<string, string>;
   /** Disematkan di urutan teratas */
   /**
    * Berkas pemilik yang dilepas kolaborator berizin Edit (kolaborator tidak boleh menghapusnya) — dibersihkan saat
