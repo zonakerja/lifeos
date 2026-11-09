@@ -13,7 +13,7 @@ Aturan untuk semua skill LifeOS:
   pemilik memeriksa di **Approval**. Agen **tidak pernah** menyetujui, menolak, menandatangani, atau mengirim.
 - Dasar hukum hanya dari `search_knowledge` (status berlaku) dan selalu disebut sumbernya; yang tidak pasti ditulis
   "perlu dicek", bukan ditebak.
-- Penanda SRIKANDI (`nomor_naskah`, `tanggal_naskah`, `ttd…`) dibiarkan kosong.
+- Penanda SRIKANDI (`nomor_naskah`, `tanggal_naskah`, `ttd…`, `jabatan_tujuan…`, `jabatan_pengirim…`, `nama_pengirim…`, `nip_pengirim…`) dibiarkan kosong: SRIKANDI mengisinya dari formulir registrasi.
 
 Menambah skill: buat folder `nama-skill/SKILL.md` (nama huruf kecil + tanda hubung), lalu `docker restart lifeos-hermes`.
 

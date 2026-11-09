@@ -241,6 +241,7 @@ export class AgentPolicyService implements OnModuleInit, OnModuleDestroy {
       check,
       masterAvailable: check?.available !== false,
       documents: asList(request.documents).length,
+      unfilled: asList<{ unfilled?: string[] }>(request.documents).at(-1)?.unfilled,
       requestStatus: request.status,
       paused: !!account?.agentAutoPaused,
       usedToday: await this.usedToday(run.userId),

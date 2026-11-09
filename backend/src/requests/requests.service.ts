@@ -27,7 +27,7 @@ import {
   withHistory,
 } from "./request-logic";
 import { CreateRequestDto, CreateRequestDocumentDto, UpdateRequestDto } from "./requests.dto";
-import { analyzeTemplate, fillTemplate, isSrikandiTag } from "./template-engine";
+import { analyzeTemplate, fillTemplate, unfilledFields, isSrikandiTag } from "./template-engine";
 
 /** Konteks upload berkas pemohon & dokumen yang dibuat dari templat (ikut terhapus bersama pengajuan). */
 export const REQUEST_UPLOAD_CONTEXT = "request";
@@ -44,6 +44,8 @@ export interface GeneratedDocument {
   name: string;
   templateName: string;
   createdAt: string;
+  /** Penanda & petunjuk yang belum terisi (tidak termasuk penanda SRIKANDI) */
+  unfilled?: string[];
 }
 
 /** Dipanggil setelah user mengubah status pengajuan (mis. bot WhatsApp mengabari pemohon). */
@@ -496,7 +498,13 @@ export class RequestsService {
     );
     const documents: GeneratedDocument[] = [
       ...asList<GeneratedDocument>(request.documents),
-      { uploadId: asset.id, name: `${base}.docx`, templateName, createdAt: new Date().toISOString() },
+      {
+        uploadId: asset.id,
+        name: `${base}.docx`,
+        templateName,
+        createdAt: new Date().toISOString(),
+        unfilled: unfilledFields(filled),
+      },
     ];
     const status = advanceStatus(request.status as RequestStatus, "menunggu_verifikasi");
     await this.prisma.request.update({

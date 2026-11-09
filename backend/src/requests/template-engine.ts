@@ -8,8 +8,14 @@ import PizZip from "pizzip";
  * penanda tanpa nilai **dibiarkan utuh** agar tetap bisa diisi SRIKANDI / user. Diuji di `template-engine.spec.ts`.
  */
 
-/** Penanda yang diisi SRIKANDI saat penomoran & tanda tangan elektronik — tidak pernah diisi LifeOS. */
-export const isSrikandiTag = (tag: string) => /^(nomor_naskah|tanggal_naskah|ttd(_.*)?)$/i.test(tag);
+/**
+ * Penanda yang diisi SRIKANDI dari formulir registrasi, penomoran, & tanda tangan elektronik — tidak pernah diisi LifeOS.
+ * Akhiran angka = penandatangan / tujuan ke-n (`nama_pengirim2`).
+ */
+export const isSrikandiTag = (tag: string) =>
+  /^(nomor_naskah|tanggal_naskah|ttd(_.*)?|(jabatan_tujuan|jabatan_pengirim|nama_pengirim|nip_pengirim)\d*)$/i.test(
+    tag,
+  );
 
 /** Nama isian paragraf petunjuk ke-n (dipakai sebagai penanda sementara saat mengisi). */
 const slotName = (index: number) => `__petunjuk_${index + 1}`;
@@ -109,6 +115,15 @@ export function analyzeTemplate(buffer: Buffer): TemplateAnalysis {
     (t) => !isSlotName(t),
   );
   return { tags, slots };
+}
+
+/**
+ * Yang masih kosong di dokumen hasil isian, kecuali penanda yang diisi SRIKANDI saat tanda tangan: penanda `${x}` & petunjuk `[…]`.
+ * Dokumen seperti ini tidak boleh lolos persetujuan otomatis.
+ */
+export function unfilledFields(buffer: Buffer) {
+  const { tags, slots } = analyzeTemplate(buffer);
+  return [...tags.filter((tag) => !isSrikandiTag(tag)), ...slots.map((slot) => `[${slot.instruction.slice(0, 60)}]`)];
 }
 
 /**

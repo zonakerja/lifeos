@@ -15,6 +15,7 @@ import {
 import { ConfigService } from "@nestjs/config";
 import type { Response as ExpressResponse } from "express";
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { type AiEndpoint, anthropicBaseUrl } from "../ai/ai-endpoint";
 import { isUnsupportedFeatureError } from "../ai/providers/anthropic.client";
 import { AiService } from "../ai/ai.service";
@@ -53,6 +54,7 @@ import {
   SKILL_NAME,
   skillRunInput,
 } from "./agent-logic";
+import { responsesChunks, responsesCompletion, responsesRequest } from "./agent-openai";
 import { AgentPolicyService } from "./agent-policy.service";
 
 /** Pemantau tugas agen: tugas dari aturan dimulai & dipantau server walau tidak ada yang membuka aplikasi. */
@@ -371,7 +373,9 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
       // Messages API: Claude langsung, atau Claude lewat router berformat Anthropic
       const outcome: string | null = (endpoint ? endpoint.format === "anthropic" : credential.provider === "anthropic")
         ? await this.proxyClaude(principal.user.id, { ...credential, endpoint }, body, res, canFallback, fallbackFrom)
-        : await this.proxyOpenAiCompatible(credential, body, res, canFallback, fallbackFrom);
+        : !endpoint && credential.provider === "openai"
+          ? await this.proxyOpenAiResponses(credential, body, res, canFallback, fallbackFrom)
+          : await this.proxyOpenAiCompatible(credential, body, res, canFallback, fallbackFrom);
       if (!outcome) return;
       this.logger.warn(`Model agen ${credential.provider} gagal (${outcome}), dialihkan ke cadangan.`);
       fallbackFrom ??= { provider: credential.provider, error: outcome };
@@ -382,6 +386,96 @@ export class AgentService implements OnModuleInit, OnModuleDestroy {
    * Endpoint OpenAI-compatible (Gemini/OpenAI resmi atau router). Mengembalikan ringkasan error bila gagal sebelum menjawab
    * dengan error yang boleh dialihkan dan masih ada cadangan (`canFallback`); selain itu menulis respons & mengembalikan null.
    */
+  /** OpenAI langsung lewat Responses API: satu-satunya jalur yang menerima alat untuk model bernalar. */
+  private async proxyOpenAiResponses(
+    credential: { apiKey: string; model: string },
+    body: unknown,
+    res: ExpressResponse,
+    canFallback: boolean,
+    fallbackFrom: { provider: string; error: string } | null,
+  ): Promise<string | null> {
+    const { apiKey, model } = credential;
+    const params = responsesRequest(body, model);
+    if (!params) {
+      llmError(res, 400, "Permintaan chat tidak valid (messages kosong).");
+      return null;
+    }
+    const streaming = (body as { stream?: unknown }).stream === true;
+    const client = new OpenAI({ apiKey, timeout: MODEL_TIMEOUT_MS, maxRetries: 1 });
+    const controller = new AbortController();
+    res.on("close", () => controller.abort());
+    const call: ModelCall = {
+      at: new Date().toISOString(),
+      ok: true,
+      provider: "openai",
+      model,
+      ...(fallbackFrom ? { fallbackFrom } : {}),
+    };
+    const created = Math.floor(Date.now() / 1000);
+    const chunks = responsesChunks(`chatcmpl-${randomUUID()}`, model, created);
+    const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+    const open = () => {
+      if (res.headersSent) return;
+      res.status(200);
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      send(chunks.start());
+    };
+    const remember = (response: { usage?: OpenAI.Responses.ResponseUsage | null }) => {
+      this.lastModelCall = {
+        ...call,
+        usage: {
+          input: response.usage?.input_tokens ?? 0,
+          output: response.usage?.output_tokens ?? 0,
+          cacheRead: response.usage?.input_tokens_details?.cached_tokens ?? 0,
+          cacheWrite: 0,
+        },
+      };
+    };
+    try {
+      if (!streaming) {
+        const response = await client.responses.create({ ...params, stream: false }, { signal: controller.signal });
+        remember(response);
+        res.json(responsesCompletion(response, created));
+        return null;
+      }
+      const stream = await client.responses.create({ ...params, stream: true }, { signal: controller.signal });
+      for await (const event of stream) {
+        if (event.type === "response.output_text.delta") {
+          open();
+          send(chunks.text(event.delta));
+        } else if (event.type === "response.failed" || event.type === "error") {
+          const message = event.type === "error" ? event.message : event.response.error?.message;
+          throw new Error(message ?? "OpenAI gagal menjawab.");
+        } else if (event.type === "response.completed" || event.type === "response.incomplete") {
+          open();
+          remember(event.response);
+          chunks.finish(event.response).forEach(send);
+        }
+      }
+      open();
+      res.write("data: [DONE]\n\n");
+      res.end();
+      return null;
+    } catch (error) {
+      const aborted = controller.signal.aborted;
+      const status = error instanceof OpenAI.APIError && error.status ? error.status : aborted ? 504 : 502;
+      const detail = error instanceof OpenAI.APIError ? JSON.stringify(error.error ?? error.message) : String(error);
+      const summary = upstreamErrorSummary(status, detail);
+      this.lastModelCall = { ...call, ok: false, error: summary };
+      this.logger.warn(`Model agen openai/${model} gagal ${summary}`);
+      if (res.writableEnded || res.destroyed) return null;
+      if (!res.headersSent) {
+        if (canFallback && isFallbackStatus(status)) return summary;
+        llmError(res, status, `openai: ${summary}`);
+        return null;
+      }
+      send({ error: { message: `openai: ${summary}`, code: status } });
+      res.end();
+      return null;
+    }
+  }
+
   private async proxyOpenAiCompatible(
     credential: { provider: AiProvider; apiKey: string; model: string; endpoint: AiEndpoint | null },
     body: unknown,

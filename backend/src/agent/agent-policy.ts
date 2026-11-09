@@ -148,6 +148,8 @@ export interface DecisionInput {
   /** Sumber data master tersedia saat verifikasi */
   masterAvailable: boolean;
   documents: number;
+  /** Isian kosong di dokumen terakhir */
+  unfilled?: string[];
   requestStatus: string;
   paused: boolean;
   usedToday: number;
@@ -177,6 +179,10 @@ export function decidePolicy(input: DecisionInput): Decision {
     );
   }
   if (input.documents === 0) reasons.push("Agen belum membuat dokumen.");
+  else if (input.unfilled?.length) {
+    const shown = input.unfilled.slice(0, 6).join(", ");
+    reasons.push(`Dokumen masih punya isian kosong: ${shown}${input.unfilled.length > 6 ? ", …" : ""}.`);
+  }
   if (reasons.length) return { outcome: "review", apply: false, reasons };
 
   const check = input.check as AssetCheck;

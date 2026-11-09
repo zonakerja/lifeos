@@ -1,6 +1,6 @@
 import PizZip from "pizzip";
 import { describe, expect, it } from "vitest";
-import { analyzeTemplate, fillTemplate, instructionOf, isSrikandiTag } from "./template-engine";
+import { analyzeTemplate, fillTemplate, instructionOf, isSrikandiTag, unfilledFields } from "./template-engine";
 
 const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
 
@@ -60,7 +60,17 @@ describe("template engine", () => {
   it("penanda SRIKANDI & paragraf petunjuk dikenali", () => {
     expect(isSrikandiTag("nomor_naskah")).toBe(true);
     expect(isSrikandiTag("ttd_pengirim")).toBe(true);
-    expect(isSrikandiTag("nama_pengirim")).toBe(false);
+    for (const tag of [
+      "jabatan_tujuan",
+      "jabatan_tujuan5",
+      "jabatan_pengirim",
+      "nama_pengirim",
+      "nama_pengirim2",
+      "nip_pengirim1",
+    ])
+      expect(isSrikandiTag(tag)).toBe(true);
+    expect(isSrikandiTag("hal")).toBe(false);
+    expect(isSrikandiTag("nama_satker")).toBe(false);
     expect(instructionOf("  [Paragraf isi: uraian]  ")).toBe("Paragraf isi: uraian");
     expect(instructionOf("Lampiran [1] berkas")).toBeNull();
   });
@@ -75,6 +85,7 @@ describe("template engine", () => {
     const out = fillTemplate(SAMPLE, {
       hal: "Penetapan Status Penggunaan BMN",
       nomor_naskah: "TIDAK BOLEH",
+      jabatan_tujuan: "TIDAK BOLEH",
       __petunjuk_1: "Menindaklanjuti surat Saudara.",
     });
     const text = documentText(out);
@@ -89,11 +100,9 @@ describe("template engine", () => {
   });
 
   it("petunjuk tanpa teks tetap ditampilkan dalam kurung siku; baris baru jadi ganti baris", () => {
-    const text = documentText(fillTemplate(SAMPLE, { nama_pengirim: "Mohammad Yusuf\nAnalis" }));
+    const text = documentText(fillTemplate(SAMPLE, { hal: "Mohammad Yusuf\nAnalis" }));
     expect(text).toContain("[Paragraf pembuka: sebutkan dasar surat.]");
-    expect(new PizZip(fillTemplate(SAMPLE, { nama_pengirim: "A\nB" })).file("word/document.xml")!.asText()).toContain(
-      "<w:br/>",
-    );
+    expect(new PizZip(fillTemplate(SAMPLE, { hal: "A\nB" })).file("word/document.xml")!.asText()).toContain("<w:br/>");
   });
 
   it("isian paragraf beberapa baris → beberapa paragraf bergaya sama", () => {
@@ -104,6 +113,16 @@ describe("template engine", () => {
     expect(xml.match(/<w:pStyle w:val="Isi"\/>/g)).toHaveLength(2);
     expect(xml).toMatch(/1\. Pertama<\/w:t><\/w:r><\/w:p><w:p[^>]*><w:pPr><w:pStyle w:val="Isi"\/>/);
     expect(xml).toContain("2. Kedua");
+  });
+
+  it("unfilledFields: penanda & petunjuk kosong, penanda SRIKANDI tidak dihitung", () => {
+    const doc = makeDocx([
+      { runs: ["${nomor_naskah} ${ttd_pengirim} ${hal} ${tujuan}"] },
+      { runs: ["[Isi paragraf]"] },
+    ]);
+    expect(unfilledFields(doc)).toEqual(["hal", "tujuan", "[Isi paragraf]"]);
+    const filled = fillTemplate(doc, { hal: "A", tujuan: "B", __petunjuk_1: "Isi" });
+    expect(unfilledFields(filled)).toEqual([]);
   });
 
   it("berkas bukan DOCX ditolak", () => {

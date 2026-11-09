@@ -62,7 +62,7 @@ export function AutoDecisionPanel({ request: r }: { request: RequestDetail }) {
               ))}
             </ul>
           )}
-          {d.sendAt && !d.sentAt && !d.cancelledAt && (
+          {d.sendAt && !d.sentAt && !d.cancelledAt && !d.error && (
             <p className="text-xs">Konsep akan disimpan ke SRIKANDI pada {formatDateTime(d.sendAt)}.</p>
           )}
           {d.sentAt && (

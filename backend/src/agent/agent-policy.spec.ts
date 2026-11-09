@@ -102,6 +102,9 @@ describe("decidePolicy", () => {
   it("di bawah ambang / tanpa dokumen / tanpa data master / sudah diputuskan = ke pemilik", () => {
     expect(decidePolicy({ ...base, check: check(2, 4) }).reasons[0]).toContain("di bawah ambang 75%");
     expect(decidePolicy({ ...base, documents: 0 })).toMatchObject({ outcome: "review", apply: false });
+    const blank = decidePolicy({ ...base, unfilled: ["jabatan_tujuan"] });
+    expect(blank).toMatchObject({ outcome: "review", apply: false });
+    expect(blank.reasons[0]).toContain("jabatan_tujuan");
     expect(decidePolicy({ ...base, masterAvailable: false }).outcome).toBe("review");
     expect(decidePolicy({ ...base, check: null }).outcome).toBe("review");
     expect(decidePolicy({ ...base, check: { total: 0, matched: 0, score: 0, items: [] } }).outcome).toBe("review");
