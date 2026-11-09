@@ -1560,9 +1560,9 @@ mode auto dipakai sungguhan), sumber master OnTrack.
 | No | Pekerjaan | Status | Catatan |
 |---|---|---|---|
 | 1 | Komunikasi Hermes ↔ Obsidian ↔ LifeOS | ✅ termasuk jawaban model sungguhan (2026-11-09) | Hasil di §25.1 |
-| 2 | Hermes membentuk skill & bekerja otomatis tanpa Approval; **Kirim Konsep di SRIKANDI tetap di tangan user** | 🚧 tahap 1 ✅ 2026-11-06 (§24.6) | Sisa: skill `penetapan-psp` (C5), draf skill dari Hermes, pembatasan toolset Hermes, uji dengan model sungguhan |
+| 2 | Hermes membentuk skill & bekerja otomatis tanpa Approval; **Kirim Konsep di SRIKANDI tetap di tangan user** | 🚧 tahap 1 ✅ 2026-11-06 (§24.6) | Uji model sungguhan ✅ 2026-11-09 (§24.6). Sisa: skill `penetapan-psp` (A23, A24, C5), draf skill dari Hermes, pembatasan toolset Hermes, uji robot dengan data/robot dummy (ditunda atas keputusan user) |
 | 3 | Fitur Hermes seperti di aplikasi desktopnya, di dalam LifeOS | Belum | Daftar fitur yang diinginkan perlu dipastikan dengan user |
-| 4 | Antarmuka Obsidian di LifeOS (Graph View, dsb.) | ✅ 2026-11-06 | Menu **Knowledge** (dulu Pengetahuan) — rencana §25.2, hasil §25.4, usulan lanjutan §25.6 |
+| 4 | Antarmuka Obsidian di LifeOS (Graph View, dsb.) | ✅ 2026-11-06, lanjutan K1–K11 ✅ 2026-11-09 | Menu **Knowledge** (dulu Pengetahuan) — rencana §25.2, hasil §25.4, lanjutan §25.6 & §25.7 |
 | 5 | Pembagian model: penalaran agen Claude dengan cadangan OpenAI; tugas biasa, RAG, chatbot dengan Gemini | ✅ 2026-11-06 | Cadangan per tugas di Pembagian tugas AI + cadangan di proxy agen (§25.3). Uji Claude sungguhan menunggu key/router user |
 
 ### 25.1 Hasil nomor 1 (2026-11-05)
@@ -1706,7 +1706,7 @@ Uji: unit backend +4 (`vault-export.spec.ts`, termasuk "semua tautan terselesaik
 smoke +7 (aktifkan, sinkron, berkas ada, baca saja 400, hapus berkas, matikan), vault dev 47 berkas dicerminkan tanpa potongan
 indeks, UI (Tools, graf + tag + animasi, catatan cermin → Buka di LifeOS).
 
-### 25.6 Riset lanjutan: fitur Obsidian yang belum ada di menu Knowledge (2026-11-06, belum dikerjakan)
+### 25.6 Lanjutan: fitur Obsidian di menu Knowledge (riset 2026-11-06, K1–K11 selesai 2026-11-09)
 
 Menu **Pengetahuan** berganti label menjadi **Knowledge** (permintaan user; path `/knowledge` & kode tetap). Pembanding: daftar
 core plugin Obsidian & changelog 1.12–1.15 (Bases dengan toolbar cari, Group menu di semua tampilan, kanban, impor berkas,
@@ -1719,7 +1719,7 @@ Usulan (urut manfaat untuk pekerjaan user; nomor = usulan, bukan keputusan):
 | No | Fitur Obsidian | Bentuk di LifeOS | Nilai | Ukuran |
 |---|---|---|---|---|
 | K1 ✅ | **Daily notes** (+ periodic) | Tombol "Catatan hari ini" → `Harian/YYYY-MM-DD.md` dari templat, otomatis memuat tautan agenda, to-do, dan task hari itu (berkas cermin `80-LifeOS`) | Tinggi — jembatan Planner ↔ Obsidian | Kecil |
-| K2 ✅ | **Bases** (tampilan tersimpan) | Tab Tabel menjadi tampilan tersimpan yang dibaca/ditulis sebagai berkas `.base` (format YAML Obsidian) — filter, urut, kelompokkan, rumus sederhana, tampilan Kartu & Kanban; tampilan yang sama terlihat di Obsidian | Tinggi | Besar |
+| K2 ✅ | **Bases** (tampilan tersimpan) | Tab Tabel menjadi tampilan tersimpan yang dibaca/ditulis sebagai berkas `.base` (format YAML Obsidian) — filter, urut, kelompokkan, rumus sederhana, tampilan Tabel, Kartu & Daftar; tampilan yang sama terlihat di Obsidian | Tinggi | Besar |
 | K3 ✅ | **Tugas lintas vault** (pola plugin Tasks) | Kumpulkan `- [ ]` dari semua catatan (tenggat `📅 2026-11-10`), tampil di Knowledge & opsional di Planner Harian; centang = tulis balik ke berkas (cek hash) | Tinggi | Sedang |
 | K4 ✅ | **Catatan serupa** (pola Smart Connections) | Panel info "Mirip dengan catatan ini" dari embedding `ai_chunks` yang sudah ada — tanpa biaya AI tambahan | Sedang–tinggi | Kecil |
 | K5 ✅ | **Command palette** (Ctrl+P) + perintah `/` di editor | Semua aksi menu Knowledge (catatan baru, pindah, templat, sisip tautan/callout/tabel) dari satu palet | Sedang | Kecil |
@@ -1781,6 +1781,8 @@ sengaja tidak dibuat karena Bases Obsidian tidak punya Kanban. Diuji: unit backe
 
 **K10 selesai 2026-11-09**: lihat CLAUDE.md §8 & §8b. Diuji: unit backend +5 & frontend +2, smoke +4, UI pada build produksi dengan CSP `nginx.conf`. Belum: catatan kaki sebaris `^[teks]`; filter
 `.base` & teks canvas tidak ikut saat tag diganti nama. **K11 selesai 2026-11-09** (`?note=&with=`, Ctrl+klik; CLAUDE.md §8b). Daftar K1–K11 selesai.
+
+**Pemeriksaan ulang 2026-11-09**: menu Knowledge kini memakai banner modul standar (tombol & statistik pindah ke banner). Unit backend 405 & frontend 298, smoke, lint, typecheck, build lulus; UI: 8 tab, dua catatan berdampingan, dan palet perintah di 1366×768, banner di 375 px, tanpa halaman meluber. Isi vault dev masih sedikit, jadi pemakaian harian dengan catatan sungguhan belum teruji (TODO-USER A10–A22).
 
 ### 25.7 K9: Note composer (riset & dibangun 2026-11-09)
 

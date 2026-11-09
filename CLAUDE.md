@@ -95,7 +95,7 @@ Akhiri dengan satu kalimat: apa yang masih menyala dan apakah aman menutup lapto
 
 ```powershell
 # Port yang sedang dipakai + prosesnya (wslrelay.exe = port container Docker)
-Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 80,443,4000,4100,5173,5432,6379,8080,8333,8888 } |
+Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 80,443,4000,4100,5173,5432,6379,8080,8333,8642,8888 } |
   ForEach-Object { "{0} pid={1} {2}" -f $_.LocalPort, $_.OwningProcess, (Get-Process -Id $_.OwningProcess).ProcessName }
 # Proses node milik LifeOS (dev server frontend/backend, termasuk dari terminal user)
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*LifeOS*' } |
@@ -564,8 +564,8 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
 - **Bundle**: rute, halaman login, `Markdown` (react-markdown + KaTeX, `markdown-renderer.tsx`), `html5-qrcode`, dan
   editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±440 kB (termasuk host editor ONLYOFFICE; sejak tahap 3 floating-ui/popper ikut chunk utama —
   sebelumnya chunk terpisah yang tetap dimuat saat start); tanpa
-  peringatan ukuran chunk. Tab My Notebook = chunk `notebook-tab` (±42 kB). Menu Pengetahuan: `knowledge-page` ±82 kB,
-  `graph-canvas` ±185 kB, `note-editor` (CodeMirror) ±375 kB, `bases-tab` ±40 kB (juga dipakai sematan `![[x.base]]`), `canvas-tab` ±24 kB — dimuat malas. Mermaid (`mermaid-diagram.tsx` → `import("mermaid")`, elk ±1,4 MB) hanya dimuat saat catatan berisi diagram; `chunkSizeWarningLimit` 1500 kB karena itu, chunk utama tetap ±405 kB.
+  peringatan ukuran chunk. Tab My Notebook = chunk `notebook-tab` (±42 kB). Menu Pengetahuan: `knowledge-page` ±123 kB,
+  `graph-canvas` ±136 kB, `note-editor` (CodeMirror) ±379 kB, `bases-tab` ±40 kB (juga dipakai sematan `![[x.base]]`), `canvas-tab` ±27 kB — dimuat malas. Mermaid (`mermaid-diagram.tsx` → `import("mermaid")`, elk ±1,4 MB) hanya dimuat saat catatan berisi diagram; `chunkSizeWarningLimit` 1500 kB karena itu, chunk utama tetap ±405 kB.
 - **CSP produksi** (`nginx.conf`): `script-src 'self'`, `connect-src 'self'` (AI lewat backend), `style-src 'self'
   'unsafe-inline'`, `img/media blob: data:`. Domain eksternal baru → tambahkan di sini (lebih baik lewat backend).
 
@@ -601,7 +601,7 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   dikirim sebagai `snapshot` (`buildLifeosContext`); chip sitasi → `citationTarget` (`features/knowledge/knowledge-utils.ts`
   + test: catatan vault → `openKnowledgeNote(id)` = dialog global `KnowledgeNoteHost` di AppShell, berkas → `previewFile`,
   record → `recordSourcePath`); "Simpan ke Inbox" (`answerForInbox`: `[n]` → `[[judul]]`). **Menu Knowledge** (dulu "Pengetahuan", label diganti 2026-11-06) (`/knowledge/:tab`,
-  Workspace setelah Notes Space, warna `--mod-knowledge`, `features/knowledge/workspace/`, hook `data/use-knowledge-workspace.ts`,
+  Workspace setelah Notes Space, warna `--mod-knowledge`, `features/knowledge/workspace/`, banner `ModulePage` standar = vault + jumlah catatan & tautan + `HeroActions`, hook `data/use-knowledge-workspace.ts`,
   logika murni + test `knowledge-logic.ts`): tab **Catatan** (`?note=<id>&h=<judul>`; ≥ 1280 px tiga kolom penjelajah | catatan |
   info, 1024–1279 px penjelajah + Catatan/Info, di bawahnya tab — satu tata letak saja yang dirender; penjelajah dengan menu klik
   kanan & seret-lepas, Cari kata/makna, Tag, Penanda; pembaca `NoteMarkdown` = `[[tautan]]` + pratinjau hover, `![[sematan]]`,
@@ -612,7 +612,7 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   simpan otomatis 1,5 dtk, Ctrl+S, pelengkap `[[` + `[[catatan#` (judul) + `[[catatan#^` (blok; blok tanpa id diberi `^id` baru:
   catatan lain lewat `source` + `save` ber-`baseHash`, catatan sendiri dalam satu transaksi editor), bentrok → Muat versi terbaru / Simpan sebagai salinan; panel info Properti (formulir frontmatter),
   Garis besar, Backlink, Sebutan tanpa tautan, Tautan keluar, **Catatan serupa** (skor %, penanda "bertaut"), Graf lokal, Tanya AI;
-  tombol **Catatan hari ini** + pilih tanggal (popover juga **Mingguan** / **Bulanan**; palet: Catatan minggu/bulan ini) di header
+  tombol **Catatan hari ini** + pilih tanggal (popover juga **Mingguan** / **Bulanan**; palet: Catatan minggu/bulan ini) di banner
   (`features/knowledge/daily-note-button.tsx`, `useDailyNote().open(date, after?, period?)`, juga ikon di Planner Harian
   `PlannerDailyNoteButton` — tampil bila vault sudah dipilih)), **Tugas** (K3, `tasks-tab.tsx`: kelompok Terlambat / Hari ini / 7 hari
   / Nanti / Tanpa tanggal / Selesai, atau per catatan; cari kata & `#tag`; centang optimistis `useToggleKnowledgeTask`; logika murni
@@ -1198,8 +1198,9 @@ VPS, CI, dokumentasi). Berikutnya:
    "Masukkan ke File Control" (`file-control-intake.ts`), ekstraksi/indeks RAG berkas (DOCX/XLSX sudah didukung), CSP
    `nginx.conf` bila editor dimuat dari domain lain.
 
-5. **Peta jalan agen** (`docs/AI-AGENT.md` §25, dikerjakan satu per satu): komunikasi ✅ kecuali uji model → skill & kerja otomatis →
-   fitur Hermes di LifeOS → antarmuka Obsidian → pembagian model.
+5. **Peta jalan agen** (`docs/AI-AGENT.md` §25, dikerjakan satu per satu): komunikasi ✅ → skill & kerja otomatis 🚧 (tahap 1 ✅, sisa skill
+   `penetapan-psp` + pembatasan toolset Hermes) → fitur Hermes di LifeOS (belum, daftar fitur perlu dipastikan user) → antarmuka
+   Obsidian ✅ (K1–K11) → pembagian model ✅.
 
 Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1): KaTeX 0.19 (≥ 29 Okt 2026), Node 26
 (≥ ± 25 Nov 2026); pantau TS 7, Prisma 8, ioredis 6.
@@ -1251,10 +1252,18 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Productivity lanjutan: modal Project/Area lega, kartu ringkas, File Control opt-in, tag bebas Resource Global & lampiran | ✅ 2026-10-12–15 — unit test, lint, typecheck, build, UI diuji di browser (desktop + HP) |
 | Audit celah Productivity (8 temuan + 2 temuan saat uji): arsip yang sudah diberkaskan dikunci dari tab Resources, sumber My Notebook dilindungi di dialog hapus, item Area berlampiran & berdeskripsi, ubah lampiran, agenda berulang digabung per seri, form Area di-`key`, tag terhapus tidak kembali, filter & Kelola Tag, tag Musnah/Statis terkunci, tanggal bawaan lokal | ✅ 2026-10-18 — unit test (frontend 190+), lint, typecheck, build, UI diuji di browser dengan data `UJI-AUDIT` (dibersihkan) |
 | Transkrip rekaman panjang (pekerjaan latar belakang, pemotongan WebM, model cadangan) + banyak dokumen di Notes AI | ✅ 2026-11-09 — rekaman asli 114 menit tertranskrip lengkap dengan Gemini sungguhan (12/12 bagian, 14.353 kata) lewat API; banyak dokumen diuji di browser (unggah 3, hapus 1, simpan, buka ulang, data uji dihapus); test & smoke. **Belum**: tombol Transkrip ulang / Unggah ulang diklik di browser; ringkasan dari banyak dokumen dengan AI sungguhan; format selain WebM tidak dipotong |
+| **Menu Knowledge lengkap** (K1–K11: catatan harian & berkala, Bases, tugas lintas vault, catatan serupa, palet perintah & `/`, sematan blok, riwayat versi, Canvas, Note composer + pecah, Mermaid & pelengkap, dua catatan berdampingan) + banner modul | ✅ 2026-11-09 — pemeriksaan ulang: unit backend 405 & frontend 298, smoke, lint, typecheck, build; UI 8 tab + dua panel + palet di 1366×768 + banner di 375 px tanpa meluber. **Belum**: catatan kaki sebaris `^[teks]`; filter `.base` & teks canvas tidak ikut saat tag diganti nama; vault dev hampir kosong (9 catatan non-cermin, 0 base/canvas/tugas), jadi pemakaian harian dengan isi sungguhan belum teruji (TODO-USER A10–A22) |
 | Push ke GitHub (`origin/main`) | Hanya atas permintaan user; setelah push user mengecek CI |
 | VPS & domain | ⏳ **belum dibeli** — saat siap ikuti docs/DEPLOYMENT.md §0 (memilih VPS, DNS, isi .env, checklist) |
 
 Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
+
+**Lanjutan yang disepakati (per 2026-11-09)** — mulai dari sini di chat baru:
+1. Menunggu user: unggah templat (TODO-USER A24), kepastian penanda `no_naskah`, `pangkat_pengirim`, `nama_tujuan`, `hal`, `sifat` (A23), contoh dokumen PSP (C5). Setelah itu buat skill `penetapan-psp` dan skill dokumen lain (resep "Menambah skill Hermes").
+2. Sebelum Kebijakan Otomatis mode `auto` dipakai sungguhan: batasi toolset bawaan Hermes (terminal, file, browser, dst.; `docs/AI-AGENT.md` §25.1) dan ingatkan user.
+3. Uji robot ditunda atas keputusan user sampai Knowledge & AI Agent matang, dimulai dengan data dummy / robot dummy. Robot boleh menyala, tetapi jangan menjalankan alurnya ke SRIKANDI/e-Kinerja sungguhan untuk uji.
+4. Commit lokal bisa belum di-push (cek `git status -sb`): push hanya atas perintah user, lalu user mengecek CI.
+5. Peta jalan no. 3 (fitur Hermes di LifeOS): tanyakan daftar fitur yang diinginkan sebelum dirancang.
 
 ## 12. Log Keputusan
 
@@ -2054,7 +2063,8 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
 - 2026-11-09 — **Transkrip rekaman panjang & banyak dokumen Notes AI** (laporan user: rekaman 114 menit / 105 MB "Gagal"; permintaan user: dokumen tambahan banyak, audio tetap sumber utama). Audio masuk storage dulu lalu ditranskrip sebagai pekerjaan latar belakang. Uji nyata membantah tiga rancangan awal: satu permintaan panjang putus di 5 menit (batas klien Node); berkas utuh hanya menghasilkan 583 kata lalu berhenti "normal" → dipotong per 10 menit; Flash menolak potongan tertentu (`blockReason: OTHER`, konsisten, walau filter dimatikan dan dipotong kecil) sedangkan `gemini-3.1-pro-preview` menerimanya (`3.5-flash-lite` lolos tetapi jauh lebih sedikit kata → tidak dipakai). Batas unggah default 100 → 300 MB (Caddy /api 330 MB). Label pembicara tidak konsisten antarbagian karena tiap bagian ditranskrip terpisah.
 
 - 2026-11-09 — **Pengaman saat merekam** (permintaan user): saat tab/browser ditutup browser hanya mengizinkan dialog bawaannya sendiri (teks & tampilan tidak bisa diatur; modal aplikasi tidak mungkin), jadi peringatan yang terlihat dipasang sebelum user menutup: banner + judul tab. Logout membongkar halaman tanpa melewati pencegah navigasi → diblokir selama merekam. Rekaman tetap hanya di memori tab sampai dihentikan; penyimpanan bertahap agar bisa dipulihkan setelah crash belum dibuat.
-- 2026-11-09 — **Banner menu Knowledge** (permintaan user): `hideHero` dan bilah header sendiri dibuang; vault + jumlah catatan & tautan menjadi `HeroStat`, tombol pindah ke `actions` banner dengan varian `secondary`. Tinggi area kerja tidak dikurangi agar ruang menulis tetap lega, jadi halaman perlu digulir sedikit melewati banner.
+- 2026-11-09 — **Banner menu Knowledge** (permintaan user): `hideHero` dan bilah header sendiri dibuang; vault + jumlah catatan & tautan menjadi `HeroStat`, tombol pindah ke `actions` banner dengan varian `secondary`. Tinggi area kerja tidak dikurangi agar ruang menulis tetap lega, jadi halaman perlu digulir sedikit melewati banner. Diperiksa di 1366×768 & 375 px.
+- 2026-11-09 — **Kesinambungan chat** (permintaan user: chat akan dihapus): pekerjaan tertunda di-commit per topik (belum di-push); knowledge dari chat dipindahkan ke §11 "Lanjutan yang disepakati", §15, `docs/AI-AGENT.md` §25, `docs/TODO-USER.md`. Saat itu robot dinyalakan atas permintaan user: 0 jadwal otomasi aktif, 0 aturan kebijakan non-off, 0 kiriman tertunda.
 
 ## 13. Konvensi Kode
 
@@ -2471,6 +2481,7 @@ utama tetap < 500 kB (cek output `npm run build`).
   yang punya sesi Connector = robot membuka SRIKANDI/e-Kinerja sungguhan → uji pakai user tanpa sesi (smoke) kecuali user
   mengizinkan. Jadwal yang dinyalakan saat uji wajib dimatikan lagi (cek `automation_jobs.enabled` & Redis `bull:automation:repeat*`).
 
+- Uji tampilan HP: setelah `resize_window` preset mobile, **muat ulang halaman** sebelum menilai tangkapan layar (tanpa itu layout tampak terpotong walau ukuran elemen benar). Tombol bulat bergambar pohon palem di kiri bawah saat dev = TanStack Query Devtools, tidak ada di build produksi. Kunci `bull:automation:repeat:auto:…` tersisa di Redis bisa hanya bekas job; yang menjadwalkan = isi zset `bull:automation:repeat` (kosong = tidak ada jadwal).
 - Transkrip audio: jawaban Gemini sukses bukan berarti lengkap — periksa kata per menit (rapat ± 120–130). `promptFeedback.blockReason` tanpa `finishReason` = penolakan, bukan sambungan putus; mengulang model yang sama tidak membantu. Rekaman MediaRecorder bisa ber-Segment/Cluster berukuran pasti + SeekHead + Cues: uji pemotongan pada rekaman asli, bukan hanya data buatan. `fetch` Node memutus permintaan yang menunggu header > 5 menit. Mengubah kode backend me-restart proses dan membuang pekerjaan transkrip di memori.
 
 ## 16. Memori & Kesinambungan Antar-Chat

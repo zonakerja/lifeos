@@ -65,7 +65,7 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
   **Lewat router** → isi alamat API (mis. `https://router.classai.id/v1`), key router, dan **ID model sesuai dokumentasi router**
   (mis. `claude-opus-5.5`) → Simpan → **Uji koneksi**. Untuk Claude pilih format **Anthropic Messages**. Ingat: isi permintaan AI
   melewati server router — pertimbangkan sebelum memakainya untuk data kantor.
-- [ ] **A8** Hubungkan SRIKANDI & e-Kinerja ke Konektor Robot, lalu rekam halaman yang ingin diotomasi
+- [ ] **A8** (Ditunda atas keputusan Anda: uji robot setelah Knowledge & AI Agent matang, dimulai dengan data dummy) Hubungkan SRIKANDI & e-Kinerja ke Konektor Robot, lalu rekam halaman yang ingin diotomasi
 
 ### B. Saat siap online (butuh biaya: VPS, domain, WhatsApp)
 
@@ -579,3 +579,4 @@ Telegram Anda yang diizinkan. Minta Claude menyiapkan service otomatis (systemd)
 | 2026-11-09 | A22 baru: dua catatan berdampingan, pecah catatan, sisip di bawah judul |
 | 2026-11-09 | A23 baru: pastikan penanda templat yang diisi SRIKANDI, setelah uji agen menyeluruh |
 | 2026-11-09 | A23 dipersempit (empat penanda dipastikan milik SRIKANDI); A24 baru: unggah templat lewat ONLYOFFICE |
+| 2026-11-09 | A8 ditandai ditunda sesuai keputusan uji robot |
