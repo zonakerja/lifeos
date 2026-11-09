@@ -83,14 +83,16 @@ Prisma, build image Docker; untuk perubahan infra juga stack produksi lokal + ce
 
 ## 3. Temuan audit yang masih dipantau (`npm audit`)
 
-Per 2026-10-24 `npm audit --omit=dev` di backend hanya menyisakan `deepmerge-ts` (advisory `body-parser`, `multer`,
-`fast-uri` yang diumumkan 19–22 Okt sudah ditutup — lihat [ARCHITECTURE.md §2.3](ARCHITECTURE.md#23-kebijakan-dependensi)).
+Per 2026-11-09 `npm audit --omit=dev` **bersih di backend, frontend, dan robot**. Ditutup hari itu: `deepmerge-ts` (lewat Prisma 7.10.1),
+`zod` 4.6.7, `fast-uri` 3.1.9, dan paket CLI `shadcn` 4.22.1 (`undici`, `systeminformation`, `body-parser`, `qs`, `ip-address`, `seroval`
+lewat `npm update --before=<tanggal>`). Peringatan lama `braces` & `sprintf-js` tidak lagi dilaporkan audit.
+
+Sisa = **hanya perkakas pengembangan** (tidak masuk image produksi):
 
 | Lokasi | Paket | Severity | Masuk produksi? | Tindak lanjut |
 |---|---|---|---|---|
-| Backend | `deepmerge-ts` 7.x (via `@prisma/config`) | high (stack exhaustion objek rekursif) | Ya, hanya membaca `prisma.config.ts` milik kita | Fix hanya di major 8 (API berbeda) → tunggu patch Prisma 7.x |
-| Frontend | `braces` ≤ 3.0.3 → `micromatch` → `fast-glob` (via CLI `shadcn`: `@shadcn/registry`, `ts-morph`) — [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) | high (stack exhaustion lewat pola brace bersarang yang dikirim penyerang) | Tidak: devDependency; image produksi hanya berisi `dist/` statis di nginx; CLI hanya dijalankan developer dengan argumen sendiri. Paket `shadcn` tetap perlu karena `index.css` mengimpor `shadcn/tailwind.css` | **Belum ada versi perbaikan** (per 2026-10-11 versi terbaru braces 3.0.3) → override tidak bisa. `npm audit fix --force` (turun ke shadcn 1.0) **jangan** dijalankan. Saat braces ≥ 3.0.4 rilis: `npm update braces --before=<tanggal>` di `frontend/` (atau PR Dependabot security update), lalu hapus baris ini. Risiko diterima (keputusan user 2026-10-11) |
-| Backend | `sprintf-js` (via `argparse` 1.x milik `mammoth`) | moderate (DoS lewat format string) | Terpasang, tetapi hanya dipakai CLI `mammoth`; aplikasi memanggil `extractRawText` saja | Belum ada versi perbaikan; hapus bila `mammoth` pindah ke `argparse` 2 |
+| Backend & frontend | `minimatch` 10.x ([GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249), via ESLint, `typescript-eslint`, `@nestjs/cli`; frontend via `ts-morph` milik CLI `shadcn`) | moderate (DoS lewat pola glob) | Tidak; pola glob hanya dari konfigurasi kita sendiri | Perbaikan hanya di major 11 (≥ 11.0.1, per 2026-11-09 baru 12 hari). Jangan `npm audit fix --force` (menurunkan ESLint ke 9 / `shadcn` ke 1.0). Tunggu induknya pindah ke minimatch 11 lewat PR Dependabot |
+| Frontend | `deepmerge` ≤ 4.3.1 ([GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4), via `@shadcn/registry`) | low (prototype poisoning) | Tidak: CLI `shadcn`, dijalankan developer dengan argumen sendiri; `shadcn` tetap perlu untuk `shadcn/tailwind.css` | Belum ada versi perbaikan; pantau |
 
 ## 4. Sumber kajian
 

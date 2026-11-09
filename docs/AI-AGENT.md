@@ -1711,7 +1711,7 @@ Usulan (urut manfaat untuk pekerjaan user; nomor = usulan, bukan keputusan):
 | K7 ✅ | **File recovery** | Riwayat versi per catatan untuk tulisan dari LifeOS (snapshot sebelum menimpa, maks. n) + bandingkan & pulihkan | Sedang (pengaman) | Sedang |
 | K8 ✅ | **Canvas** (JSON Canvas, format terbuka) | Tahap 1 penampil `.canvas` (kartu catatan, teks, tautan, panah); tahap 2 sunting | Sedang | Besar |
 | K9 ✅ | **Note composer** (§25.7) | Ekstrak pilihan teks ke catatan baru (diganti tautan) & gabung dua catatan | Rendah–sedang | Sedang |
-| K10 | Mermaid, catatan kaki, jumlah kata, catatan acak, ganti nama tag se-vault | Pelengkap pembaca & penjelajah | Rendah | Kecil masing-masing |
+| K10 ✅ | Mermaid, catatan kaki, jumlah kata, catatan acak, ganti nama tag se-vault (+ sorotan `==teks==`, komentar `%%…%%`) | Pelengkap pembaca & penjelajah | Rendah | Kecil masing-masing |
 | K11 | Tab/belah tampilan beberapa catatan | Membuka 2 catatan berdampingan (≥ 1280 px) | Rendah | Sedang |
 
 Tidak disarankan: Publish (publik sudah lewat bot WhatsApp & penanda `publik: true`), Sync (sudah Syncthing), audio recorder &
@@ -1762,6 +1762,9 @@ dihapus). Daftar K1–K8 selesai; sisa usulan K9 note composer, K10 pelengkap ke
 dari templat `90-Templat/Mingguan.md` / `Bulanan.md` + tautan harian/mingguan + agenda & task periode itu; **isi canvas ikut indeks RAG**
 (dijawab chatbot dengan sitasi yang membuka tab Canvas); **sematan `![[x.canvas]]`** = papan mini baca-saja. Kanban (usulan awal K2)
 sengaja tidak dibuat karena Bases Obsidian tidak punya Kanban. Diuji: unit backend +5 & frontend +1, smoke +7, UI.
+
+**K10 selesai 2026-11-09**: lihat CLAUDE.md §8 & §8b. Diuji: unit backend +5 & frontend +2, smoke +4, UI pada build produksi dengan CSP `nginx.conf`. Belum: catatan kaki sebaris `^[teks]`; filter
+`.base` & teks canvas tidak ikut saat tag diganti nama. Sisa usulan: K11 tampilan berdampingan.
 
 ### 25.7 K9: Note composer (riset & dibangun 2026-11-09)
 

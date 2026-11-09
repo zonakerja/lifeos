@@ -222,6 +222,8 @@ interface NoteEditorProps {
   notes: KnowledgeNoteListItem[];
   onChange: (text: string) => void;
   onSave: () => void;
+  /** Isi & pilihan berubah (jumlah kata). */
+  onStats?: (doc: string, selection: string) => void;
 }
 
 /**
@@ -229,7 +231,7 @@ interface NoteEditorProps {
  * apa adanya saat disimpan. `[[` memunculkan pelengkap judul catatan; `/` di awal baris / setelah spasi = perintah sisip
  * (judul, daftar tugas, callout, tabel, tanggal, templat — K5); Ctrl/Cmd+S = simpan sekarang.
  */
-export default function NoteEditor({ initial, noteId, title, notes, onChange, onSave }: NoteEditorProps) {
+export default function NoteEditor({ initial, noteId, title, notes, onChange, onSave, onStats }: NoteEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const notesRef = useRef(notes);
   const titleRef = useRef(title);
@@ -239,6 +241,7 @@ export default function NoteEditor({ initial, noteId, title, notes, onChange, on
   }, [notes, title]);
   const handleChange = useEffectEvent(onChange);
   const handleSave = useEffectEvent(onSave);
+  const handleStats = useEffectEvent((doc: string, selection: string) => onStats?.(doc, selection));
 
   useEffect(() => {
     const wikiCompletion = (context: CompletionContext) => {
@@ -310,6 +313,10 @@ export default function NoteEditor({ initial, noteId, title, notes, onChange, on
           ]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) handleChange(update.state.doc.toString());
+            if (update.docChanged || update.selectionSet) {
+              const { from, to } = update.state.selection.main;
+              handleStats(update.state.doc.toString(), update.state.sliceDoc(from, to));
+            }
           }),
           theme,
         ],

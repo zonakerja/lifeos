@@ -37,7 +37,7 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 | Runtime | Node.js | **24 LTS** (`.nvmrc`; image `node:24-trixie-slim`, Debian 13) | Hanya LTS di produksi; npm 11 bawaan Node |
 | Bahasa | TypeScript (backend & frontend) | **6.0** | Satu versi di kedua sisi (keputusan 2026-10-09) |
 | Backend | NestJS (`@nestjs/*`) + Express | **12.1** (config/jwt/passport/swagger/mapped-types 12.0, throttler 6.7) + Express 5.2 | Framework modular, DI, guard/pipe, Swagger |
-| | Prisma ORM + `@prisma/adapter-pg` (driver `pg`) | **7.10** | ORM bertipe; driver adapter tanpa engine Rust (wajib untuk Windows ARM64) |
+| | Prisma ORM + `@prisma/adapter-pg` (driver `pg`) | **7.10.1** | ORM bertipe; driver adapter tanpa engine Rust (wajib untuk Windows ARM64) |
 | | BullMQ / ioredis | **6.3** / **5.11** | Antrian job (ekstraksi, AI) di atas Redis |
 | | class-validator / class-transformer | 0.15 / 0.5 | Validasi DTO & env |
 | | nestjs-pino / pino | 5.3 / 10.4 | Log terstruktur JSON |
@@ -53,9 +53,10 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 | Frontend | React / React DOM | **19.3** | UI |
 | | Vite / `@vitejs/plugin-react` | **8.3** / 6.1 | Dev server & bundler |
 | | React Router / TanStack Query / Zustand | 8.4 / 5.104 / 5.0 | Rute lazy, cache data server, state UI/sesi |
-| | react-hook-form / zod | 7.89 / 4.6 | Form & validasi skema |
-| | Tailwind CSS / shadcn CLI (Radix, lucide) | 4.3 / 4.21 | Design system berbasis token |
+| | react-hook-form / zod | 7.89 / 4.6.7 | Form & validasi skema |
+| | Tailwind CSS / shadcn CLI (Radix, lucide) | 4.3 / 4.22 | Design system berbasis token |
 | | react-markdown / KaTeX | 10.1 / **0.18.9** | Render Markdown & matematika (dimuat malas) |
+| | Mermaid | **12.2.0** | Diagram di catatan Knowledge (dimuat malas, mode ketat) |
 | | Tiptap (`@tiptap/*` + `@tiptap/markdown`, MIT) / perfect-freehand | **3.31** / 1.2 | Editor teks kaya + tulisan tangan stylus di Catatan Bebas (dimuat malas); Markdown → dokumen editor (salin dari My Notebook) |
 | | CodeMirror (`@codemirror/*` view 6.43, state 6.7, `@lezer/markdown` 1.8, `@lezer/highlight` 1.2, MIT) | **6** | Editor sumber Markdown menu Knowledge (dimuat malas; tanpa `@codemirror/lang-markdown` agar chunk < 500 kB) |
 | | react-force-graph-2d (MIT, kanvas, d3-force) | **1.29** | Graf vault menu Knowledge (dimuat malas) |
@@ -99,9 +100,10 @@ Sumber kebenaran versi: `package-lock.json` (backend/frontend), `Dockerfile`, `d
 
   | Lokasi | Override | Alasan | Hapus bila |
   |---|---|---|---|
-  | `backend/package.json` | `prisma > mysql2` → 3.24.4 | Prisma 7.10 mem-pin `mysql2` 3.15.3 (advisory high; hanya dipakai Prisma Studio untuk MySQL) | `npm view prisma@<versi> dependencies.mysql2` ≥ 3.23.1 |
   | `frontend/package.json` | `katex: "$katex"` (langsung `^0.18.9`) | `rehype-katex`/`micromark-extension-math` masih `^0.16` (advisory prototype pollution < 0.18.2) | keduanya mendukung katex ≥ 0.18 |
   | `backend/package.json` | `multer` → 2.5.0 | `@nestjs/platform-express` 12.1.2 mem-pin `multer` 2.4.0 (advisory high GHSA-q7qp-rjg7-q26m, DoS `fileFilter` asinkron) | `npm view @nestjs/platform-express@<versi> dependencies.multer` ≥ 2.5.0 |
+
+  Override `prisma > mysql2` dicabut 2026-11-09: Prisma 7.10.1 sudah memakai `mysql2` 3.24.4.
 
   Advisory 2026-10-19–22 `body-parser` ≤ 2.3.0 (via `express`) dan `fast-uri` ≤ 3.1.8 (via `ajv`) ditutup cukup dengan
   `npm update --before=<tanggal>` dalam rentang semver induknya (2.4.0 / 3.1.9) — tanpa override.

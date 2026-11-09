@@ -1730,6 +1730,37 @@ try {
     ok("knowledge rename updates canvas", r.d?.data?.nodes?.[0]?.file === `Komposer Pindah ${stamp}.md`, r.d);
     for (const id of [movedComposeId, refNote.id, extractedId]) await j("DELETE", `/knowledge/notes/${id}`, null, at);
     await j("DELETE", `/knowledge/canvases/file?path=${encodeURIComponent(composeCanvas)}`, null, at);
+    // Ganti nama tag se-vault (K10): properti + #tag + turunan; kode tidak tersentuh
+    const tagStamp = Date.now();
+    const oldTag = `smoketag${tagStamp}`;
+    const newTag = `smokebaru${tagStamp}`;
+    r = await j(
+      "POST",
+      "/knowledge/notes",
+      {
+        title: `Komposer Tag ${tagStamp}`,
+        content: `---\ntags:\n  - ${oldTag}\n---\nIsi #${oldTag}/anak dan \`#${oldTag}\`\n`,
+      },
+      at,
+    );
+    const tagNoteId = r.d?.id;
+    r = await j("POST", "/knowledge/tags/rename", { from: oldTag, to: "dua kata" }, at);
+    ok("knowledge tag rename invalid 400", r.s === 400, r);
+    r = await j("POST", "/knowledge/tags/rename", { from: oldTag, to: newTag }, at);
+    ok("knowledge tag rename ok", r.s === 200 && r.d.notes === 1 && r.d.occurrences === 2, r);
+    r = await j("GET", `/knowledge/notes/${tagNoteId}/source`, null, at);
+    ok(
+      "knowledge tag rename content",
+      r.d?.raw.includes(`- ${newTag}`) && r.d?.raw.includes(`#${newTag}/anak`) && r.d?.raw.includes(`\`#${oldTag}\``),
+      r.d?.raw,
+    );
+    r = await j("GET", `/knowledge/notes/${tagNoteId}/versions`, null, at);
+    ok(
+      "knowledge tag rename version recorded",
+      (r.d ?? []).some((v) => v.reason === "before_tag"),
+      r.d,
+    );
+    await j("DELETE", `/knowledge/notes/${tagNoteId}`, null, at);
     // Bases (K2): berkas .base dibaca/ditulis sebagai YAML, berubah di disk → 409
     r = await j("POST", "/knowledge/bases", { name: "Smoke base" }, at);
     const basePath = r.d?.path;

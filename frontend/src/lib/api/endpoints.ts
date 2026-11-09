@@ -381,6 +381,12 @@ export const knowledgeApi = {
       method: "POST",
       body: input,
     }),
+  /** Ganti nama tag di semua catatan vault (termasuk turunan) */
+  renameTag: (input: { from: string; to: string }) =>
+    request<{ notes: number; occurrences: number; failed?: string[] }>("/knowledge/tags/rename", {
+      method: "POST",
+      body: input,
+    }),
   /** Note composer: gabung catatan ke catatan lain / baru */
   mergeNote: (id: string, input: KnowledgeMergeInput) =>
     request<{ id: string | null; path: string; updatedLinks: number; updatedCanvases: number; trash: string }>(

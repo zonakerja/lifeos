@@ -11,6 +11,10 @@ export default defineConfig({
   },
   // Pindai semua source saat start agar dependensi yang hanya dipakai rute lazy (mis. qrcode.react di File Control)
   // ikut dioptimasi sejak awal; tanpa ini Vite mengoptimasi ulang saat rute dibuka → 504 "Outdated Optimize Dep"
+  build: {
+    // Pustaka Mermaid (elk ±1,4 MB) dimuat malas hanya saat catatan berisi diagram; chunk utama tetap dipantau lewat ukuran di CLAUDE.md §8b
+    chunkSizeWarningLimit: 1500,
+  },
   optimizeDeps: {
     entries: ["index.html", "src/**/*.{ts,tsx}", "!src/**/*.test.{ts,tsx}"],
   },

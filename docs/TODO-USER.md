@@ -31,6 +31,7 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
   agenda, to-do, dan task hari itu. Opsional: buat templat sendiri `90-Templat/Harian.md` dan taruh `{{lifeos}}` di tempat ringkasan.
   Panel Info catatan kini punya **Catatan serupa** — bila tertulis "belum tersedia", jalankan **Indeks ulang** di Tools → Indeks
   Pengetahuan (butuh key embedding Gemini/OpenAI yang aktif).
+- [ ] **A21** Coba di catatan Knowledge: ketik `/` → **Diagram Mermaid** (mis. alur PSP), `==sorotan==`, `%%komentar%%`, dan **Catatan kaki**; jumlah kata tampil di header & editor. Ganti nama tag: tab **Tag** di panel kiri → ikon pensil di samping tag. Diagram & sintaks yang sama terbaca di Obsidian.
 - [ ] **A20** Coba **Note composer** di menu Knowledge: mode sunting → pilih teks → Ctrl+P → "Ekstrak teks terpilih ke catatan…"; atau klik kanan catatan di penjelajah →
   **Gabungkan ke…**. Catatan sumber masuk `.trash` vault dan isi sebelumnya ada di Riwayat versi. Opsional: templat `90-Templat/Note Composer.md`.
 - [ ] **A19** Coba catatan **mingguan/bulanan** di menu Knowledge: panah di samping **Catatan hari ini** → **Mingguan** / **Bulanan**
@@ -571,3 +572,4 @@ Telegram Anda yang diizinkan. Minta Claude menyiapkan service otomatis (systemd)
 | 2026-11-07 | A18 baru: tab Canvas di Knowledge |
 | 2026-11-07 | A19 baru: catatan mingguan/bulanan, sematan & pencarian canvas |
 | 2026-11-09 | A20 baru: Note composer (gabung & ekstrak) |
+| 2026-11-09 | A21 baru: Mermaid, sorotan, komentar, catatan kaki, ganti nama tag |

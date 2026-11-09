@@ -41,6 +41,7 @@
     "html5-qrcode": "^2.3.8",
     "katex": "^0.18.9",
     "lucide-react": "^1.53.0",
+    "mermaid": "^12.2.0",
     "pdfjs-dist": "^6.4.299",
     "perfect-freehand": "^1.2.3",
     "qrcode.react": "^4.2.0",
@@ -55,7 +56,7 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "sonner": "^2.0.8",
-    "zod": "^4.6.5",
+    "zod": "^4.6.7",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

@@ -5,6 +5,7 @@ import {
   calloutTone,
   createResolver,
   extractTitle,
+  noteStats,
   inboxNotes,
   linkHeading,
   localGraph,
@@ -33,6 +34,27 @@ const note = (path: string, over: Partial<KnowledgeNoteListItem> = {}): Knowledg
   links: 0,
   backlinks: 0,
   ...over,
+});
+
+describe("noteStats & sintaks pembaca", () => {
+  it("properti & komentar tidak dihitung; angka & kata majemuk satu kata", () => {
+    expect(noteStats("---\na: b c d\n---\nDua kata %%rahasia sekali%% lagi-lagi 2026")).toEqual({
+      words: 4,
+      chars: 24,
+      minutes: 1,
+    });
+    expect(noteStats("").words).toBe(0);
+    expect(noteStats("kata ".repeat(1000)).minutes).toBe(5);
+  });
+
+  it("sorotan & komentar; kode, kesamaan, dan base64 tidak tersentuh", () => {
+    expect(toReaderMarkdown("a ==penting sekali== b")).toBe("a [penting sekali](kn-mark:) b");
+    expect(toReaderMarkdown("a %%rahasia%% b")).toBe("a  b");
+    expect(toReaderMarkdown("x == y == z")).toBe("x == y == z");
+    expect(toReaderMarkdown("https://a.id/?k=abc==&x==")).toBe("https://a.id/?k=abc==&x==");
+    expect(toReaderMarkdown("`==kode==`")).toBe("`==kode==`");
+    expect(toReaderMarkdown("```mermaid\nA[[B]] --> C\n```")).toBe("```mermaid\nA[[B]] --> C\n```");
+  });
 });
 
 describe("extractTitle", () => {

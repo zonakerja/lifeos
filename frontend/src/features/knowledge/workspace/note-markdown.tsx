@@ -6,13 +6,14 @@ import {
   createContext,
   isValidElement,
   lazy,
+  type ComponentProps,
   type ReactNode,
   Suspense,
   useContext,
   useMemo,
   useState,
 } from "react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform, type ExtraProps } from "react-markdown";
 import { Link } from "react-router";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -30,6 +31,7 @@ import {
   BLOCK_SCHEME,
   calloutTone,
   EMBED_SCHEME,
+  MARK_SCHEME,
   isImagePath,
   LINK_SCHEME,
   linkHeading,
@@ -43,10 +45,11 @@ import { openWorkspaceDialog } from "./workspace-store";
 
 /** Sematan base `![[x.base]]` dimuat malas (mesin Bases ada di chunk tab Bases). */
 const EmbeddedBase = lazy(() => import("./bases-tab"));
+const MermaidDiagram = lazy(() => import("./mermaid-diagram"));
 const EmbeddedCanvas = lazy(() => import("./canvas-tab").then((m) => ({ default: m.EmbeddedCanvas })));
 
 const urlTransform = (url: string) =>
-  url.startsWith(LINK_SCHEME) || url.startsWith(EMBED_SCHEME) || url.startsWith(BLOCK_SCHEME)
+  url.startsWith(LINK_SCHEME) || url.startsWith(EMBED_SCHEME) || url.startsWith(BLOCK_SCHEME) || url === MARK_SCHEME
     ? url
     : defaultUrlTransform(url);
 
@@ -74,6 +77,26 @@ const TONE: Record<ReturnType<typeof calloutTone>, string> = {
   destructive: "border-destructive/40 bg-destructive/8 [&_.callout-title]:text-destructive",
   module: "border-module/40 bg-module-soft [&_.callout-title]:text-module",
 };
+
+/**
+ * Blok kode; ```mermaid → diagram. Sengaja di tingkat modul: komponen yang dibuat ulang tiap render (`components={{…}}`) membuat
+ * React memasang ulang isinya, jadi diagram akan digambar ulang setiap catatan dirender ulang.
+ */
+function NotePre({ node, children }: ComponentProps<"pre"> & ExtraProps) {
+  const first = node?.children[0];
+  const classes = first?.type === "element" ? first.properties?.className : null;
+  if (first?.type === "element" && Array.isArray(classes) && classes.includes("language-mermaid")) {
+    const code = first.children.map((c) => (c.type === "text" ? c.value : "")).join("");
+    return (
+      <Suspense fallback={<Spinner className="my-2" />}>
+        <MermaidDiagram code={code.trim()} />
+      </Suspense>
+    );
+  }
+  return <pre>{children}</pre>;
+}
+
+const FOOTNOTE_LABELS = { footnoteLabel: "Catatan kaki", footnoteBackLabel: "Kembali ke teks" };
 
 const textOf = (node: ReactNode): string =>
   typeof node === "string" || typeof node === "number"
@@ -212,16 +235,33 @@ export function NoteMarkdown({ content, className, depth = 0, noteId }: NoteMark
   const ids = useMemo(() => new Map(outline(content).map((h) => [h.line, h.id])), [content]);
   const heading =
     (Tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6") =>
-    ({ children, node }: { children?: ReactNode; node?: { position?: { start: { line: number } } } }) => (
-      <Tag id={ids.get(node?.position?.start.line ?? 0) ?? slugify(textOf(children))} className="scroll-mt-4">
+    ({
+      children,
+      node,
+      id,
+      className,
+    }: {
+      children?: ReactNode;
+      id?: string;
+      className?: string;
+      node?: { position?: { start: { line: number } } };
+    }) => (
+      <Tag
+        // judul bawaan catatan kaki membawa id & kelas sendiri (`sr-only`)
+        id={id ?? ids.get(node?.position?.start.line ?? 0) ?? slugify(textOf(children))}
+        className={cn("scroll-mt-4", className)}
+      >
         {children}
       </Tag>
     );
 
   return (
     <div
+      data-note-md
       className={cn(
         "max-w-none space-y-3 text-sm leading-relaxed break-words",
+        "[&_mark]:rounded [&_mark]:bg-warning/30 [&_mark]:px-0.5 [&_mark]:text-foreground",
+        "[&_section[data-footnotes]]:mt-6 [&_section[data-footnotes]]:border-t [&_section[data-footnotes]]:pt-3 [&_section[data-footnotes]]:text-xs",
         "[&_h1]:mt-5 [&_h1]:border-b [&_h1]:pb-2 [&_h1]:text-xl [&_h1]:font-extrabold",
         "[&_h2]:mt-4 [&_h2]:text-lg [&_h2]:font-bold [&_h3]:mt-3 [&_h3]:font-bold [&_h3]:text-module [&_h4]:font-semibold",
         "[&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5",
@@ -237,6 +277,7 @@ export function NoteMarkdown({ content, className, depth = 0, noteId }: NoteMark
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
+        remarkRehypeOptions={FOOTNOTE_LABELS}
         urlTransform={urlTransform}
         components={{
           // paragraf berisi sematan (catatan, base, canvas = blok <div>) dirender sebagai <div>: <div> di dalam <p> tidak sah
@@ -249,6 +290,7 @@ export function NoteMarkdown({ content, className, depth = 0, noteId }: NoteMark
             ) : (
               <p>{children}</p>
             ),
+          pre: NotePre,
           h1: heading("h1"),
           h2: heading("h2"),
           h3: heading("h3"),
@@ -264,6 +306,25 @@ export function NoteMarkdown({ content, className, depth = 0, noteId }: NoteMark
           a: ({ href = "", children }) => {
             if (href.startsWith(BLOCK_SCHEME)) {
               return <span id={blockAnchor(href.slice(BLOCK_SCHEME.length))} className="scroll-mt-4" />;
+            }
+            if (href === MARK_SCHEME) return <mark>{children}</mark>;
+            // Catatan kaki & jangkar di catatan yang sama: gulir di dalam catatan ini (bukan tab baru)
+            if (href.startsWith("#")) {
+              return (
+                <a
+                  href={href}
+                  className="text-info underline underline-offset-2"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.currentTarget
+                      .closest("[data-note-md]")
+                      ?.querySelector(`[id="${CSS.escape(decodeURIComponent(href.slice(1)))}"]`)
+                      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}
+                >
+                  {children}
+                </a>
+              );
             }
             if (!href.startsWith(LINK_SCHEME)) {
               return (

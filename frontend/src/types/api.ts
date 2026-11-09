@@ -1248,7 +1248,7 @@ export interface KnowledgeNoteVersion {
   id: string;
   hash: string;
   size: number;
-  /** observed | before_save | before_properties | before_task | before_link | before_move | before_restore | before_merge | before_extract */
+  /** observed | before_save | before_properties | before_task | before_link | before_move | before_restore | before_merge | before_extract | before_tag */
   reason: string;
   createdAt: string;
   /** Sama dengan isi berkas sekarang */

@@ -20,7 +20,7 @@ import {
   Trash2,
   TriangleAlert,
 } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { previewFile } from "@/components/common/file-preview";
@@ -42,7 +42,7 @@ import { ApiError, errorMessage } from "@/lib/api/client";
 import { STATUS_LABEL, STATUS_TONE } from "@/features/knowledge/knowledge-utils";
 import { cn } from "@/lib/utils";
 import type { KnowledgeNoteListItem } from "@/types/api";
-import { folderOf, isMirrorNote, mirrorAppPath, noteName, obsidianUri } from "./knowledge-logic";
+import { folderOf, isMirrorNote, mirrorAppPath, noteName, noteStats, obsidianUri } from "./knowledge-logic";
 import { NoteMarkdown } from "./note-markdown";
 import { openWorkspaceDialog, useWorkspaceStore, type EditorControl } from "./workspace-store";
 
@@ -68,6 +68,7 @@ export function NoteView({
 }) {
   const navigate = useNavigate();
   const { data: note, isLoading, error } = useKnowledgeNote(id);
+  const readStats = useMemo(() => noteStats(note?.content ?? ""), [note?.content]);
   const { data: status } = useKnowledgeStatus();
   const { prefs, save: savePrefs } = useKnowledgePrefs();
   const [mode, setMode] = useState<"read" | "edit">("read");
@@ -166,7 +167,12 @@ export function NoteView({
         </Button>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold">{note.title}</p>
-          <p className="truncate font-mono text-[10px] text-muted-foreground">{folderOf(note.path) || "/"}</p>
+          <p className="truncate font-mono text-[10px] text-muted-foreground">
+            {folderOf(note.path) || "/"}
+            {note.kind === "note" && mode === "read" && readStats.words > 0
+              ? ` · ${readStats.words.toLocaleString("id-ID")} kata · ±${readStats.minutes} mnt`
+              : ""}
+          </p>
         </div>
         {statusValue && (
           <Badge className={cn("hidden @md:inline-flex", STATUS_TONE[statusValue])}>{STATUS_LABEL[statusValue]}</Badge>
@@ -324,6 +330,13 @@ function EditPane({
   const { save, createNote } = useKnowledgeActions();
   const [version, setVersion] = useState(0);
   const [state, setState] = useState<SaveState>("idle");
+  const [stats, setStats] = useState<{ doc: string; selection: string } | null>(null);
+  const statsTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(statsTimer.current), []);
+  const statsDoc = stats?.doc ?? source?.raw ?? "";
+  const statsSelection = stats?.selection ?? "";
+  const counted = useMemo(() => noteStats(statsDoc), [statsDoc]);
+  const selectedWords = useMemo(() => (statsSelection ? noteStats(statsSelection).words : 0), [statsSelection]);
   const text = useRef<string | null>(null);
   const hash = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -369,6 +382,7 @@ function EditPane({
     const fresh = await refetch();
     hash.current = fresh.data?.hash ?? null;
     setVersion((v) => v + 1);
+    setStats(null);
     setState("idle");
   }, [refetch]);
 
@@ -421,6 +435,10 @@ function EditPane({
         </div>
       ) : (
         <p className="flex shrink-0 items-center justify-end gap-1 px-3 pt-1.5 text-[11px] text-muted-foreground">
+          <span className="mr-auto">
+            {selectedWords ? `${selectedWords.toLocaleString("id-ID")} dari ` : ""}
+            {counted.words.toLocaleString("id-ID")} kata · {counted.chars.toLocaleString("id-ID")} karakter
+          </span>
           {state === "saving" && (
             <>
               <Loader2 className="size-3 animate-spin" /> Menyimpan…
@@ -464,6 +482,10 @@ function EditPane({
               timer.current = setTimeout(() => void doSave(), 1500);
             }}
             onSave={() => void doSave()}
+            onStats={(doc, selection) => {
+              clearTimeout(statsTimer.current);
+              statsTimer.current = setTimeout(() => setStats({ doc, selection }), 300);
+            }}
           />
         </Suspense>
       </div>

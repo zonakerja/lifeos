@@ -263,6 +263,20 @@ export class ExtractNoteDto extends ComposeTargetDto {
   after?: "link" | "embed" | "none";
 }
 
+export class RenameTagDto {
+  @ApiProperty({ description: "Tag lama (tanpa #)" })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  from: string;
+
+  @ApiProperty({ description: "Tag baru (tanpa #)" })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  to: string;
+}
+
 export class DailyNoteDto {
   @ApiProperty({ description: "Tanggal lokal user (YYYY-MM-DD)" })
   @IsString()

@@ -349,6 +349,9 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   dihitung atas teks LF, perujuk & `[[#…]]` ke judul/blok yang pindah diarahkan ke tujuan, `[[#x]]` ke bagian yang tertinggal menjadi `[[Asal#x]]`. Catatan baru memakai
   templat `90-Templat/Note Composer.md` bila ada (`{{content}}`, `{{fromTitle}}`, `{{newTitle}}`, `{{date:FORMAT}}`). Versi `before_merge`/`before_extract`. Bukan alat
   MCP: agen tetap hanya menulis `00-Inbox`. **Rujukan canvas** kini ikut saat catatan/folder diganti nama atau dipindah (`retargetCanvasNodes`).
+  **Ganti nama tag se-vault** (K10, logika murni + test `vault-tags.ts`): `POST /knowledge/tags/rename { from, to }` = properti `tags`/`tag` + `#tag` di isi + turunan
+  (`#a/b`), tanpa peka huruf besar/kecil, tag yang sudah ada digabung; kode, judul, `[[a#b]]`, URL tidak tersentuh; kueri `tag:` grup graf ikut; cermin 80-LifeOS dilewati; versi
+  `before_tag`; catatan ber-YAML rusak dilewati & dilaporkan (`failed`). Filter `.base` & teks canvas **tidak** ikut diubah.
   **Cermin hasil kerja → vault** (keputusan user 2026-11-06, `KnowledgeExportService` + logika murni & test `vault-export.ts`):
   satu arah LifeOS → folder `80-LifeOS/` (Catatan Bebas, List Bebas, Notes AI, My Notebook = indeks + catatan Studio + riwayat
   chat, Productivity = Project + Action, Area + struktur, Agenda yang punya hasil/induk, Resource Global), saling bertaut
@@ -561,7 +564,7 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   editor Catatan Bebas (Tiptap + tinta, chunk `free-note-editor` ±485 kB) dimuat malas. Chunk utama ±440 kB (termasuk host editor ONLYOFFICE; sejak tahap 3 floating-ui/popper ikut chunk utama —
   sebelumnya chunk terpisah yang tetap dimuat saat start); tanpa
   peringatan ukuran chunk. Tab My Notebook = chunk `notebook-tab` (±42 kB). Menu Pengetahuan: `knowledge-page` ±82 kB,
-  `graph-canvas` ±185 kB, `note-editor` (CodeMirror) ±375 kB, `bases-tab` ±40 kB (juga dipakai sematan `![[x.base]]`), `canvas-tab` ±24 kB — dimuat malas.
+  `graph-canvas` ±185 kB, `note-editor` (CodeMirror) ±375 kB, `bases-tab` ±40 kB (juga dipakai sematan `![[x.base]]`), `canvas-tab` ±24 kB — dimuat malas. Mermaid (`mermaid-diagram.tsx` → `import("mermaid")`, elk ±1,4 MB) hanya dimuat saat catatan berisi diagram; `chunkSizeWarningLimit` 1500 kB karena itu, chunk utama tetap ±405 kB.
 - **CSP produksi** (`nginx.conf`): `script-src 'self'`, `connect-src 'self'` (AI lewat backend), `style-src 'self'
   'unsafe-inline'`, `img/media blob: data:`. Domain eksternal baru → tambahkan di sini (lebih baik lewat backend).
 
@@ -643,7 +646,7 @@ SSH), volume `syncthing-data`. Obsidian sendiri **tidak** dipasang di server/Doc
   Ctrl+O (`CommandDialog` + `<Command>`) + **palet perintah Ctrl+P** (K5, `command-palette.tsx`: grup Catatan ini / Sisipkan di
   editor / Vault / Buka tab; catatan terbuka & editor aktif didaftarkan ke store sebagai `active` & `editor` oleh `NoteView` &
   `NoteEditor`) + **perintah `/` di editor** (awal baris / setelah spasi; potongan Markdown & templat `90-Templat` — logika murni +
-  test `editor-snippets.ts`; perintah sisip baru → `SNIPPETS`); **Note composer** (K9, `compose-dialog.tsx`): gabung dari palet, menu ⋯ catatan, klik kanan penjelajah; ekstrak dari palet saat mode sunting + ada pilihan (`EditorBridge.selection`, judul bawaan `extractTitle`, sisa teks diingat per browser `lifeos.noteComposer.after`); sebelum dikirim editor di-`flush`, sesudahnya `active.control.reload()`; dialog bersama `workspace-dialogs.tsx` + store `workspace-store.ts`. Dialog sitasi
+  test `editor-snippets.ts`; perintah sisip baru → `SNIPPETS`); **Pelengkap pembaca** (K10): blok ```mermaid → `NotePre` (komponen tingkat modul) + `MermaidDiagram` (`securityLevel: strict`, tema mengikuti aplikasi, cache hasil per tema + kode, galat tampil dengan kodenya; juga di kartu Canvas & sematan); catatan kaki `[^1]` (GFM; tautan `#…` digulir di dalam `[data-note-md]`, bukan tab baru); sorotan `==teks==` (`MARK_SCHEME`) & komentar `%%…%%` di `toReaderMarkdown`; jumlah kata `noteStats` (header mode baca; mode sunting langsung + "n dari m" saat ada pilihan); ganti nama tag = ikon di panel Tag; perintah `/` Diagram Mermaid & Catatan kaki. **Note composer** (K9, `compose-dialog.tsx`): gabung dari palet, menu ⋯ catatan, klik kanan penjelajah; ekstrak dari palet saat mode sunting + ada pilihan (`EditorBridge.selection`, judul bawaan `extractTitle`, sisa teks diingat per browser `lifeos.noteComposer.after`); sebelum dikirim editor di-`flush`, sesudahnya `active.control.reload()`; dialog bersama `workspace-dialogs.tsx` + store `workspace-store.ts`. Dialog sitasi
   `KnowledgeNoteHost` punya "Buka di menu Knowledge" (`links.knowledgeNote(id, heading?)`). **Tools → Basis Pengetahuan**
   (`features/tools/knowledge/knowledge-settings.tsx`, hook `data/use-knowledge.ts`) = **pengaturan saja** (keputusan user
   2026-11-06: daftar catatan & daftar masalah pindah ke menu Knowledge): profil kerja, vault (pakai folder / buat dari templat /
@@ -1212,7 +1215,7 @@ Pemeliharaan tech stack terjadwal (kajian & urutan: `docs/UPGRADE-PLAN.md` §1):
 | Deployment VPS (compose prod, Caddy HTTPS, batas memori, backup luar server terenkripsi + pemantauan) — diuji end-to-end lokal, termasuk pemulihan dari luar server | ✅ |
 | Kualitas (Vitest, smoke test, CI GitHub Actions, Dependabot npm/docker/docker-compose/actions) | ✅ |
 | Tech stack terbaru yang stabil (versi: `docs/ARCHITECTURE.md` §2.1) | ✅ |
-| `npm audit` | ✅ advisory 2026-10-19–22 di backend ditutup 2026-10-24: `body-parser` 2.4.0 & `fast-uri` 3.1.9 lewat `npm update`, `multer` 2.5.0 lewat override (`docs/ARCHITECTURE.md` §2.3); sisa yang dipantau (belum ada patch / tidak masuk produksi): backend `deepmerge-ts` (tunggu Prisma) & `sprintf-js` (via `mammoth`), frontend `braces` (via CLI `shadcn`, risiko diterima) — `docs/UPGRADE-PLAN.md` §3 |
+| `npm audit` | ✅ 2026-11-09 `--omit=dev` bersih di backend, frontend, robot (Prisma 7.10.1, `zod` 4.6.7, `fast-uri` 3.1.9, `shadcn` 4.22.1). Sisa hanya perkakas pengembangan: `minimatch` 10.x (moderate, perbaikan di major 11) & `deepmerge` (low, via CLI `shadcn`), risiko diterima — jangan `npm audit fix --force` (`docs/UPGRADE-PLAN.md` §3) |
 | Panduan setup awal / menyalakan / mematikan + aturan port (`docs/SETUP.md` §1–§6) | ✅ ditulis & diverifikasi 2026-10-11 dengan menjalankan §3 langkah 0–6 di laptop user (Node 24.21.0 arm64; login, unit test, smoke test lulus; `strictPort` terbukti menolak instance kedua) — laptop sudah ter-setup |
 | AI multi-provider di backend (Gemini/Claude/OpenAI, key terenkripsi, model bisa diganti user) | ✅ 2026-10-11 — unit + smoke + UI diuji; panggilan ke provider sungguhan menunggu API key user |
 | RAG tahap 1: ekstraksi PDF/DOCX/XLSX/OCR + indeks pgvector (Gemini embedding) + pencarian gabungan | ✅ 2026-10-11 — unit + smoke (record → indeks → cari → hapus) + embedding Gemini sungguhan di akun admin dev |
@@ -2017,6 +2020,11 @@ Isu terbuka: belum ada (API key AI plaintext di browser ditutup 2026-10-11).
   sunting teks, hubungkan, warna, hapus); papan digambar sendiri dengan DOM + SVG (tanpa pustaka baru). Kartu tautan tidak memuat
   situs dalam iframe (CSP produksi & privasi). Ditemukan saat uji: akhir seretan/sunting menyimpan data lama karena perubahan
   dihitung dari closure render / updater React → semua perubahan dihitung dari ref data terkini.
+- 2026-11-09 — **Advisory npm ditutup** (permintaan user, tanpa perubahan fitur): Prisma 7.10.1 (`deepmerge-ts` 8; override `mysql2` dicabut), `zod` 4.6.7, `fast-uri` 3.1.9, `shadcn` 4.22.1 + transitif CLI, semua dengan `--before=2026-10-26` (kebijakan rilis ≥ 2 minggu). `shadcn/tailwind.css` tidak berubah. `minimatch` 11 tidak dipaksakan: baru 12 hari dan lintas major bagi ESLint.
+- 2026-11-09 — **K10 pelengkap Obsidian** ("kembangkan fitur2 penting K10, tidak hanya mermaid"): Mermaid 12.2.0 (12.3.0 baru 6 hari, kebijakan ≥ 2 minggu), catatan kaki, jumlah kata, ganti nama tag se-vault;
+  ditambah sorotan `==teks==` & komentar `%%…%%` yang ternyata belum didukung pembaca. Mermaid mode ketat karena isi vault bisa datang dari agen/sinkron; diuji dengan build produksi + CSP persis `nginx.conf`
+  (tanpa pelanggaran; `<img onerror>` di label dibuang, `click javascript:` tidak jalan). Ditemukan saat uji: tautan catatan kaki membuka tab baru; diagram digambar ulang setiap render (komponen `pre` sebaris).
+  Catatan kaki sebaris `^[teks]` Obsidian belum didukung. Audit menemukan `zod` < 4.6.6 & `fast-uri` (bukan dari Mermaid), ditutup di entri berikut.
 - 2026-11-09 — **K9 Note composer** (riset lalu "bangun", keputusan K9-A…C sesuai rekomendasi; `docs/AI-AGENT.md` §25.7): properti digabung (tujuan menang, tag & alias
   disatukan), `## Judul sumber` + perujuk ke bagian itu, celah lama ganti nama / pindah catatan yang memutus node `file` di `.canvas` ikut ditutup. Ekstrak dikerjakan
   server (posisi + teks + hash), bukan transaksi editor, agar satu aturan & urutan tulis yang aman; editor di-flush lalu dimuat ulang (undo editor hilang, diganti riwayat
@@ -2444,6 +2452,8 @@ utama tetap < 500 kB (cek output `npm run build`).
 - Komponen interaktif yang menyimpan saat `pointerup`/`blur` (Canvas): updater `setState(fn)` baru dijalankan saat render
   berikutnya dan closure handler bisa memegang state lama → event beruntun dalam satu tugas menyimpan isi lama. Hitung perubahan
   dari ref data terkini (`latest.current`) lalu `setState(nilai)`.
+- `components={{ x: () => … }}` di ReactMarkdown membuat tipe komponen baru tiap render, jadi React memasang ulang isinya (state hilang, diagram digambar ulang). Komponen yang punya state / kerja mahal wajib di tingkat modul (`NotePre`).
+- Node `writeFileSync` di Windows kadang gagal `UNKNOWN` (errno -4094) saat dev server / pengawas sedang membuka berkas — sementara; ulangi. Skrip yang mengubah beberapa berkas bisa berhenti di tengah: cek berkas sebelumnya sudah tertulis.
 - Kunci robot (`RobotService.exclusive`) dan sesi login jarak jauh ada di **memori satu proses backend** — jangan menjalankan
   backend lebih dari satu instans (kunci tidak berlaku lintas proses). Menguji "Jalankan sekarang" / menyalakan jadwal di akun
   yang punya sesi Connector = robot membuka SRIKANDI/e-Kinerja sungguhan → uji pakai user tanpa sesi (smoke) kecuali user

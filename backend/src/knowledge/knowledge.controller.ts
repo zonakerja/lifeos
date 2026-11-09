@@ -35,6 +35,7 @@ import {
   MoveFolderDto,
   MoveNoteDto,
   NotePropertiesDto,
+  RenameTagDto,
   RestoreVersionDto,
   SaveBaseDto,
   SaveNoteDto,
@@ -189,6 +190,14 @@ export class KnowledgeController {
   @Patch("notes/:id/properties")
   properties(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: NotePropertiesDto) {
     return this.vault.setProperties(user.id, id, dto);
+  }
+
+  /** Ganti nama tag di semua catatan vault. */
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @HttpCode(200)
+  @Post("tags/rename")
+  renameTag(@CurrentUser() user: AuthUser, @Body() dto: RenameTagDto) {
+    return this.vault.renameTag(user.id, dto);
   }
 
   /** Gabung catatan ini ke catatan lain / baru (Note composer). */

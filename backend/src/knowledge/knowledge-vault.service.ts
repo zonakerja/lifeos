@@ -22,6 +22,7 @@ import { Prisma } from "../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { UploadsService } from "../uploads/uploads.service";
 import { KNOWLEDGE_VAULT_CONTEXT } from "./knowledge-constants";
+import { cleanTag, renameTagInNote, renameTagInQuery } from "./vault-tags";
 import {
   type AfterExtract,
   applyComposerTemplate,
@@ -1433,6 +1434,45 @@ export class KnowledgeVaultService implements OnModuleInit, OnModuleDestroy {
     await this.writeNoteFile(userId, source.path, sourceAbs, sourceRaw, plan.sourceText, "before_extract");
     const created = await this.afterWrite(userId, targetPath);
     return { id: created?.id ?? null, path: targetPath, updatedLinks };
+  }
+
+  /**
+   * Ganti nama tag se-vault (K10): semua catatan yang memakai tag itu (properti & `#tag`, termasuk turunan) + kueri grup graf.
+   * Cermin 80-LifeOS dilewati (ditimpa setiap sinkron). Setiap catatan yang berubah tercatat di riwayat versi.
+   */
+  async renameTag(userId: string, input: { from: string; to: string }) {
+    const from = cleanTag(input.from);
+    const to = cleanTag(input.to);
+    if (!from || !to) throw new BadRequestException("Nama tag tidak sah (tanpa spasi, minimal satu huruf).");
+    if (from.toLowerCase() === to.toLowerCase() && from === to) return { notes: 0, occurrences: 0 };
+    await this.scanNow(userId);
+    const base = await this.vaultBase(userId);
+    const rows = await this.prisma.knowledgeNote.findMany({ where: { userId, kind: "note" }, select: { path: true } });
+    let notes = 0;
+    let occurrences = 0;
+    const failed: string[] = [];
+    for (const { path } of rows) {
+      if (isExportPath(path)) continue;
+      const absolute = this.inVault(base, path);
+      const raw = await readFile(absolute, "utf8").catch(() => null);
+      if (raw === null) continue;
+      try {
+        const result = renameTagInNote(raw, from, to);
+        if (!result.count) continue;
+        await this.writeNoteFile(userId, path, absolute, raw, result.text, "before_tag");
+        notes++;
+        occurrences += result.count;
+      } catch {
+        // YAML rusak di satu catatan tidak menggagalkan yang lain; dilaporkan agar diperbaiki
+        failed.push(path);
+      }
+    }
+    await this.updatePrefs(userId, (prefs) => ({
+      ...prefs,
+      graphGroups: prefs.graphGroups.map((g) => ({ ...g, query: renameTagInQuery(g.query, from, to) })),
+    }));
+    await this.afterWrite(userId, null);
+    return { notes, occurrences, failed };
   }
 
   /** Pindahkan ke `.trash` vault (bisa dipulihkan dari Obsidian / disk), bukan hapus permanen. */

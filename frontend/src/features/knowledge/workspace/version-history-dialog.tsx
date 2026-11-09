@@ -30,6 +30,7 @@ export const VERSION_REASON_LABEL: Record<string, string> = {
   before_restore: "Sebelum versi lain dipulihkan",
   before_merge: "Sebelum catatan digabung",
   before_extract: "Sebelum teks diekstrak",
+  before_tag: "Sebelum tag diganti nama",
 };
 
 const sizeLabel = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} kB`);

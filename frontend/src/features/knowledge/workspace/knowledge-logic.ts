@@ -36,6 +36,16 @@ const collator = new Intl.Collator("id", { numeric: true, sensitivity: "base" })
 
 /** Nama catatan seperti di `[[…]]`: nama berkas tanpa folder & `.md`. */
 export const noteName = (path: string) => path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+/** Jumlah kata & karakter (properti & komentar `%%…%%` tidak dihitung) + perkiraan menit baca (200 kata/menit). */
+export function noteStats(text: string) {
+  const body = text
+    .replace(/^---\n[\s\S]*?\n---[ \t]*(?:\n|$)/, "")
+    .replace(/%%[\s\S]*?%%/g, "")
+    .trim();
+  const words = body.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu)?.length ?? 0;
+  return { words, chars: body.length, minutes: words ? Math.max(1, Math.round(words / 200)) : 0 };
+}
+
 /** Judul bawaan catatan hasil ekstrak: baris pertama yang berisi, tanpa penanda Markdown & karakter terlarang di nama berkas. */
 export function extractTitle(text: string) {
   const line = text.split("\n").find((l) => l.trim()) ?? "";
@@ -141,6 +151,8 @@ export const LINK_SCHEME = "kn:";
 export const EMBED_SCHEME = "kn-embed:";
 /** Penanda blok `^id` di pembaca → jangkar kosong (lompat dari `[[catatan#^id]]`). */
 export const BLOCK_SCHEME = "kn-block:";
+/** Sorotan `==teks==` Obsidian → tautan bertanda ini, dirender <mark>. */
+export const MARK_SCHEME = "kn-mark:";
 
 const WIKILINK = /(!?)\[\[([^\]|\n]+?)(?:\|([^\]\n]*))?\]\]/g;
 
@@ -167,6 +179,9 @@ export function toReaderMarkdown(content: string) {
       if (i % 2) return part;
       return (
         part
+          // Komentar Obsidian `%%…%%` hanya terlihat di mode sunting
+          .replace(/%%[\s\S]*?%%/g, "")
+          .replace(/(?<![\w=])==(?=[^\s=])([^=\n]+?)(?<=\S)==(?!=)/g, (_, text: string) => `[${text}](${MARK_SCHEME})`)
           .replace(WIKILINK, (_, bang: string, target: string, alias?: string) => {
             const href = encodeURIComponent(target.trim());
             const label = linkLabel(target.trim(), alias);

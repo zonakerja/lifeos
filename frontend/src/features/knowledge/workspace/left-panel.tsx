@@ -20,6 +20,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { RenameDialog } from "@/components/common/rename-dialog";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -38,7 +39,7 @@ import { errorMessage } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { KnowledgeNoteListItem, KnowledgeTree } from "@/types/api";
 import { buildTree, folderOf, isMirrorNote, noteName, tagCounts, type TreeItem } from "./knowledge-logic";
-import { openWorkspaceDialog, useOpenNote } from "./workspace-store";
+import { openWorkspaceDialog, useOpenNote, useWorkspaceStore } from "./workspace-store";
 
 /** Titik status di penjelajah (catatan berlaku tidak diberi titik). */
 const STATUS_DOT: Record<string, string> = {
@@ -489,16 +490,41 @@ function SearchPanel({
 
 function TagsPanel({ notes, onPick }: { notes: KnowledgeNoteListItem[]; onPick: (tag: string) => void }) {
   const tags = useMemo(() => tagCounts(notes), [notes]);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const { renameTag } = useKnowledgeActions();
+
+  const rename = async (name: string) => {
+    if (!renaming) return;
+    try {
+      // Editor yang terbuka: perubahan dikirim dulu, sesudahnya dimuat ulang agar tidak bentrok
+      const control = useWorkspaceStore.getState().active?.control.current ?? null;
+      if (control && !(await control.flush())) {
+        toast.error("Catatan yang sedang disunting belum tersimpan. Selesaikan dulu, lalu ulangi.");
+        return;
+      }
+      const result = await renameTag.mutateAsync({ from: renaming, to: name });
+      await control?.reload();
+      toast.success(`Tag diganti di ${result.notes} catatan (${result.occurrences} tempat).`, {
+        description: result.failed?.length
+          ? `${result.failed.length} catatan dilewati karena properti rusak: ${result.failed.slice(0, 3).join(", ")}`
+          : result.notes === 0
+            ? "Tag ini hanya ada di cermin 80-LifeOS (dikelola LifeOS) — ubah di menu asalnya."
+            : undefined,
+      });
+    } catch (error) {
+      toast.error("Gagal mengganti nama tag", { description: errorMessage(error) });
+    }
+  };
   if (!tags.length)
     return <p className="p-3 text-xs text-muted-foreground">Belum ada tag (properti tags atau #tag di isi).</p>;
   return (
     <ul className="h-full overflow-y-auto p-1.5">
       {tags.map((t) => (
-        <li key={t.tag}>
+        <li key={t.tag} className="group flex items-center">
           <button
             type="button"
             onClick={() => onPick(t.tag)}
-            className="flex w-full items-center gap-1.5 rounded-md py-1 pr-1.5 text-left text-xs hover:bg-muted"
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 pr-1.5 text-left text-xs hover:bg-muted"
             style={{ paddingLeft: 6 + t.depth * 12 }}
           >
             <Hash className="size-3 text-module" />
@@ -507,8 +533,26 @@ function TagsPanel({ notes, onPick }: { notes: KnowledgeNoteListItem[]; onPick: 
               {t.count}
             </Badge>
           </button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Ganti nama tag ${t.tag}`}
+            title="Ganti nama tag di semua catatan"
+            className="pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100"
+            onClick={() => setRenaming(t.tag)}
+          >
+            <FilePen />
+          </Button>
         </li>
       ))}
+      <RenameDialog
+        open={!!renaming}
+        onOpenChange={(open) => !open && setRenaming(null)}
+        title={`Ganti nama tag #${renaming ?? ""}`}
+        label="Nama baru (nama yang sudah ada = digabung; turunan #tag/… ikut). Berlaku di semua catatan vault."
+        initialValue={renaming ?? ""}
+        onSave={(name) => void rename(name)}
+      />
     </ul>
   );
 }

@@ -87,6 +87,21 @@ export const SNIPPETS: Snippet[] = [
     blankBefore: true,
   },
   {
+    id: "mermaid",
+    label: "Diagram Mermaid",
+    group: "Blok",
+    keywords: "mermaid diagram alur flowchart bagan",
+    text: "```mermaid\nflowchart TD\n  A[" + CURSOR + "Mulai] --> B[Selesai]\n```",
+    block: true,
+  },
+  {
+    id: "footnote",
+    label: "Catatan kaki",
+    group: "Teks",
+    keywords: "footnote catatan kaki rujukan",
+    text: "[^1]" + CURSOR + "\n\n[^1]: ",
+  },
+  {
     id: "code",
     label: "Blok kode",
     group: "Blok",
