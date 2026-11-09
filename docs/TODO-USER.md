@@ -31,6 +31,9 @@ Pengajuan, dan bot WhatsApp — benar-benar terpakai. Ditulis langkah demi langk
   agenda, to-do, dan task hari itu. Opsional: buat templat sendiri `90-Templat/Harian.md` dan taruh `{{lifeos}}` di tempat ringkasan.
   Panel Info catatan kini punya **Catatan serupa** — bila tertulis "belum tersedia", jalankan **Indeks ulang** di Tools → Indeks
   Pengetahuan (butuh key embedding Gemini/OpenAI yang aktif).
+- [ ] **A24** Unggah templat Anda: **Tools → ONLYOFFICE → Templat dokumen → Unggah templat** (ONLYOFFICE harus menyala), lalu kabari Claude nama templatnya untuk dibuatkan skill. Sertakan contoh dokumen PSP (C5).
+- [ ] **A23** Pastikan penanda `no_naskah`, `pangkat_pengirim`, `nama_tujuan`, `hal`, `sifat` di templat: diisi SRIKANDI atau agen? (`jabatan_tujuan`, `jabatan_pengirim`, `nama_pengirim`, `nip_pengirim` sudah dipastikan milik SRIKANDI.)
+- [ ] **A22** Coba di menu Knowledge (layar ≥ 1280 px): **Ctrl+klik** tautan atau catatan di penjelajah = dua catatan berdampingan; klik di salah satu panel menjadikannya aktif. **Ctrl+P** → **Pecah catatan ini per judul…** (cek daftar catatan di pratinjau sebelum menekan tombol), **Pecah catatan di posisi kursor…** (mode sunting), dan saat menggabung/mengekstrak pilih posisi **Akhir bagian: judul**.
 - [ ] **A21** Coba di catatan Knowledge: ketik `/` → **Diagram Mermaid** (mis. alur PSP), `==sorotan==`, `%%komentar%%`, dan **Catatan kaki**; jumlah kata tampil di header & editor. Ganti nama tag: tab **Tag** di panel kiri → ikon pensil di samping tag. Diagram & sintaks yang sama terbaca di Obsidian.
 - [ ] **A20** Coba **Note composer** di menu Knowledge: mode sunting → pilih teks → Ctrl+P → "Ekstrak teks terpilih ke catatan…"; atau klik kanan catatan di penjelajah →
   **Gabungkan ke…**. Catatan sumber masuk `.trash` vault dan isi sebelumnya ada di Riwayat versi. Opsional: templat `90-Templat/Note Composer.md`.
@@ -182,11 +185,11 @@ Yang perlu Anda tulis (prioritas):
 LifeOS mengisi templat Word (DOCX) secara otomatis dari data pengajuan.
 
 1. Buka templat di Word/ONLYOFFICE. Ganti bagian yang berubah-ubah dengan **penanda** berbentuk `${nama_isian}`
-   (huruf kecil, angka, garis bawah), contoh: `${nama_satker}`, `${hal}`, `${jabatan_tujuan}`, `${daftar_bmn}`.
+   (huruf kecil, angka, garis bawah), contoh: `${nama_satker}`, `${daftar_bmn}`, `${nilai_aset}`.
 2. Paragraf yang isinya ditulis AI → ganti seluruh paragraf dengan **petunjuk dalam kurung siku**, contoh:
    `[Paragraf pembuka: sebutkan surat permohonan satker dan dasar hukumnya.]`
-3. Penanda milik SRIKANDI — `${nomor_naskah}`, `${tanggal_naskah}`, `${ttd_pengirim}` — **biarkan**; LifeOS tidak
-   mengisinya.
+3. Penanda milik SRIKANDI — `${nomor_naskah}`, `${tanggal_naskah}`, `${ttd_pengirim}`, `${jabatan_tujuan}`, `${jabatan_pengirim}`,
+   `${nama_pengirim}`, `${nip_pengirim}` (boleh berakhiran angka) — **biarkan**; LifeOS tidak mengisinya.
 4. Simpan sebagai `.docx` → LifeOS **Tools → ONLYOFFICE → Templat dokumen → Unggah templat**.
 5. Templat yang perlu dibuat: **SK PSP**, **SK Panitia Penghapusan**, **SK/Surat Persetujuan Pemanfaatan**. Ke-29
    templat SRIKANDI yang sudah diunggah (Surat Dinas, Nota Dinas, …) langsung bisa dipakai.
@@ -573,3 +576,6 @@ Telegram Anda yang diizinkan. Minta Claude menyiapkan service otomatis (systemd)
 | 2026-11-07 | A19 baru: catatan mingguan/bulanan, sematan & pencarian canvas |
 | 2026-11-09 | A20 baru: Note composer (gabung & ekstrak) |
 | 2026-11-09 | A21 baru: Mermaid, sorotan, komentar, catatan kaki, ganti nama tag |
+| 2026-11-09 | A22 baru: dua catatan berdampingan, pecah catatan, sisip di bawah judul |
+| 2026-11-09 | A23 baru: pastikan penanda templat yang diisi SRIKANDI, setelah uji agen menyeluruh |
+| 2026-11-09 | A23 dipersempit (empat penanda dipastikan milik SRIKANDI); A24 baru: unggah templat lewat ONLYOFFICE |

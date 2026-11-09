@@ -157,6 +157,7 @@ unduhan disensor; health check tidak dicatat.
   Claude Messages API (streaming, `effort` + `fallbacks: "default"` pada model yang mendukung), OpenAI Responses
   API (`store: false`). Model default ada di katalog, tetapi **user bisa mengganti model** di Pengaturan → Model AI — bila
   provider menghentikan model, tidak perlu rilis aplikasi.
+- **Transkrip audio berkas tersimpan**: `POST /ai/transcribe` + `GET /ai/transcribe/:uploadId` (pekerjaan latar belakang, Gemini langsung, tanpa batas 20 MB di bawah); rekaman WebM dipotong per ± 10 menit.
 - **Lampiran**: maks. 5 berkas / 20 MB total, diterima di memori lalu dikirim inline. PDF, gambar (png/jpeg/gif/webp),
   teks (dikirim sebagai teks) untuk semua provider; audio hanya Gemini.
 - **Pembagian tugas** (`users.ai_routing`, logika murni `ai-routing.ts` + test): provider per tugas `chat` (asisten
@@ -342,7 +343,7 @@ tetap Asset LifeOS di object storage.
 > Tambahan 2026-11-07: Canvas `GET|POST /knowledge/canvases`, `GET|PUT|DELETE /knowledge/canvases/file` (`vault-canvas.ts`, JSON
 > Canvas 1.0; tampilan & sunting di frontend `canvas-tab.tsx`) — detail CLAUDE.md §8 & §8b. Isi canvas diindeks RAG sebagai sumber
 > `obsidian_canvas` (sourceId = path) lewat `AiIndexService.registerSourceLoader`; catatan berkala `POST /knowledge/daily { period }`.
-> Tambahan 2026-11-09: Note composer `POST /knowledge/notes/:id/merge|extract` (`vault-compose.ts`) — detail CLAUDE.md §8.
+> Tambahan 2026-11-09: Proxy agen ke OpenAI langsung memakai Responses API (`agent/agent-openai.ts`). Note composer `POST /knowledge/notes/:id/merge|extract|split` (`vault-compose.ts`) — detail CLAUDE.md §8.
 
 Rencana & keputusan: [AI-AGENT.md](AI-AGENT.md) §9–§17 (tahap 1 "fondasi pengetahuan" & tahap 2 "konektor Obsidian").
 
@@ -458,7 +459,7 @@ manual (UI) atau oleh agen (MCP), dikerjakan AI, lalu **diputuskan user** — se
   dan tidak pernah `disetujui/dikirim` (hanya user).
 - **Mesin templat** (`template-engine.ts` + test, `docxtemplater` + `pizzip`): templat DOCX milik user (context
   `office-template`, Tools → ONLYOFFICE → Templat) dengan penanda gaya SRIKANDI `${nama_isian}` dan paragraf
-  petunjuk `[…]` (paragraf yang seluruhnya dalam kurung siku). Penanda SRIKANDI (`nomor_naskah`, `tanggal_naskah`,
+  petunjuk `[…]` (paragraf yang seluruhnya dalam kurung siku). Penanda SRIKANDI (`jabatan_tujuan*`, `jabatan_pengirim*`, `nama_pengirim*`, `nip_pengirim*`, `nomor_naskah`, `tanggal_naskah`,
   `ttd*`) dan penanda tanpa nilai **dibiarkan utuh**; paragraf petunjuk diganti teks (format paragraf & run pertama
   dipertahankan; teks beberapa baris → beberapa paragraf bergaya sama; kosong → petunjuk tetap tertulis). Usulan nilai
   dari AI (`buildFillPrompt`: data pengajuan, analisis, konsep jawaban, profil kerja) disunting user dulu → dokumen baru

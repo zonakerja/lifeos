@@ -1536,6 +1536,22 @@ SRIKANDI; AG-28: tahap 1 dengan data master tiruan, shadow dulu lalu auto dinaik
 | UI | Approval → tab **Kebijakan Otomatis** (`policies-tab.tsx`: penjelasan, sakelar darurat, daftar aturan + statistik kecocokan shadow vs keputusan user, formulir aturan, peringatan alat bawaan Hermes saat mode auto). Daftar Approval: penanda keadaan otomatis. Detail: panel **Kebijakan Otomatis** (`auto-decision-panel.tsx`: keputusan + alasan, jadwal kirim, Batalkan kiriman, Buka di Register, tabel verifikasi aset). Riwayat menampilkan "oleh Kebijakan Otomatis". |
 | Diuji | unit backend +9, frontend +4, smoke +5, uji API ujung-ke-ujung 12/12 (aturan shadow → antri → `submit_asset_check` 2/3 = 67% → run Hermes → keputusan "perlu telaah", tidak disetujui, statistik). Run Hermes berakhir **gagal** karena key Gemini 401 — jalur "lolos" dengan model sungguhan & pengiriman ke SRIKANDI **belum** diuji. |
 
+**Uji model sungguhan 2026-11-09** (agen = Claude Opus 5.5 lewat Classai, master tiruan, robot mati; skill uji sementara & data uji dihapus):
+
+| Skenario | Hasil |
+|---|---|
+| Chat Asisten Agen | ✅ menjawab, alat MCP terlihat |
+| Skill `telaah-pengajuan` dengan teks jebakan di berkas | ✅ telaah & konsep tersimpan, skor server 67%, jebakan diabaikan & dilaporkan, status berhenti di Menunggu verifikasi |
+| Aturan shadow, aset 100% | ✅ hanya dicatat "akan disetujui" |
+| Aturan auto, aset 100% | ✅ Disetujui oleh kebijakan, entri Register dari templat, jadwal kirim |
+| Batalkan kiriman selama masa tunda | ✅ kembali Menunggu verifikasi, job tidak berjalan |
+| Masa tunda habis, robot mati | ✅ gagal aman, alasan tampil di panel, SRIKANDI tidak tersentuh |
+| Dokumen berisian kosong | ⚠ awalnya lolos → diperbaiki, kini kembali ke pemilik dengan daftar isiannya |
+| Cadangan OpenAI (`gpt-6.1-sol`) dengan alat | ⚠ awalnya 400 → diperbaiki lewat Responses API, terbukti memanggil alat + cache |
+| Provider gagal tersambung → cadangan berikutnya | ✅ pindah ke Gemini, tugas tetap selesai |
+
+**Belum diuji**: Claude kehabisan kuota sungguhan, tugas besar lewat OpenAI. **Uji robot ditunda atas keputusan user**: dikerjakan setelah Knowledge & AI Agent matang, dimulai dengan data dummy / robot dummy. **Penanda SRIKANDI** (keputusan user): `jabatan_tujuan`, `jabatan_pengirim`, `nama_pengirim`, `nip_pengirim` (+ akhiran angka) diisi SRIKANDI, tidak dihitung kosong. Yang masih menghalangi otomatis bila kosong: penanda lain di templat dan paragraf opsional `[…]`; yang menunggu konfirmasi: `no_naskah`, `pangkat_pengirim*`, `nama_tujuan`, `hal`, `sifat`.
+
 **Belum**: skill `penetapan-psp` (C5), draf skill buatan Hermes yang diaktifkan user, pembatasan toolset Hermes (wajib sebelum
 mode auto dipakai sungguhan), sumber master OnTrack.
 
@@ -1543,7 +1559,7 @@ mode auto dipakai sungguhan), sumber master OnTrack.
 
 | No | Pekerjaan | Status | Catatan |
 |---|---|---|---|
-| 1 | Komunikasi Hermes ↔ Obsidian ↔ LifeOS | ✅ kecuali jawaban model sungguhan | Hasil di §25.1 |
+| 1 | Komunikasi Hermes ↔ Obsidian ↔ LifeOS | ✅ termasuk jawaban model sungguhan (2026-11-09) | Hasil di §25.1 |
 | 2 | Hermes membentuk skill & bekerja otomatis tanpa Approval; **Kirim Konsep di SRIKANDI tetap di tangan user** | 🚧 tahap 1 ✅ 2026-11-06 (§24.6) | Sisa: skill `penetapan-psp` (C5), draf skill dari Hermes, pembatasan toolset Hermes, uji dengan model sungguhan |
 | 3 | Fitur Hermes seperti di aplikasi desktopnya, di dalam LifeOS | Belum | Daftar fitur yang diinginkan perlu dipastikan dengan user |
 | 4 | Antarmuka Obsidian di LifeOS (Graph View, dsb.) | ✅ 2026-11-06 | Menu **Knowledge** (dulu Pengetahuan) — rencana §25.2, hasil §25.4, usulan lanjutan §25.6 |
@@ -1712,7 +1728,7 @@ Usulan (urut manfaat untuk pekerjaan user; nomor = usulan, bukan keputusan):
 | K8 ✅ | **Canvas** (JSON Canvas, format terbuka) | Tahap 1 penampil `.canvas` (kartu catatan, teks, tautan, panah); tahap 2 sunting | Sedang | Besar |
 | K9 ✅ | **Note composer** (§25.7) | Ekstrak pilihan teks ke catatan baru (diganti tautan) & gabung dua catatan | Rendah–sedang | Sedang |
 | K10 ✅ | Mermaid, catatan kaki, jumlah kata, catatan acak, ganti nama tag se-vault (+ sorotan `==teks==`, komentar `%%…%%`) | Pelengkap pembaca & penjelajah | Rendah | Kecil masing-masing |
-| K11 | Tab/belah tampilan beberapa catatan | Membuka 2 catatan berdampingan (≥ 1280 px) | Rendah | Sedang |
+| K11 ✅ | Tab/belah tampilan beberapa catatan | Membuka 2 catatan berdampingan (≥ 1280 px) | Rendah | Sedang |
 
 Tidak disarankan: Publish (publik sudah lewat bot WhatsApp & penanda `publik: true`), Sync (sudah Syncthing), audio recorder &
 Slides (sudah ada Notes AI / ONLYOFFICE), plugin komunitas di LifeOS (LifeOS bukan Obsidian; fitur dibangun langsung).
@@ -1764,7 +1780,7 @@ dari templat `90-Templat/Mingguan.md` / `Bulanan.md` + tautan harian/mingguan + 
 sengaja tidak dibuat karena Bases Obsidian tidak punya Kanban. Diuji: unit backend +5 & frontend +1, smoke +7, UI.
 
 **K10 selesai 2026-11-09**: lihat CLAUDE.md §8 & §8b. Diuji: unit backend +5 & frontend +2, smoke +4, UI pada build produksi dengan CSP `nginx.conf`. Belum: catatan kaki sebaris `^[teks]`; filter
-`.base` & teks canvas tidak ikut saat tag diganti nama. Sisa usulan: K11 tampilan berdampingan.
+`.base` & teks canvas tidak ikut saat tag diganti nama. **K11 selesai 2026-11-09** (`?note=&with=`, Ctrl+klik; CLAUDE.md §8b). Daftar K1–K11 selesai.
 
 ### 25.7 K9: Note composer (riset & dibangun 2026-11-09)
 
@@ -1808,7 +1824,7 @@ pecah per heading.
   ekstrak dari palet (mode sunting, ada teks terpilih) dengan judul bawaan = baris pertama pilihan. Sisa teks (tautan / sematan / kosong) diingat per browser.
 - Templat opsional `90-Templat/Note Composer.md` dengan empat penanda Obsidian di atas.
 
-**Tahap 2 (nanti, bila terasa perlu):** target heading tertentu, pecah di kursor, pecah per heading.
+**Tahap 2 ✅ 2026-11-09:** target judul tertentu (`targetHeading`), pecah di kursor (palet saat mode sunting), pecah per judul (`POST notes/:id/split`, pratinjau wajib, maks. 100 bagian). Diuji: unit backend +4 & frontend +2, smoke +7, UI lewat palet dan dua panel (data uji dihapus). Menu ⋯ memakai dialog yang sama, belum diklik satu per satu.
 
 **Diuji:** unit backend +13 & frontend +1, smoke +15 (termasuk 409, isolasi akun, canvas), UI ekstrak & gabung lewat palet (data uji dihapus). Menu ⋯ dan klik kanan
 memakai dialog yang sama, belum diklik satu per satu.
